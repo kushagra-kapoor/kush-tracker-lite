@@ -17,12 +17,12 @@ try:
 except ImportError:
     TOAST_AVAILABLE = False
 
-st.set_page_config(
-    page_title="Focus List - Kush Tracker",
-    page_icon="⭐",
-    layout="wide",
-    initial_sidebar_state="expanded"
-)
+# st.set_page_config(
+#     page_title="Focus List - Kush Tracker",
+#     page_icon="⭐",
+#     layout="wide",
+#     initial_sidebar_state="expanded"
+# )
 
 try:
     from styles import load_css
