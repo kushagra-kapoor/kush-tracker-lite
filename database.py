@@ -61,9 +61,12 @@ def _fetch_one_dict(cursor):
 
 
 
-def safe_execute(cursor, query):
+def safe_execute(cursor, query, *args):
     try:
-        cursor.execute(query)
+        if args:
+            cursor.execute(query, *args)
+        else:
+            cursor.execute(query)
     except Exception:
         pass
 def init_database():
@@ -626,11 +629,14 @@ def save_intraday_signals(market: str, signals_list: list):
     
     for sig in signals_list:
         ticker = sig['ticker'].replace('.NS', '')  # Ensure clean ticker
-        cursor.execute('''
-            INSERT OR IGNORE INTO intraday_signals_history
-            (market, ticker, signal_name, date)
-            VALUES (?, ?, ?, ?)
-        ''', (market, ticker, sig['signal_name'], today))
+        try:
+            cursor.execute('''
+                INSERT OR IGNORE INTO intraday_signals_history
+                (market, ticker, signal_name, date)
+                VALUES (?, ?, ?, ?)
+            ''', (market, ticker, sig['signal_name'], today))
+        except Exception:
+            pass
         
     conn.commit()
     conn.close()
@@ -1161,10 +1167,13 @@ def add_to_focus_list(ticker: str, market: str) -> bool:
     conn = get_connection()
     cursor = conn.cursor()
     try:
-        cursor.execute('''
-            INSERT OR IGNORE INTO focus_list (ticker, market, entry_trigger, stop_loss, notes)
-            VALUES (?, ?, 0.0, 0.0, '')
-        ''', (ticker, market))
+        try:
+            cursor.execute('''
+                INSERT OR IGNORE INTO focus_list (ticker, market, entry_trigger, stop_loss, notes)
+                VALUES (?, ?, 0.0, 0.0, '')
+            ''', (ticker, market))
+        except Exception:
+            pass
         conn.commit()
         return True
     except Exception as e:
