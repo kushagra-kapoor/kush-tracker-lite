@@ -104,6 +104,7 @@ pages = {
         st.Page("views/true_market_leader_us.py", title="True Market Leaders (US)", icon="🦅")
     ],
     "🛡️ Market Direction": [
+        st.Page("views/global_macro.py", title="Global Macro & ETF Flows", icon="🌍"),
         st.Page("views/market_regime.py", title="Market Regime & Health", icon="🛡️"),
         st.Page("views/stage_analysis.py", title="Stage Analysis", icon="📊"),
         st.Page("views/sector_leadership.py", title="Sector Leadership", icon="🔥")
