@@ -234,6 +234,16 @@ def init_database():
     ''')
 
     cursor.execute('''
+        CREATE TABLE IF NOT EXISTS market_breadth_daily (
+            date TEXT,
+            market TEXT DEFAULT 'IN',
+            net_new_highs INTEGER,
+            above_50_pct REAL,
+            PRIMARY KEY (date, market)
+        )
+    ''')
+
+    cursor.execute('''
         CREATE TABLE IF NOT EXISTS corporate_announcements (
             id TEXT PRIMARY KEY,
             ticker TEXT,
