@@ -6,7 +6,36 @@ from config import DATABASE_PATH
 
 
 def get_connection():
-    """Get database connection."""
+    """Get database connection (Turso if configured, otherwise local SQLite)."""
+    # 1. Try Streamlit Secrets First (when running in app)
+    try:
+        import streamlit as st
+        if "database" in st.secrets and st.secrets.database.get("db_type") == "turso":
+            url = st.secrets.database.get("turso_url")
+            token = st.secrets.database.get("turso_token")
+            if url and token:
+                import libsql_experimental as libsql
+                return libsql.connect(database=url, auth_token=token)
+    except Exception:
+        pass
+        
+    # 2. Try manual TOML parsing (when running via python sync_macro.py)
+    try:
+        import toml
+        import os
+        secrets_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".streamlit", "secrets.toml")
+        if os.path.exists(secrets_path):
+            secrets = toml.load(secrets_path)
+            if "database" in secrets and secrets["database"].get("db_type") == "turso":
+                url = secrets["database"].get("turso_url")
+                token = secrets["database"].get("turso_token")
+                if url and token:
+                    import libsql_experimental as libsql
+                    return libsql.connect(database=url, auth_token=token)
+    except Exception:
+        pass
+        
+    # 3. Fallback to Local SQLite
     return sqlite3.connect(DATABASE_PATH)
 
 
