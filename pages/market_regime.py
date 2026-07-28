@@ -85,7 +85,7 @@ def process_macro_data(history_df, universe_df, index_n50, index_n500):
     existing_tickers = [t for t in all_tickers if t in history_df.columns.levels[0]]
     
     # Extract 'Close' prices for all existing tickers
-    close_prices = history_df.xs('Close', level=1, axis=1)[existing_tickers].fillna(method='ffill')
+    close_prices = history_df.xs('Close', level=1, axis=1)[existing_tickers].ffill()
     
     # Calculate Returns (1M=21d, 3M=63d, 6M=126d)
     r1 = (close_prices.iloc[-1] / close_prices.iloc[-(DATA_SETTINGS['TRADING_DAYS_1M']+1)]) - 1
