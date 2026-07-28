@@ -708,7 +708,8 @@ def main():
             tickers = [re.sub(r'[^\w\.\-\_]', '', str(t)).strip() for t in df[ticker_col].str.extract(r"symbol=NSE:([^&]*)")[0]]
         return ",".join([f"NSE:{t}" for t in tickers if t])
 
-    def style_dataframe(df):
+    def style_dataframe(df): return df
+    def disabled_style_dataframe(df):
         df = df.copy()
         # Round all float columns to 2 decimals to prevent ugly unformatted 6-decimal renders
         for col in df.select_dtypes(include=['float', 'float64']).columns:
@@ -1529,4 +1530,7 @@ def main():
 
 
 main()
+
+
+
 
