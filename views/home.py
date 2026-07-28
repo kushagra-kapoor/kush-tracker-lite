@@ -22,13 +22,13 @@ from database import init_database, save_snapshot, get_signal_change_days, save_
 from climax_exhaustion import detect_climax_exhaustion
 from macro_regime_engine import calculate_distribution_days, get_market_regime_label, detect_change_of_character
 from daily_insights_engine import generate_exposure_guide, get_sector_clusters, generate_macro_health_score
-from pages.market_regime import process_macro_data, fetch_universe_with_industry, fetch_yfinance_batch
+from views.market_regime import process_macro_data, fetch_universe_with_industry, fetch_yfinance_batch
 from safe_harbor_engine import evaluate_safe_harbor
 from portfolio_earnings_engine import update_portfolio_earnings, get_portfolio_new_results_alerts, get_pre_earnings_risk_tickers
 
 
 # Page config
-# st.set_page_config block removed for Lite routing
+# st.set_page_config removed for Lite routing
 
 from styles import load_css
 load_css()
@@ -272,7 +272,7 @@ def load_data():
     # Fetch portfolio
     portfolio_df = fetch_portfolio_data()
     if portfolio_df.empty:
-        return None, None, None, None, None
+        pass # Continue loading macro data for Lite version
     
     # Fetch market data
     tickers = portfolio_df['ticker'].tolist()
@@ -4051,4 +4051,3 @@ gap: 0.3rem;">
 
 
 main()
-

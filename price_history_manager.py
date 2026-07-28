@@ -4,8 +4,7 @@ import os
 from datetime import datetime, timedelta
 import time
 
-import config
-CACHE_FILE = config.PRICE_HISTORY_CACHE_PATH
+CACHE_FILE = "historical_prices_matrix.pkl"
 
 def _safe_yf_download(tickers, max_retries=3, chunk_size=500, **kwargs):
     """
