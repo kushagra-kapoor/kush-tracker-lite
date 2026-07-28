@@ -115,8 +115,5 @@ if st.sidebar.button("🚪 Sign Out", use_container_width=True):
     st.rerun()
 
 # Run Modern Streamlit Router
-try:
-    pg = st.navigation(pages)
-    pg.run()
-except Exception as e:
-    st.error(f"Navigation Router Error: {e}")
+pg = st.navigation(pages)
+pg.run()
