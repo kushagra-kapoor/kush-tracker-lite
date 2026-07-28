@@ -133,7 +133,7 @@ def init_database():
     # Add squat_alert column if it doesn't exist
     try:
         cursor.execute("ALTER TABLE signal_history ADD COLUMN squat_alert BOOLEAN DEFAULT 0")
-    except sqlite3.OperationalError:
+    except Exception:
         pass
 
     # Sector leadership history table
@@ -199,7 +199,7 @@ def init_database():
     # Add is_distribution_day column if it doesn't exist (Migration)
     try:
         cursor.execute("ALTER TABLE daily_journal ADD COLUMN is_distribution_day BOOLEAN DEFAULT 0")
-    except sqlite3.OperationalError:
+    except Exception:
         pass
 
     # Market Cap cache table
@@ -243,7 +243,7 @@ def init_database():
 
     try:
         cursor.execute("ALTER TABLE fundamentals_cache ADD COLUMN market_cap REAL DEFAULT 0.0")
-    except sqlite3.OperationalError:
+    except Exception:
         pass
 
     # Focus List table
