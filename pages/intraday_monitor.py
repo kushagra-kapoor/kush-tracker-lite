@@ -736,7 +736,7 @@ def main():
                 return ['background-color: rgba(234, 179, 8, 0.15); color: #facc15'] * len(row)
             return [''] * len(row)
             
-        return df.style.applymap(color_negative_red, subset=pct_cols).apply(highlight_intraday_rows, axis=1)
+        return df.style.map(color_negative_red, subset=pct_cols).apply(highlight_intraday_rows, axis=1)
 
     # Ensure market_state exists from earlier execution
     market_state = st.session_state.get('market_state', {})
