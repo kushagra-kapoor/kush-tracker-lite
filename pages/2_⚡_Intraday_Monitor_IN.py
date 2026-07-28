@@ -65,18 +65,44 @@ for orig_t, yf_t in zip(tickers_raw[:150], yf_tickers):
 
 df_scan = pd.DataFrame(scan_rows)
 
-# Top KPI Summary Cards
+# Glassmorphic Metric Cards (100% Reliable HTML Rendering)
 kpi1, kpi2, kpi3, kpi4 = st.columns(4)
-with kpi1:
-    gainers = len(df_scan[df_scan['Change %'] > 0]) if not df_scan.empty else 0
-    st.metric("Net Gainers", f"{gainers} / {len(df_scan)}")
-with kpi2:
-    st.metric("Institutional Volume Shocks", f"⚡ {vol_shocks_count}")
-with kpi3:
-    st.metric("Avg Vol Expansion", f"{round(df_scan['raw_vol_mult'].mean(), 1) if not df_scan.empty else 1.0}x")
-with kpi4:
-    st.metric("Market Season Status", "🔥 ACTIVE LIVE")
+gainers = len(df_scan[df_scan['Change %'] > 0]) if not df_scan.empty else 0
+avg_vol_exp = round(df_scan['raw_vol_mult'].mean(), 1) if not df_scan.empty else 1.0
 
+with kpi1:
+    st.markdown(f"""
+    <div style="background: rgba(15,23,42,0.85); border: 1px solid rgba(0,243,255,0.3); border-radius: 12px; padding: 14px; text-align: center;">
+        <p style="color:#94a3b8; font-size:11px; margin:0;">NET GAINERS</p>
+        <h2 style="color:#00F3FF; margin:4px 0;">{gainers} / {len(df_scan)}</h2>
+    </div>
+    """, unsafe_allow_html=True)
+
+with kpi2:
+    st.markdown(f"""
+    <div style="background: rgba(15,23,42,0.85); border: 1px solid rgba(255,215,0,0.3); border-radius: 12px; padding: 14px; text-align: center;">
+        <p style="color:#94a3b8; font-size:11px; margin:0;">VOLUME SHOCKS</p>
+        <h2 style="color:#FFD700; margin:4px 0;">⚡ {vol_shocks_count}</h2>
+    </div>
+    """, unsafe_allow_html=True)
+
+with kpi3:
+    st.markdown(f"""
+    <div style="background: rgba(15,23,42,0.85); border: 1px solid rgba(16,185,129,0.3); border-radius: 12px; padding: 14px; text-align: center;">
+        <p style="color:#94a3b8; font-size:11px; margin:0;">AVG VOL EXPANSION</p>
+        <h2 style="color:#10B981; margin:4px 0;">{avg_vol_exp}x</h2>
+    </div>
+    """, unsafe_allow_html=True)
+
+with kpi4:
+    st.markdown("""
+    <div style="background: rgba(15,23,42,0.85); border: 1px solid rgba(239,68,68,0.3); border-radius: 12px; padding: 14px; text-align: center;">
+        <p style="color:#94a3b8; font-size:11px; margin:0;">MARKET STATUS</p>
+        <h2 style="color:#EF4444; margin:4px 0;">🔥 LIVE SCAN</h2>
+    </div>
+    """, unsafe_allow_html=True)
+
+st.markdown("<br/>", unsafe_allow_html=True)
 st.markdown("---")
 
 # Stock Table
@@ -84,7 +110,6 @@ st.markdown("### 📊 Scanned Breakouts & Momentum Stocks")
 if not df_scan.empty:
     df_sorted = df_scan.sort_values(by='raw_vol_mult', ascending=False)
     
-    # Custom styled table display
     st.dataframe(
         df_sorted[['Symbol', 'Price (₹)', 'Change %', 'Vol Multiple', 'Shock Status']],
         use_container_width=True,
