@@ -663,6 +663,11 @@ def main():
         return ",".join([t for t in tickers if t])
 
     def style_dataframe(df):
+        df = df.copy()
+        # Round all float columns to 2 decimals to prevent ugly unformatted 6-decimal renders
+        for col in df.select_dtypes(include=['float', 'float64']).columns:
+            df[col] = df[col].round(2)
+            
         # Applies standard red/green text styling to percentage columns
         pct_cols = [c for c in df.columns if '%' in c or 'Ret' in c or 'Breakout' in c or 'Intraday' in c]
         
