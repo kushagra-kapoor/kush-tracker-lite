@@ -341,9 +341,7 @@ def main():
     with st.spinner("Loading portfolio data..."):
         portfolio_df, market_data, rs_data, total_value, industry_map, earnings_cache = load_data()
     
-    if portfolio_df is None or portfolio_df.empty:
-        st.error("❌ No portfolio data found. Check your Google Sheets connection.")
-        return
+
 
     t_col = 'ticker' if 'ticker' in portfolio_df.columns else 'NSE TICKER' if 'NSE TICKER' in portfolio_df.columns else portfolio_df.columns[0]
     active_portfolio_tickers = set(portfolio_df[t_col].astype(str).str.replace('.NS', '').str.replace('.BO', '').str.strip())
