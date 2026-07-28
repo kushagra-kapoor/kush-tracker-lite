@@ -2,63 +2,54 @@
 
 `Kush Tracker Lite` is an independent, lightweight, high-performance equity trading application built specifically for deployment on **Streamlit Community Cloud** (or local execution).
 
-It implements the full **CANSLIM & Minervini Trading Framework** across 6 specialized modules for **India (NSE)** and **US (NYSE/NASDAQ)** equities:
-
-1. **🛡️ Market Regime & Health Gauge:** CANSLIM 'M' Market Direction HUD, FOMO/FEAR Gauge, Deep RS Leaders Cards (IN & US), Total Market Breadth, and 120-Day Market Extremes.
-2. **⚡ Intraday Monitor (India):** Live market breadth, volume surges, gainers/losers, distribution day counter, and **automated volume shock breakout logging**.
-3. **⚡ Intraday Monitor (US):** Live US market breadth, US volume surge scanner, and **automated volume shock breakout logging**.
-4. **👑 True Market Leaders (India):** CANSLIM 'C-A-L-I' institutional leadership scanner with Clenow Momentum Exponential Slopes ($R^2$), percentile RS scores, and Stage Analysis.
-5. **👑 True Market Leaders (US):** US institutional momentum scanner for S&P 500 & NASDAQ leaders.
-6. **⭐ Focus List & Breakout Execution Hub:** Dedicated execution workspace displaying **auto-populated volume shock breakouts** + user-pinned setups with entry triggers, stop losses, and live 15s price alerts.
-
 ---
 
-## 🔒 Authentication & Login Setup (Streamlit Secrets)
+## 🔑 How to Format Secrets in TOML Format
 
-Since this app is deployed publicly on Streamlit Cloud, a **Glassmorphic Login Gate** is built into `app.py`.
-
-Set your custom private **Username** and **Password** in Streamlit Cloud Settings (**App Settings ⚙️ -> Secrets**):
+In Streamlit Cloud (**App Settings ⚙️ -> Secrets**), paste the following TOML configuration:
 
 ```toml
 [auth]
-username = "your_custom_username"
-password = "your_secure_password"
+username = "kush"
+password = "your_chosen_password"
 
 [database]
 db_type = "turso"
-turso_url = "libsql://kush-tracker-lite-YOURNAME.turso.io"
-turso_token = "your-turso-jwt-token"
+turso_url = "libsql://your-database-name-kush410.turso.io"
+turso_token = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
 ```
 
-*(Default fallback for local testing: `admin` / `admin123`)*
+### Where to get your 2 Turso credentials:
+1. **`turso_url` (Database URL):**
+   * Go to [app.turso.tech](https://app.turso.tech/), click your Database (e.g. `kush-tracker-lite`).
+   * Copy the **Database URL** starting with `libsql://` (e.g., `libsql://kush-tracker-lite-kush410.turso.io`).
+2. **`turso_token` (Auth / API Token):**
+   * Go to `https://app.turso.tech/kush410/settings/api-tokens` (or create a DB token in Turso CLI).
+   * Copy the token string (starts with `eyJ...`).
 
 ---
 
 ## 🚀 Deployment Instructions for Streamlit Community Cloud
 
 ### Step 1: Push Code to GitHub
-Create a new repository on GitHub (e.g. `kush-tracker-lite`) and push this directory:
+Run `push_to_github.bat` or execute:
 ```bash
-git init
-git add .
-git commit -m "Initial commit of Kush Tracker Lite"
-git remote add origin https://github.com/YOUR_USERNAME/kush-tracker-lite.git
-git branch -M main
 git push -u origin main
 ```
 
 ### Step 2: Deploy on Streamlit Community Cloud
 1. Go to [share.streamlit.io](https://share.streamlit.io/).
 2. Click **"New App"**.
-3. Select your repository: `YOUR_USERNAME/kush-tracker-lite`.
+3. Select your repository: `kush410/kush-tracker-lite`.
 4. Main file path: `app.py`.
-5. Add your `[auth]` & `[database]` secrets.
+5. Add your `[auth]` & `[database]` secrets in TOML format above.
 6. Click **"Deploy!"**.
 
 ---
 
 ## 💻 Running Locally
 
+Double-click `run_kush_tracker_lite.bat` or run:
 ```bash
 pip install -r requirements.txt
 streamlit run app.py
