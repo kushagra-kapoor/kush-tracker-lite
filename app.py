@@ -92,6 +92,9 @@ st.sidebar.markdown("---")
 
 # Navigation Definition - Exact Original Kush Tracker Pages
 pages = {
+    "🏠 Main Dashboard": [
+        st.Page("views/home.py", title="Kush Tracker Home", icon="🏠")
+    ],
     "⚡ Intraday Monitors": [
         st.Page("views/intraday_monitor.py", title="Intraday Monitor (India)", icon="🇮🇳"),
         st.Page("views/intraday_monitor_us.py", title="Intraday Monitor (US)", icon="🇺🇸")
