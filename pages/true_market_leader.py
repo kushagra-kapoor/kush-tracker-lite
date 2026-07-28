@@ -24,12 +24,12 @@ from pages.intraday_monitor import fetch_nifty_total_market_tickers, fetch_yfina
 from database import get_all_fundamentals_cache, save_fundamentals_cache
 from clenow_math import calculate_adjusted_slope
 
-# # st.set_page_config(
-# #     page_title="True Market Leader",
-# #     page_icon="👑",
-# #     layout="wide",
-# #     initial_sidebar_state="collapsed"
-# # )
+st.set_page_config(
+    page_title="True Market Leader",
+    page_icon="👑",
+    layout="wide",
+    initial_sidebar_state="collapsed"
+)
 
 # Custom CSS
 

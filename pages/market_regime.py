@@ -29,9 +29,9 @@ from trend_analyzer import determine_trend_state
 from technical_indicators import add_technical_indicators
 
 # Page Config
-# # st.set_page_config(page_title="🏛️ Market Regime & Sector RS", layout="wide")
-# 
-# # CSS Styling (Shared with main app)
+st.set_page_config(page_title="🏛️ Market Regime & Sector RS", layout="wide")
+
+# CSS Styling (Shared with main app)
 
 
 @st.cache_data(ttl=3600*24)

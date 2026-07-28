@@ -25,12 +25,12 @@ import plotly.graph_objects as go
 from market_data import fetch_nifty_total_market_tickers
 
 # Page config
-# # st.set_page_config(
-# #     page_title="Intraday Snapshot Monitor",
-# #     page_icon="📡",
-# #     layout="wide",
-# #     initial_sidebar_state="collapsed"
-# # )
+st.set_page_config(
+    page_title="Intraday Snapshot Monitor",
+    page_icon="📡",
+    layout="wide",
+    initial_sidebar_state="collapsed"
+)
 
 # Custom CSS
 
