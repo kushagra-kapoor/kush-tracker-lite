@@ -1,0 +1,21 @@
+# Local Cache & Database
+.cache/
+*.db
+*.sqlite
+*.pkl
+
+# Streamlit Secrets (Never commit secrets to GitHub!)
+.streamlit/secrets.toml
+
+# Environment & Virtual Environments
+.env
+venv/
+env/
+__pycache__/
+*.pyc
+
+# IDE & OS files
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
