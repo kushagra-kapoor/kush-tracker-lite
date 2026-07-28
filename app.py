@@ -90,18 +90,18 @@ st.sidebar.markdown("""
 
 st.sidebar.markdown("---")
 
-# Navigation Definition
+# Navigation Definition - Exact Original Kush Tracker Pages
 pages = {
-    "🛡️ Market Health": [
-        st.Page("pages/1_🛡️_Market_Regime.py", title="Market Regime & Health", icon="🛡️")
-    ],
     "⚡ Intraday Monitors": [
-        st.Page("pages/2_⚡_Intraday_Monitor_IN.py", title="Intraday Monitor (India)", icon="🇮🇳"),
-        st.Page("pages/3_⚡_Intraday_Monitor_US.py", title="Intraday Monitor (US)", icon="🇺🇸")
+        st.Page("pages/1_⚡_Intraday_Monitor_IN.py", title="Intraday Monitor (India)", icon="🇮🇳"),
+        st.Page("pages/2_⚡_Intraday_Monitor_US.py", title="Intraday Monitor (US)", icon="🇺🇸")
     ],
     "👑 Institutional Leaders": [
-        st.Page("pages/4_👑_True_Market_Leader_IN.py", title="True Market Leaders (India)", icon="👑"),
-        st.Page("pages/5_👑_True_Market_Leader_US.py", title="True Market Leaders (US)", icon="🦅")
+        st.Page("pages/3_👑_True_Market_Leader_IN.py", title="True Market Leaders (India)", icon="👑"),
+        st.Page("pages/4_👑_True_Market_Leader_US.py", title="True Market Leaders (US)", icon="🦅")
+    ],
+    "🛡️ Market Direction": [
+        st.Page("pages/5_🛡️_Market_Regime.py", title="Market Regime & Health", icon="🛡️")
     ],
     "⭐ Execution Workspace": [
         st.Page("pages/6_⭐_Focus_List.py", title="Focus List & Breakouts", icon="⭐")

@@ -1,0 +1,9 @@
+{
+  "NIFTY_TOTAL_MARKET": "https://www.niftyindices.com/IndexConstituent/ind_niftytotalmarket_list.csv",
+  "NIFTY_500": "https://www.niftyindices.com/IndexConstituent/ind_nifty500list.csv",
+  "NIFTY_50": "https://www.niftyindices.com/IndexConstituent/ind_nifty50list.csv",
+  "NIFTY_NEXT_50": "https://www.niftyindices.com/IndexConstituent/ind_niftynext50list.csv",
+  "NIFTY_MIDCAP_150": "https://www.niftyindices.com/IndexConstituent/ind_niftymidcap150list.csv",
+  "NIFTY_SMALLCAP_250": "https://www.niftyindices.com/IndexConstituent/ind_niftysmallcap250list.csv",
+  "NIFTY_MICROCAP_250": "https://www.niftyindices.com/IndexConstituent/ind_niftymicrocap250_list.csv"
+}
