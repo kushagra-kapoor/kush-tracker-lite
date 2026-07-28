@@ -20,12 +20,7 @@ from sync_sectors import sync_industries_ui
 from views.true_market_leader import get_cached_universe, get_cached_history, compute_rs_scores_fast
 from database import save_sector_leadership
 
-st.set_page_config(
-    page_title="Sector & Theme Leadership",
-    page_icon="🌊",
-    layout="wide",
-    initial_sidebar_state="collapsed"
-)
+
 
 from components import render_disk_cache_sidebar
 render_disk_cache_sidebar(get_cached_universe)

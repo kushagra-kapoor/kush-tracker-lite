@@ -8,7 +8,7 @@ import requests
 import io
 
 
-st.set_page_config(page_title="Stage Analysis & Market Internals", page_icon="🔬", layout="wide")
+
 
 try:
     from styles import load_css
