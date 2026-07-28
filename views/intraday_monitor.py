@@ -41,6 +41,7 @@ from market_data import fetch_nifty_total_market_tickers
 
 # Data fetching logic is routed via market_data.py
 
+@st.cache_data(ttl=300, show_spinner=False)
 def fetch_yfinance_batch(tickers, days=252, force_today_refresh=False):
     """Fetch data for multiple tickers using the High-Speed Incremental Disk Cache."""
     from price_history_manager import fetch_incremental_history
@@ -153,6 +154,7 @@ def process_historical_breadth(history_df, days=60):
 
 from technical_indicators import detect_high_tight_flag, detect_ants_momentum, calculate_hv1_avwap, detect_ema_crossback, detect_reversal_extension, detect_power_trend, detect_3_weeks_tight
 
+@st.cache_data(ttl=300, show_spinner=False)
 def process_intraday_data(history_df, tickers, index_data=None, industry_map=None):
     """
     Process the bulk historical dataframe to compute intraday metrics for all tickers.
@@ -1028,7 +1030,7 @@ def main():
         st.dataframe(
             styled_qull,
             column_config={
-                "TickerLink": st.column_config.LinkColumn("Ticker", display_text=r"name=(.*)", width="small"),
+                "TickerLink": st.column_config.LinkColumn("Ticker", display_text=r".*NSE:(.*)", width="small"),
                 "Setup Trigger": st.column_config.TextColumn("Setup Trigger"),
                 "Today %": st.column_config.NumberColumn("Today %", format="%+.2f%%"),
                 "Dollar Volume (Cr)": st.column_config.NumberColumn("Dollar Vol ₹Cr", format="%.1f"),
@@ -1071,7 +1073,7 @@ def main():
         st.dataframe(
             styled_glb,
             column_config={
-                "TickerLink": st.column_config.LinkColumn("Ticker", display_text=r"name=(.*)", width="small"),
+                "TickerLink": st.column_config.LinkColumn("Ticker", display_text=r".*NSE:(.*)", width="small"),
                 "Today %": st.column_config.NumberColumn("Today %", format="%+.2f%%"),
                 "Volume Expansion": st.column_config.NumberColumn("Vol Exp", format="%.2fx", help="Current Vol / 20D Avg Vol"),
                 "Dollar Volume (Cr)": st.column_config.NumberColumn("Dollar Vol ₹Cr", format="%.1f"),
@@ -1108,7 +1110,7 @@ def main():
         st.dataframe(
             styled_ryan,
             column_config={
-                "TickerLink": st.column_config.LinkColumn("Ticker", display_text=r"name=(.*)", width="small"),
+                "TickerLink": st.column_config.LinkColumn("Ticker", display_text=r".*NSE:(.*)", width="small"),
                 "Today %": st.column_config.NumberColumn("Today %", format="%+.2f%%"),
                 "Volume Expansion": st.column_config.NumberColumn("Vol Exp", format="%.2fx", help="Current Vol / 20D Avg Vol"),
                 "Dollar Volume (Cr)": st.column_config.NumberColumn("Dollar Vol ₹Cr", format="%.1f"),
@@ -1148,7 +1150,7 @@ def main():
             st.dataframe(
                 styled_df,
                 column_config={
-                    "TickerLink": st.column_config.LinkColumn("Ticker", display_text=r"name=(.*)", width="small"),
+                    "TickerLink": st.column_config.LinkColumn("Ticker", display_text=r".*NSE:(.*)", width="small"),
                     "12D Trend Score": st.column_config.NumberColumn("12D Score", format="%d/12", help="Count of green days in the last 12 sessions."),
                     "12D Heatmap": st.column_config.TextColumn("12D Heatmap", help="Oldest (Left) -> Newest (Right)"),
                     "Today %": st.column_config.NumberColumn("Today %", format="%+.2f%%"),
@@ -1187,7 +1189,7 @@ def main():
             st.dataframe(
                 styled_df,
                 column_config={
-                    "TickerLink": st.column_config.LinkColumn("Ticker", display_text=r"name=(.*)", width="small"),
+                    "TickerLink": st.column_config.LinkColumn("Ticker", display_text=r".*NSE:(.*)", width="small"),
                     "12D Trend Score": st.column_config.NumberColumn("12D Score", format="%d/12", help="Count of green days in the last 12 sessions."),
                     "12D Heatmap": st.column_config.TextColumn("12D Heatmap", help="Oldest (Left) -> Newest (Right)"),
                     "Gap %": st.column_config.NumberColumn("Gap %", format="%+.2f%%"),
@@ -1225,7 +1227,7 @@ def main():
             st.dataframe(
                 styled_df,
                 column_config={
-                    "TickerLink": st.column_config.LinkColumn("Ticker", display_text=r"name=(.*)", width="small"),
+                    "TickerLink": st.column_config.LinkColumn("Ticker", display_text=r".*NSE:(.*)", width="small"),
                     "12D Trend Score": st.column_config.NumberColumn("12D Score", format="%d/12", help="Count of green days in the last 12 sessions."),
                     "12D Heatmap": st.column_config.TextColumn("12D Heatmap", help="Oldest (Left) -> Newest (Right)"),
                     "Launchpad Compression %": st.column_config.NumberColumn("Compression (Tightness)", format="%.2f%%"),
@@ -1261,7 +1263,7 @@ def main():
             st.dataframe(
                 styled_df,
                 column_config={
-                    "TickerLink": st.column_config.LinkColumn("Ticker", display_text=r"name=(.*)", width="small"),
+                    "TickerLink": st.column_config.LinkColumn("Ticker", display_text=r".*NSE:(.*)", width="small"),
                     "Today %": st.column_config.NumberColumn("Today %", format="%+.2f%%"),
                     "Gap %": st.column_config.NumberColumn("Gap %", format="%+.2f%%"),
                     "Vol vs 1Y Max": st.column_config.NumberColumn("Vol vs 1Y Max", format="%.2fx"),
@@ -1298,7 +1300,7 @@ def main():
         st.dataframe(
             styled_df,
             column_config={
-                "TickerLink": st.column_config.LinkColumn("Ticker", display_text=r"name=(.*)", width="small"),
+                "TickerLink": st.column_config.LinkColumn("Ticker", display_text=r".*NSE:(.*)", width="small"),
                 "HTF Thrust %": st.column_config.NumberColumn("Pole Thrust %", format="%+.1f%%"),
                 "HTF Drawdown %": st.column_config.NumberColumn("Flag Drawdown %", format="%+.1f%%"),
                 "Today %": st.column_config.NumberColumn("Today %", format="%+.2f%%"),
@@ -1335,7 +1337,7 @@ def main():
             st.dataframe(
                 styled_df,
                 column_config={
-                    "TickerLink": st.column_config.LinkColumn("Ticker", display_text=r"name=(.*)", width="small"),
+                    "TickerLink": st.column_config.LinkColumn("Ticker", display_text=r".*NSE:(.*)", width="small"),
                     "Today %": st.column_config.NumberColumn("Today %", format="%+.2f%%"),
                     "Volume Expansion": st.column_config.NumberColumn("Vol Exp", format="%.1fx"),
                     "Close Range %": st.column_config.ProgressColumn("Close Range", min_value=0, max_value=100, format="%d%%"),
@@ -1369,7 +1371,7 @@ def main():
             st.dataframe(
                 styled_df,
                 column_config={
-                    "TickerLink": st.column_config.LinkColumn("Ticker", display_text=r"name=(.*)", width="small"),
+                    "TickerLink": st.column_config.LinkColumn("Ticker", display_text=r".*NSE:(.*)", width="small"),
                     "Dist from 10 EMA %": st.column_config.NumberColumn("Dist 10 EMA", format="%.1f%%"),
                     "Today %": st.column_config.NumberColumn("Today %", format="%+.2f%%"),
                     "Volume Expansion": st.column_config.NumberColumn("Vol Exp", format="%.1fx"),
@@ -1404,7 +1406,7 @@ def main():
         st.dataframe(
             styled_df,
             column_config={
-                "TickerLink": st.column_config.LinkColumn("Ticker", display_text=r"name=(.*)", width="small"),
+                "TickerLink": st.column_config.LinkColumn("Ticker", display_text=r".*NSE:(.*)", width="small"),
                 "Dist from 50 SMA %": st.column_config.NumberColumn("Dist 50 SMA", format="%.2f%%"),
                 "Today %": st.column_config.NumberColumn("Today %", format="%+.2f%%"),
                 "Volume Expansion": st.column_config.NumberColumn("Vol Exp", format="%.1fx"),
@@ -1442,7 +1444,7 @@ def main():
             st.dataframe(
                 styled_df,
                 column_config={
-                    "TickerLink": st.column_config.LinkColumn("Ticker", display_text=r"name=(.*)", width="small"),
+                    "TickerLink": st.column_config.LinkColumn("Ticker", display_text=r".*NSE:(.*)", width="small"),
                     "Today %": st.column_config.NumberColumn("Today %", format="%+.2f%%"),
                     "Volume Expansion": st.column_config.NumberColumn("Vol Exp", format="%.1fx"),
                     "Close Range %": st.column_config.ProgressColumn("Close Range", min_value=0, max_value=100, format="%d%%", help="Low = Heavy intraday selloff from highs"),
@@ -1478,7 +1480,7 @@ def main():
             st.dataframe(
                 styled_df,
                 column_config={
-                    "TickerLink": st.column_config.LinkColumn("Ticker", display_text=r"name=(.*)", width="small"),
+                    "TickerLink": st.column_config.LinkColumn("Ticker", display_text=r".*NSE:(.*)", width="small"),
                     "Today %": st.column_config.NumberColumn("Today %", format="%+.2f%%"),
                     "Volume Expansion": st.column_config.NumberColumn("Vol Exp", format="%.1fx"),
                     "Close Range %": st.column_config.ProgressColumn("Close Range", min_value=0, max_value=100, format="%d%%"),
@@ -1511,7 +1513,7 @@ def main():
         st.dataframe(
             styled_df,
             column_config={
-                "TickerLink": st.column_config.LinkColumn("Ticker", display_text=r"name=(.*)", width="small"),
+                "TickerLink": st.column_config.LinkColumn("Ticker", display_text=r".*NSE:(.*)", width="small"),
                 "Today %": st.column_config.NumberColumn("Today %", format="%+.2f%%"),
                 "Volume Expansion": st.column_config.NumberColumn("Vol Exp", format="%.1fx"),
                 "Close Range %": st.column_config.ProgressColumn("Close Range %", min_value=0, max_value=100, format="%d%%"),

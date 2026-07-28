@@ -3,6 +3,7 @@
 
 import pandas as pd
 import numpy as np
+import streamlit as st
 from datetime import datetime
 from config import RS_WEIGHTS, RS_THRESHOLDS, DATA_SETTINGS
 from nifty500_universe import (
@@ -209,6 +210,7 @@ def get_rs_rating(rs_score: float) -> str:
         return 'Leadership Lost'
 
 
+@st.cache_data(ttl=3600, show_spinner=False)
 def calculate_all_rs_scores(market_data: dict) -> dict:
     """
     Calculate RS scores for all holdings.
@@ -380,3 +382,4 @@ if __name__ == '__main__':
     from nifty500_universe import get_percentile_rank
     percentile = get_percentile_rank(test_value, sample_distribution)
     print(f"\nTest: Value {test_value} in distribution = {percentile}th percentile")
+

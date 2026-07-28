@@ -336,19 +336,6 @@ def main():
         st.markdown("### 📅 Session Info")
         st.markdown(f"**Date:** {datetime.now().strftime('%Y-%m-%d')}")
         st.markdown(f"**Time:** {datetime.now().strftime('%H:%M:%S')}")
-        
-        st.markdown("---")
-        st.markdown("### 📚 Quick Links")
-        st.page_link("pages/howto.py", label="📖 How It Works", icon="📖")
-        st.page_link("pages/Doublers_Club.py", label="💯 100% Club", icon="💯")
-        st.page_link("pages/multibagger_potential.py", label="🚀 Multibagger Potential", icon="🚀")
-        st.page_link("pages/recent_ipos.py", label="🐣 Recent IPOs (New Issues)", icon="🐣")
-        st.page_link("pages/microcap_leaders.py", label="🔬 Microcap Leaders", icon="🔬")
-        st.page_link("pages/screener_analytics.py", label="📊 Screener Analytics", icon="📊")
-        st.page_link("pages/intraday_monitor.py", label="📡 Intraday Snapshot Monitor", icon="📡")
-        st.page_link("pages/market_regime.py", label="🏛️ Market Regime & Sectors", icon="🏛️")
-        st.page_link("pages/algo_terminal.py", label="🎯 Algo Trader Terminal", icon="🎯")
-        st.page_link("pages/edge_performance.py", label="📊 Edge Performance", icon="📊")
     
     # Load data with spinner
     with st.spinner("Loading portfolio data..."):
