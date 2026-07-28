@@ -60,13 +60,19 @@ def _fetch_one_dict(cursor):
         return dict(zip(cols, row))
 
 
+
+def safe_execute(cursor, query):
+    try:
+        cursor.execute(query)
+    except Exception:
+        pass
 def init_database():
     """Initialize the database with required tables."""
     conn = get_connection()
     cursor = conn.cursor()
     
     # Daily snapshot table
-    cursor.execute('''
+    safe_execute(cursor, '''
         CREATE TABLE IF NOT EXISTS daily_snapshot (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             date TEXT NOT NULL,
@@ -86,18 +92,18 @@ def init_database():
     ''')
     
     # Create index for faster queries
-    cursor.execute('''
+    safe_execute(cursor, '''
         CREATE INDEX IF NOT EXISTS idx_snapshot_date 
         ON daily_snapshot(date)
     ''')
     
-    cursor.execute('''
+    safe_execute(cursor, '''
         CREATE INDEX IF NOT EXISTS idx_snapshot_ticker 
         ON daily_snapshot(ticker)
     ''')
     
     # Signal history table for algo terminal
-    cursor.execute('''
+    safe_execute(cursor, '''
         CREATE TABLE IF NOT EXISTS signal_history (
             signal_id INTEGER PRIMARY KEY AUTOINCREMENT,
             date_generated TEXT NOT NULL,
@@ -120,24 +126,24 @@ def init_database():
         )
     ''')
     
-    cursor.execute('''
+    safe_execute(cursor, '''
         CREATE INDEX IF NOT EXISTS idx_signal_status
         ON signal_history(status)
     ''')
     
-    cursor.execute('''
+    safe_execute(cursor, '''
         CREATE INDEX IF NOT EXISTS idx_signal_ticker
         ON signal_history(ticker)
     ''')
     
     # Add squat_alert column if it doesn't exist
     try:
-        cursor.execute("ALTER TABLE signal_history ADD COLUMN squat_alert BOOLEAN DEFAULT 0")
+        safe_execute(cursor, "ALTER TABLE signal_history ADD COLUMN squat_alert BOOLEAN DEFAULT 0")
     except Exception:
         pass
 
     # Sector leadership history table
-    cursor.execute('''
+    safe_execute(cursor, '''
         CREATE TABLE IF NOT EXISTS sector_leadership_history (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             date TEXT NOT NULL,
@@ -150,7 +156,7 @@ def init_database():
     ''')
     
     # True Market Leader Snapshot Table
-    cursor.execute('''
+    safe_execute(cursor, '''
         CREATE TABLE IF NOT EXISTS tml_snapshot (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             date TEXT NOT NULL,
@@ -166,21 +172,21 @@ def init_database():
         )
     ''')
     
-    cursor.execute('''
+    safe_execute(cursor, '''
         CREATE INDEX IF NOT EXISTS idx_tml_date ON tml_snapshot(date)
     ''')
     
-    cursor.execute('''
+    safe_execute(cursor, '''
         CREATE INDEX IF NOT EXISTS idx_tml_ticker ON tml_snapshot(ticker)
     ''')
 
-    cursor.execute('''
+    safe_execute(cursor, '''
         CREATE INDEX IF NOT EXISTS idx_sector_leadership_date
         ON sector_leadership_history(date)
     ''')
     
     # Daily Journal table
-    cursor.execute('''
+    safe_execute(cursor, '''
         CREATE TABLE IF NOT EXISTS daily_journal (
             date TEXT PRIMARY KEY,
             market_bias TEXT,
@@ -198,12 +204,12 @@ def init_database():
 
     # Add is_distribution_day column if it doesn't exist (Migration)
     try:
-        cursor.execute("ALTER TABLE daily_journal ADD COLUMN is_distribution_day BOOLEAN DEFAULT 0")
+        safe_execute(cursor, "ALTER TABLE daily_journal ADD COLUMN is_distribution_day BOOLEAN DEFAULT 0")
     except Exception:
         pass
 
     # Market Cap cache table
-    cursor.execute('''
+    safe_execute(cursor, '''
         CREATE TABLE IF NOT EXISTS market_cap_cache (
             ticker TEXT PRIMARY KEY,
             market_cap REAL,
@@ -212,7 +218,7 @@ def init_database():
     ''')
 
     # Intraday signals history table
-    cursor.execute('''
+    safe_execute(cursor, '''
         CREATE TABLE IF NOT EXISTS intraday_signals_history (
             market TEXT,
             ticker TEXT,
@@ -223,13 +229,13 @@ def init_database():
     ''')
     
     # Indexes for fast querying
-    cursor.execute('''
+    safe_execute(cursor, '''
         CREATE INDEX IF NOT EXISTS idx_intraday_signals_date 
         ON intraday_signals_history(date)
     ''')
 
     # Fundamentals Cache Table
-    cursor.execute('''
+    safe_execute(cursor, '''
         CREATE TABLE IF NOT EXISTS fundamentals_cache (
             ticker TEXT PRIMARY KEY,
             eps_growth REAL,
@@ -242,12 +248,12 @@ def init_database():
     ''')
 
     try:
-        cursor.execute("ALTER TABLE fundamentals_cache ADD COLUMN market_cap REAL DEFAULT 0.0")
+        safe_execute(cursor, "ALTER TABLE fundamentals_cache ADD COLUMN market_cap REAL DEFAULT 0.0")
     except Exception:
         pass
 
     # Focus List table
-    cursor.execute('''
+    safe_execute(cursor, '''
         CREATE TABLE IF NOT EXISTS focus_list (
             ticker TEXT PRIMARY KEY,
             market TEXT,
@@ -259,7 +265,7 @@ def init_database():
     ''')
 
     # Institutional Footprints (Volume Shocks)
-    cursor.execute('''
+    safe_execute(cursor, '''
         CREATE TABLE IF NOT EXISTS institutional_footprints (
             ticker TEXT PRIMARY KEY,
             shock_date TEXT NOT NULL,
@@ -273,7 +279,7 @@ def init_database():
         )
     ''')
 
-    cursor.execute('''
+    safe_execute(cursor, '''
         CREATE TABLE IF NOT EXISTS market_liquidity_daily (
             date TEXT,
             market TEXT DEFAULT 'IN',
@@ -283,7 +289,7 @@ def init_database():
         )
     ''')
 
-    cursor.execute('''
+    safe_execute(cursor, '''
         CREATE TABLE IF NOT EXISTS market_breadth_daily (
             date TEXT,
             market TEXT DEFAULT 'IN',
@@ -293,7 +299,7 @@ def init_database():
         )
     ''')
 
-    cursor.execute('''
+    safe_execute(cursor, '''
         CREATE TABLE IF NOT EXISTS corporate_announcements (
             id TEXT PRIMARY KEY,
             ticker TEXT,
@@ -304,7 +310,7 @@ def init_database():
         )
     ''')
 
-    cursor.execute('''
+    safe_execute(cursor, '''
         CREATE TABLE IF NOT EXISTS global_regime_history (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             date TEXT NOT NULL,
@@ -322,7 +328,7 @@ def init_database():
         )
     ''')
 
-    cursor.execute('''
+    safe_execute(cursor, '''
         CREATE TABLE IF NOT EXISTS global_etf_momentum (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             date TEXT NOT NULL,
@@ -351,7 +357,7 @@ def save_snapshot(snapshot_data: list):
     today = datetime.now().strftime('%Y-%m-%d')
     
     for row in snapshot_data:
-        cursor.execute('''
+        safe_execute(cursor, '''
             INSERT OR REPLACE INTO daily_snapshot 
             (date, ticker, trend_state, rs_score, action, reason, 
              portfolio_risk_pct, close_price, distance_from_52w_high, 
@@ -391,14 +397,14 @@ def get_recent_snapshots(ticker: str = None, days: int = 30):
     cursor = conn.cursor()
     
     if ticker:
-        cursor.execute('''
+        safe_execute(cursor, '''
             SELECT * FROM daily_snapshot 
             WHERE ticker = ? 
             ORDER BY date DESC 
             LIMIT ?
         ''', (ticker, days))
     else:
-        cursor.execute('''
+        safe_execute(cursor, '''
             SELECT * FROM daily_snapshot 
             ORDER BY date DESC 
             LIMIT ?
@@ -422,7 +428,7 @@ def get_signal_change_days(ticker: str) -> int:
     conn = get_connection()
     cursor = conn.cursor()
     
-    cursor.execute('''
+    safe_execute(cursor, '''
         SELECT date, action FROM daily_snapshot 
         WHERE ticker = ? 
         ORDER BY date DESC
@@ -455,7 +461,7 @@ def save_signal(signal: dict):
     conn = get_connection()
     cursor = conn.cursor()
     try:
-        cursor.execute('''
+        safe_execute(cursor, '''
             INSERT OR IGNORE INTO signal_history
             (date_generated, ticker, setup_type, regime, entry_price, stop_price,
              risk_percent, holding_bias, confidence_score, status)
