@@ -15,24 +15,20 @@ password = "your_chosen_password"
 
 [database]
 db_type = "turso"
-turso_url = "libsql://your-database-name-kush410.turso.io"
-turso_token = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+turso_url = "libsql://kush-db-kush410.aws-ap-northeast-1.turso.io"
+turso_token = "PASTE_TOKEN_FROM_CONNECT_TAB_HERE"
 ```
 
-### Where to get your 2 Turso credentials:
-1. **`turso_url` (Database URL):**
-   * Go to [app.turso.tech](https://app.turso.tech/), click your Database (e.g. `kush-tracker-lite`).
-   * Copy the **Database URL** starting with `libsql://` (e.g., `libsql://kush-tracker-lite-kush410.turso.io`).
-2. **`turso_token` (Auth / API Token):**
-   * Go to `https://app.turso.tech/kush410/settings/api-tokens` (or create a DB token in Turso CLI).
-   * Copy the token string (starts with `eyJ...`).
+### Which Turso Token to use?
+* Use the **Database Auth Token** generated under **Connect -> Create Token** (right next to your Database URL).
+* *Do NOT use the account platform API token under Settings -> API Tokens.*
 
 ---
 
 ## 🚀 Deployment Instructions for Streamlit Community Cloud
 
 ### Step 1: Push Code to GitHub
-Run `push_to_github.bat` or execute:
+Double-click `push_to_github.bat` or run:
 ```bash
 git push -u origin main
 ```
