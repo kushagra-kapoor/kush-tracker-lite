@@ -39,6 +39,27 @@ def get_connection():
     return sqlite3.connect(DATABASE_PATH)
 
 
+
+def _fetch_all_dicts(cursor):
+    rows = cursor.fetchall()
+    if not rows: return []
+    try:
+        # Check if it already acts like a dict (e.g. sqlite3.Row)
+        return [dict(r) for r in rows]
+    except Exception:
+        cols = [desc[0] for desc in cursor.description]
+        return [dict(zip(cols, r)) for r in rows]
+
+def _fetch_one_dict(cursor):
+    row = cursor.fetchone()
+    if not row: return None
+    try:
+        return dict(row)
+    except Exception:
+        cols = [desc[0] for desc in cursor.description]
+        return dict(zip(cols, row))
+
+
 def init_database():
     """Initialize the database with required tables."""
     conn = get_connection()
@@ -463,10 +484,9 @@ def save_signal(signal: dict):
 def get_open_signals():
     """Get all signals with status = 'Open'."""
     conn = get_connection()
-    conn.row_factory = sqlite3.Row
     cursor = conn.cursor()
     cursor.execute("SELECT * FROM signal_history WHERE status = 'Open'")
-    rows = [dict(r) for r in cursor.fetchall()]
+    rows = _fetch_all_dicts(cursor)
     conn.close()
     return rows
 
@@ -502,10 +522,9 @@ def mark_squat_alert(signal_id: int):
 def get_all_signals():
     """Get all signals (for edge performance analytics)."""
     conn = get_connection()
-    conn.row_factory = sqlite3.Row
     cursor = conn.cursor()
     cursor.execute("SELECT * FROM signal_history ORDER BY date_generated DESC")
-    rows = [dict(r) for r in cursor.fetchall()]
+    rows = _fetch_all_dicts(cursor)
     conn.close()
     return rows
 
@@ -547,7 +566,6 @@ def get_sector_leadership_history(days: int = 30) -> list:
         List of dicts with date, rank, industry, avg_rs.
     """
     conn = get_connection()
-    conn.row_factory = sqlite3.Row
     cursor = conn.cursor()
     cursor.execute('''
         SELECT date, rank, industry, avg_rs
@@ -555,7 +573,7 @@ def get_sector_leadership_history(days: int = 30) -> list:
         WHERE date >= date('now', ? || ' days')
         ORDER BY date DESC, rank ASC
     ''', (f'-{days}',))
-    rows = [dict(r) for r in cursor.fetchall()]
+    rows = _fetch_all_dicts(cursor)
     conn.close()
     return rows
 
@@ -751,7 +769,6 @@ def get_journal_history(days: int = 30) -> list:
     Get journal history for the last N days.
     """
     conn = get_connection()
-    conn.row_factory = sqlite3.Row
     cursor = conn.cursor()
     cursor.execute('''
         SELECT *
@@ -759,7 +776,7 @@ def get_journal_history(days: int = 30) -> list:
         WHERE date >= date('now', ? || ' days')
         ORDER BY date DESC
     ''', (f'-{days}',))
-    rows = [dict(r) for r in cursor.fetchall()]
+    rows = _fetch_all_dicts(cursor)
     conn.close()
     return rows
 
@@ -768,12 +785,11 @@ def get_journal_entry(date_str: str) -> dict:
     Get a specific journal entry by date.
     """
     conn = get_connection()
-    conn.row_factory = sqlite3.Row
     cursor = conn.cursor()
     cursor.execute("SELECT * FROM daily_journal WHERE date = ?", (date_str,))
-    row = cursor.fetchone()
+    result = _fetch_one_dict(cursor)
     conn.close()
-    return dict(row) if row else None
+    return result
 
 
 # =============================================================================
@@ -795,7 +811,6 @@ def get_all_fundamentals_cache() -> dict:
     Returns: {ticker: {'eps_growth': x, 'sales_growth': y, 'roe': z, 'industry': w}}
     """
     conn = get_connection()
-    conn.row_factory = sqlite3.Row
     cursor = conn.cursor()
     
     try:
@@ -1169,7 +1184,6 @@ def remove_from_focus_list(ticker: str) -> bool:
 def get_focus_list(market: str = None) -> list:
     """Get all stocks on the Focus List, optionally filtered by market."""
     conn = get_connection()
-    conn.row_factory = sqlite3.Row
     cursor = conn.cursor()
     
     query = 'SELECT * FROM focus_list'
@@ -1183,8 +1197,7 @@ def get_focus_list(market: str = None) -> list:
     
     try:
         cursor.execute(query, params)
-        rows = cursor.fetchall()
-        return [dict(row) for row in rows]
+        return _fetch_all_dicts(cursor)
     except Exception as e:
         print(f"Error fetching focus list: {e}")
         return []
@@ -1239,7 +1252,6 @@ def log_volume_shock(ticker: str, shock_date: str, vol_mult: float, close_price:
 def get_active_volume_shocks(market: str = None):
     """Get all active volume shocks."""
     conn = get_connection()
-    conn.row_factory = sqlite3.Row
     cursor = conn.cursor()
     
     query = "SELECT * FROM institutional_footprints WHERE status = 'Active'"
@@ -1250,8 +1262,7 @@ def get_active_volume_shocks(market: str = None):
         
     try:
         cursor.execute(query, params)
-        rows = cursor.fetchall()
-        return [dict(row) for row in rows]
+        return _fetch_all_dicts(cursor)
     except Exception as e:
         print(f"Error fetching active volume shocks: {e}")
         return []
@@ -1409,7 +1420,6 @@ def save_global_regime(regime_data: list):
 def get_latest_global_regime(market: str = None) -> list:
     import sqlite3
     conn = get_connection()
-    conn.row_factory = sqlite3.Row
     cursor = conn.cursor()
     
     if market:
@@ -1427,7 +1437,7 @@ def get_latest_global_regime(market: str = None) -> list:
             return []
         cursor.execute("SELECT * FROM global_regime_history WHERE date = ?", (latest,))
     
-    results = [dict(r) for r in cursor.fetchall()]
+    results = _fetch_all_dicts(cursor)
     conn.close()
     return results
 
@@ -1449,7 +1459,6 @@ def save_global_etf_momentum(etf_data: list):
 def get_latest_global_etf_momentum() -> list:
     import sqlite3
     conn = get_connection()
-    conn.row_factory = sqlite3.Row
     cursor = conn.cursor()
     cursor.execute("SELECT MAX(date) FROM global_etf_momentum")
     row = cursor.fetchone()
@@ -1459,6 +1468,6 @@ def get_latest_global_etf_momentum() -> list:
         return []
         
     cursor.execute("SELECT * FROM global_etf_momentum WHERE date = ?", (latest,))
-    results = [dict(r) for r in cursor.fetchall()]
+    results = _fetch_all_dicts(cursor)
     conn.close()
     return results
