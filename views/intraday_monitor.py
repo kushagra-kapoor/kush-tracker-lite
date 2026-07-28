@@ -1031,7 +1031,7 @@ def main():
         st.dataframe(
             styled_qull,
             column_config={
-                "TickerLink": st.column_config.LinkColumn("Ticker", display_text=r".*NSE:(.*)", width="small"),
+                "TickerLink": st.column_config.LinkColumn("Ticker", display_text=r"name=(.*)", width="small"),
                 "Setup Trigger": st.column_config.TextColumn("Setup Trigger"),
                 "Today %": st.column_config.NumberColumn("Today %", format="%+.2f%%"),
                 "Dollar Volume (Cr)": st.column_config.NumberColumn("Dollar Vol ₹Cr", format="%.1f"),
@@ -1074,7 +1074,7 @@ def main():
         st.dataframe(
             styled_glb,
             column_config={
-                "TickerLink": st.column_config.LinkColumn("Ticker", display_text=r".*NSE:(.*)", width="small"),
+                "TickerLink": st.column_config.LinkColumn("Ticker", display_text=r"name=(.*)", width="small"),
                 "Today %": st.column_config.NumberColumn("Today %", format="%+.2f%%"),
                 "Volume Expansion": st.column_config.NumberColumn("Vol Exp", format="%.2fx", help="Current Vol / 20D Avg Vol"),
                 "Dollar Volume (Cr)": st.column_config.NumberColumn("Dollar Vol ₹Cr", format="%.1f"),
@@ -1111,7 +1111,7 @@ def main():
         st.dataframe(
             styled_ryan,
             column_config={
-                "TickerLink": st.column_config.LinkColumn("Ticker", display_text=r".*NSE:(.*)", width="small"),
+                "TickerLink": st.column_config.LinkColumn("Ticker", display_text=r"name=(.*)", width="small"),
                 "Today %": st.column_config.NumberColumn("Today %", format="%+.2f%%"),
                 "Volume Expansion": st.column_config.NumberColumn("Vol Exp", format="%.2fx", help="Current Vol / 20D Avg Vol"),
                 "Dollar Volume (Cr)": st.column_config.NumberColumn("Dollar Vol ₹Cr", format="%.1f"),
@@ -1151,7 +1151,7 @@ def main():
             st.dataframe(
                 styled_df,
                 column_config={
-                    "TickerLink": st.column_config.LinkColumn("Ticker", display_text=r".*NSE:(.*)", width="small"),
+                    "TickerLink": st.column_config.LinkColumn("Ticker", display_text=r"name=(.*)", width="small"),
                     "12D Trend Score": st.column_config.NumberColumn("12D Score", format="%d/12", help="Count of green days in the last 12 sessions."),
                     "12D Heatmap": st.column_config.TextColumn("12D Heatmap", help="Oldest (Left) -> Newest (Right)"),
                     "Today %": st.column_config.NumberColumn("Today %", format="%+.2f%%"),
@@ -1190,7 +1190,7 @@ def main():
             st.dataframe(
                 styled_df,
                 column_config={
-                    "TickerLink": st.column_config.LinkColumn("Ticker", display_text=r".*NSE:(.*)", width="small"),
+                    "TickerLink": st.column_config.LinkColumn("Ticker", display_text=r"name=(.*)", width="small"),
                     "12D Trend Score": st.column_config.NumberColumn("12D Score", format="%d/12", help="Count of green days in the last 12 sessions."),
                     "12D Heatmap": st.column_config.TextColumn("12D Heatmap", help="Oldest (Left) -> Newest (Right)"),
                     "Gap %": st.column_config.NumberColumn("Gap %", format="%+.2f%%"),
@@ -1228,7 +1228,7 @@ def main():
             st.dataframe(
                 styled_df,
                 column_config={
-                    "TickerLink": st.column_config.LinkColumn("Ticker", display_text=r".*NSE:(.*)", width="small"),
+                    "TickerLink": st.column_config.LinkColumn("Ticker", display_text=r"name=(.*)", width="small"),
                     "12D Trend Score": st.column_config.NumberColumn("12D Score", format="%d/12", help="Count of green days in the last 12 sessions."),
                     "12D Heatmap": st.column_config.TextColumn("12D Heatmap", help="Oldest (Left) -> Newest (Right)"),
                     "Launchpad Compression %": st.column_config.NumberColumn("Compression (Tightness)", format="%.2f%%"),
@@ -1264,7 +1264,7 @@ def main():
             st.dataframe(
                 styled_df,
                 column_config={
-                    "TickerLink": st.column_config.LinkColumn("Ticker", display_text=r".*NSE:(.*)", width="small"),
+                    "TickerLink": st.column_config.LinkColumn("Ticker", display_text=r"name=(.*)", width="small"),
                     "Today %": st.column_config.NumberColumn("Today %", format="%+.2f%%"),
                     "Gap %": st.column_config.NumberColumn("Gap %", format="%+.2f%%"),
                     "Vol vs 1Y Max": st.column_config.NumberColumn("Vol vs 1Y Max", format="%.2fx"),
@@ -1301,7 +1301,7 @@ def main():
         st.dataframe(
             styled_df,
             column_config={
-                "TickerLink": st.column_config.LinkColumn("Ticker", display_text=r".*NSE:(.*)", width="small"),
+                "TickerLink": st.column_config.LinkColumn("Ticker", display_text=r"name=(.*)", width="small"),
                 "HTF Thrust %": st.column_config.NumberColumn("Pole Thrust %", format="%+.1f%%"),
                 "HTF Drawdown %": st.column_config.NumberColumn("Flag Drawdown %", format="%+.1f%%"),
                 "Today %": st.column_config.NumberColumn("Today %", format="%+.2f%%"),
@@ -1338,7 +1338,7 @@ def main():
             st.dataframe(
                 styled_df,
                 column_config={
-                    "TickerLink": st.column_config.LinkColumn("Ticker", display_text=r".*NSE:(.*)", width="small"),
+                    "TickerLink": st.column_config.LinkColumn("Ticker", display_text=r"name=(.*)", width="small"),
                     "Today %": st.column_config.NumberColumn("Today %", format="%+.2f%%"),
                     "Volume Expansion": st.column_config.NumberColumn("Vol Exp", format="%.1fx"),
                     "Close Range %": st.column_config.ProgressColumn("Close Range", min_value=0, max_value=100, format="%d%%"),
@@ -1372,7 +1372,7 @@ def main():
             st.dataframe(
                 styled_df,
                 column_config={
-                    "TickerLink": st.column_config.LinkColumn("Ticker", display_text=r".*NSE:(.*)", width="small"),
+                    "TickerLink": st.column_config.LinkColumn("Ticker", display_text=r"name=(.*)", width="small"),
                     "Dist from 10 EMA %": st.column_config.NumberColumn("Dist 10 EMA", format="%.1f%%"),
                     "Today %": st.column_config.NumberColumn("Today %", format="%+.2f%%"),
                     "Volume Expansion": st.column_config.NumberColumn("Vol Exp", format="%.1fx"),
@@ -1407,7 +1407,7 @@ def main():
         st.dataframe(
             styled_df,
             column_config={
-                "TickerLink": st.column_config.LinkColumn("Ticker", display_text=r".*NSE:(.*)", width="small"),
+                "TickerLink": st.column_config.LinkColumn("Ticker", display_text=r"name=(.*)", width="small"),
                 "Dist from 50 SMA %": st.column_config.NumberColumn("Dist 50 SMA", format="%.2f%%"),
                 "Today %": st.column_config.NumberColumn("Today %", format="%+.2f%%"),
                 "Volume Expansion": st.column_config.NumberColumn("Vol Exp", format="%.1fx"),
@@ -1445,7 +1445,7 @@ def main():
             st.dataframe(
                 styled_df,
                 column_config={
-                    "TickerLink": st.column_config.LinkColumn("Ticker", display_text=r".*NSE:(.*)", width="small"),
+                    "TickerLink": st.column_config.LinkColumn("Ticker", display_text=r"name=(.*)", width="small"),
                     "Today %": st.column_config.NumberColumn("Today %", format="%+.2f%%"),
                     "Volume Expansion": st.column_config.NumberColumn("Vol Exp", format="%.1fx"),
                     "Close Range %": st.column_config.ProgressColumn("Close Range", min_value=0, max_value=100, format="%d%%", help="Low = Heavy intraday selloff from highs"),
@@ -1481,7 +1481,7 @@ def main():
             st.dataframe(
                 styled_df,
                 column_config={
-                    "TickerLink": st.column_config.LinkColumn("Ticker", display_text=r".*NSE:(.*)", width="small"),
+                    "TickerLink": st.column_config.LinkColumn("Ticker", display_text=r"name=(.*)", width="small"),
                     "Today %": st.column_config.NumberColumn("Today %", format="%+.2f%%"),
                     "Volume Expansion": st.column_config.NumberColumn("Vol Exp", format="%.1fx"),
                     "Close Range %": st.column_config.ProgressColumn("Close Range", min_value=0, max_value=100, format="%d%%"),
@@ -1514,7 +1514,7 @@ def main():
         st.dataframe(
             styled_df,
             column_config={
-                "TickerLink": st.column_config.LinkColumn("Ticker", display_text=r".*NSE:(.*)", width="small"),
+                "TickerLink": st.column_config.LinkColumn("Ticker", display_text=r"name=(.*)", width="small"),
                 "Today %": st.column_config.NumberColumn("Today %", format="%+.2f%%"),
                 "Volume Expansion": st.column_config.NumberColumn("Vol Exp", format="%.1fx"),
                 "Close Range %": st.column_config.ProgressColumn("Close Range %", min_value=0, max_value=100, format="%d%%"),
@@ -1530,6 +1530,7 @@ def main():
 
 
 main()
+
 
 
 
