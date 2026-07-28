@@ -34,10 +34,10 @@ from database import (
 
 # st.set_page_config(
 #     page_title="True Market Leader (US)",
-    page_icon="👑",
-    layout="wide",
-    initial_sidebar_state="collapsed"
-)
+#     page_icon="👑",
+#     layout="wide",
+#     initial_sidebar_state="collapsed"
+# )
 
 # Custom CSS
 
