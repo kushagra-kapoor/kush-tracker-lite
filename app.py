@@ -104,7 +104,9 @@ pages = {
         st.Page("views/true_market_leader_us.py", title="True Market Leaders (US)", icon="🦅")
     ],
     "🛡️ Market Direction": [
-        st.Page("views/market_regime.py", title="Market Regime & Health", icon="🛡️")
+        st.Page("views/market_regime.py", title="Market Regime & Health", icon="🛡️"),
+        st.Page("views/stage_analysis.py", title="Stage Analysis", icon="📊"),
+        st.Page("views/sector_leadership.py", title="Sector Leadership", icon="🔥")
     ],
     "⭐ Execution Workspace": [
         st.Page("views/focus_list.py", title="Focus List & Breakouts", icon="⭐")
