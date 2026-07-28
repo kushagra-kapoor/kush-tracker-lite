@@ -24,12 +24,13 @@ import plotly.graph_objects as go
 
 # Page config
 def main():
-    st.set_page_config(page_title="US Intraday Monitor | Kush Tracker", page_icon="🗽", layout="wide")
-    
-    import styles
-    import importlib
-    importlib.reload(styles)
+    pass
+
+try:
     styles.load_css()
+except Exception:
+    pass
+
 
 # Custom CSS
 
