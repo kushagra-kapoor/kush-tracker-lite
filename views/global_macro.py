@@ -156,5 +156,4 @@ def main():
     else:
         st.info("No Global ETF Momentum data available. Please run sync_macro.py.")
 
-if __name__ == "__main__":
-    main()
+main()
