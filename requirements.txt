@@ -7,3 +7,5 @@ requests>=2.31.0
 pytz>=2023.3
 scipy>=1.11.0
 libsql-experimental>=0.0.34
+
+matplotlib>=3.7.0
