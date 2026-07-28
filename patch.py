@@ -24,9 +24,10 @@ content = content.replace("if __name__ == '__main__':\n    main()", "main()")
 content = content.replace('if __name__ == "__main__":\n    main()', "main()")
 
 # Also update the pages.market_regime import
-content = content.replace("from pages.market_regime import", "from views.market_regime import")
+content = content.replace("from views.market_regime import", "from views.market_regime import")
 
 with open('C:/projects/Kush Tracker Lite/views/home.py', 'w', encoding='utf-8') as f:
     f.write(content)
 
 print("Restored and surgically patched views/home.py")
+

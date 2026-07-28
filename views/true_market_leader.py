@@ -20,7 +20,7 @@ import time
 import concurrent.futures
 
 # Local Imports
-from pages.intraday_monitor import fetch_nifty_total_market_tickers, fetch_yfinance_batch
+from views.intraday_monitor import fetch_nifty_total_market_tickers, fetch_yfinance_batch
 from database import get_all_fundamentals_cache, save_fundamentals_cache
 from clenow_math import calculate_adjusted_slope
 
@@ -2772,4 +2772,5 @@ def render_sector_heat_rankings(history_df, tickers, db_cache, rs_scores, sort_b
 
 
 main()
+
 

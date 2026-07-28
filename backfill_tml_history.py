@@ -9,10 +9,10 @@ import sqlite3
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
 from database import get_connection, save_tml_snapshot, get_all_fundamentals_cache
-from pages.intraday_monitor import fetch_yfinance_batch
+from views.intraday_monitor import fetch_yfinance_batch
 
 # India imports
-from pages.true_market_leader import (
+from views.true_market_leader import (
     get_cached_universe as get_india_universe,
     compute_rs_scores_fast as compute_rs_india,
     run_technical_prescreen as prescreen_india,
@@ -20,7 +20,7 @@ from pages.true_market_leader import (
 )
 
 # US imports
-from pages.true_market_leader_us import (
+from views.true_market_leader_us import (
     get_cached_universe as get_us_universe,
     compute_rs_scores_fast as compute_rs_us,
     run_technical_prescreen as prescreen_us,
@@ -148,3 +148,4 @@ if __name__ == "__main__":
     backfill_market('US', None, 'Stocks', get_us_universe, compute_rs_us, prescreen_us, score_us)
     
     print("\nBackfill Complete!")
+

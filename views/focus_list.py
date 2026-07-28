@@ -285,9 +285,9 @@ def render_institutional_footprints(market: str):
                 
                 # Use the safe chunked downloader to prevent YF rate limits
                 if market == "IN":
-                    from pages.intraday_monitor import fetch_yfinance_batch
+                    from views.intraday_monitor import fetch_yfinance_batch
                 else:
-                    from pages.intraday_monitor_us import fetch_yfinance_batch
+                    from views.intraday_monitor_us import fetch_yfinance_batch
                     
                 hist_df = fetch_yfinance_batch(sync_tickers, days=60, force_today_refresh=True)
                 
@@ -663,3 +663,4 @@ if st.session_state.batched_notifications and TOAST_AVAILABLE:
 if auto_refresh:
     time.sleep(15)
     st.rerun()
+
