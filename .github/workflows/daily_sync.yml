@@ -39,3 +39,6 @@ jobs:
           
       - name: Run Global Macro Sync
         run: python sync_macro.py
+        
+      - name: Run Cloud Fundamentals Sync Engine
+        run: python sync_fundamentals.py

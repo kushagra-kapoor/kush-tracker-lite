@@ -469,112 +469,7 @@ def run_technical_prescreen(history_df, tickers, rs_scores, is_etf=False):
         
     return passed_stocks, funnel
 
-def fetch_fundamentals(ticker, db_cache=None, max_retries=3):
-    """Fetch EPS growth, Sales growth, ROE with retry logic for rate limits and DB Fallback."""
-    
-    # --- 21 DAY DYNAMIC CACHE VALIDATION ---
-    # Quarterly earnings refresh every 90 days. We expire local DB cache after 21 days
-    # to ensure CAN SLIM algorithms always trade on the absolute freshest institutional numbers.
-    if db_cache and ticker in db_cache:
-        try:
-            last_dt_str = db_cache[ticker].get('updated_at', None)
-            if last_dt_str:
-                last_updated = datetime.strptime(last_dt_str, '%Y-%m-%d %H:%M:%S')
-                if (datetime.now() - last_updated).days < 21:
-                    # Data is fresh, bypass API entirely.
-                    cached = db_cache[ticker].copy()
-                    mcap = cached.get('market_cap', 0.0)
-                    cached['mcap_cr'] = mcap / 10000000.0 if mcap else 0.0
-                    return cached, False
-        except Exception:
-            pass
-    for attempt in range(max_retries):
-        try:
-            t = yf.Ticker(ticker)
-            eps_g = 0.0
-            sales_g = 0.0
-            roe = 0.0
-            mcap_cr = 0.0
-            industry = "Unknown"
-            
-            info = t.info
-            if info:
-                industry = info.get('industry', 'Unknown')
-                mcap = info.get('marketCap', 0)
-                if mcap is not None: mcap_cr = mcap / 10000000.0
-                roe = info.get('returnOnEquity', 0)
-                if roe is not None: roe *= 100
-                else: roe = 0.0
-                    
-                rev_g = info.get('revenueGrowth', 0)
-                if rev_g is not None: sales_g = rev_g * 100
-                    
-                ern_g = info.get('earningsGrowth', 0)
-                if ern_g is not None: eps_g = ern_g * 100
 
-            if eps_g == 0 and sales_g == 0:
-                fins = t.quarterly_financials
-                if fins is not None and not fins.empty and len(fins.columns) >= 5:
-                    if 'Net Income' in fins.index:
-                        curr_ni = fins.loc['Net Income'].iloc[0]
-                        prev_ni = fins.loc['Net Income'].iloc[4]
-                        if prev_ni and prev_ni > 0:
-                            eps_g = ((curr_ni / prev_ni) - 1) * 100
-                            
-                    rev_keys = ['Total Revenue', 'Operating Revenue', 'Revenue']
-                    rel_row = next((r for r in rev_keys if r in fins.index), None)
-                    if rel_row:
-                        curr_rev = fins.loc[rel_row].iloc[0]
-                        prev_rev = fins.loc[rel_row].iloc[4]
-                        if prev_rev and prev_rev > 0:
-                            sales_g = ((curr_rev / prev_rev) - 1) * 100
-                            
-            if roe == 0:
-                bal = t.quarterly_balance_sheet
-                fins = t.quarterly_financials
-                if bal is not None and not bal.empty and fins is not None and not fins.empty:
-                    eq_keys = ['Common Stock Equity', 'Stockholders Equity', 'Total Equity Gross Minority Interest']
-                    eq_row = next((r for r in eq_keys if r in bal.index), None)
-                    if eq_row and 'Net Income' in fins.index:
-                        ni_series = fins.loc['Net Income'].dropna()
-                        eq_series = bal.loc[eq_row].dropna()
-                        if len(ni_series) > 0 and len(eq_series) > 0:
-                            if len(ni_series) >= 4:
-                                trailing_ni = ni_series.iloc[:4].sum()
-                            else:
-                                trailing_ni = ni_series.iloc[0] * 4
-                                
-                            latest_eq = eq_series.iloc[0]
-                            if latest_eq > 0:
-                                roe = (trailing_ni / latest_eq) * 100
-                                
-            # Check if yfinance totally failed silently without throwing an exception (shadowban protection)
-            if eps_g == 0 and sales_g == 0 and roe == 0 and industry == "Unknown" and mcap_cr == 0:
-                if attempt < max_retries - 1:
-                    wait_time = 2 ** (attempt + 1)
-                    time.sleep(wait_time)
-                    continue
-                else:
-                    if db_cache and ticker in db_cache:
-                        cached = db_cache[ticker].copy()
-                        mcap = cached.get('market_cap', 0.0)
-                        cached['mcap_cr'] = mcap / 10000000.0 if mcap else 0.0
-                        return cached, False
-                    
-            return {'eps_growth': float(eps_g), 'sales_growth': float(sales_g), 'roe': float(roe), 'market_cap': mcap, 'mcap_cr': float(mcap_cr), 'industry': industry}, True
-        except Exception as e:
-            if attempt < max_retries - 1:
-                wait_time = 2 ** (attempt + 1)  # Wait 2s, 4s, 8s universally for any network error
-                time.sleep(wait_time)
-                continue
-            
-            if db_cache and ticker in db_cache:
-                cached = db_cache[ticker].copy()
-                mcap = cached.get('market_cap', 0.0)
-                cached['mcap_cr'] = mcap / 10000000.0 if mcap else 0.0
-                return cached, False
-                
-            return {'eps_growth': 0.0, 'sales_growth': 0.0, 'roe': 0.0, 'mcap_cr': 0.0, 'industry': 'Unknown'}, False
 
 def score_leaders(candidates, is_etf=False):
     """
@@ -767,7 +662,7 @@ def main():
                 
                 st.write(f"4. Found {len(pre_screened)} Stage 2 elites. Initiating Yahoo Finance fundamental JIT pipeline...")
                 
-                # Fetch Fundamentals (in parallel with rate-limit protection)
+                # Inject Fundamentals from Cloud Cache
                 if len(pre_screened) > 0:
                     if asset_class == "ETFs":
                         st.write(f"4. Found {len(pre_screened)} ETFs. Skipping fundamentals fetch for ETFs...")
@@ -779,36 +674,21 @@ def main():
                             etf['mcap_cr'] = 0.0
                             etf['industry'] = 'ETF'
                     else:
-                        prog_bar = st.progress(0)
-                        
+                        st.write(f"4. Injecting fresh CANSLIM fundamentals from Cloud Database for {len(pre_screened)} survivors...")
                         db_cache = get_all_fundamentals_cache()
-                        new_successful_fetches = []
-                        
-                        def process_stock(stock, index):
-                            ticker = stock['ticker']
-                            # Stagger the initial start time of threads to prevent a massive 10-request wall hitting Yahoo instantly
-                            time.sleep(np.random.uniform(0.1, 0.5) + (index * 0.1)) 
-                            funds, is_new = fetch_fundamentals(ticker, db_cache=db_cache)
-                            
-                            if is_new and not (funds['eps_growth'] == 0 and funds['sales_growth'] == 0 and funds['roe'] == 0 and funds['industry'] == 'Unknown'):
-                                new_dict = funds.copy()
-                                new_dict['ticker'] = ticker
-                                new_successful_fetches.append(new_dict)
-                                
-                            return {**stock, **funds}
-        
-                        completed = 0
                         final_leaders = []
-                        with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
-                            future_to_stock = {executor.submit(process_stock, c_stock, idx): c_stock for idx, c_stock in enumerate(pre_screened)}
-                            for future in concurrent.futures.as_completed(future_to_stock):
-                                final_leaders.append(future.result())
-                                completed += 1
-                                prog_bar.progress(completed / len(pre_screened), text=f"Analyzed SEC/BSE Filings ({completed}/{len(pre_screened)})")
-                            
-                        # Save new fundamentals to cache to continuously defeat rate limits
-                        if new_successful_fetches:
-                            save_fundamentals_cache(new_successful_fetches)
+                        for stock in pre_screened:
+                            ticker = stock['ticker']
+                            cached = db_cache.get(ticker, {})
+                            funds = {
+                                'eps_growth': cached.get('eps_growth', 0.0),
+                                'sales_growth': cached.get('sales_growth', 0.0),
+                                'roe': cached.get('roe', 0.0),
+                                'industry': cached.get('industry', 'Unknown'),
+                            }
+                            mcap = cached.get('market_cap', 0.0)
+                            funds['mcap_cr'] = mcap / 10000000.0 if mcap else 0.0
+                            final_leaders.append({**stock, **funds})
                 
                 final_leaders = score_leaders(final_leaders, is_etf=(asset_class == "ETFs"))
                 
