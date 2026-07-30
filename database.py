@@ -859,17 +859,17 @@ def save_tml_snapshot(market: str, leaders: list, top_n: int = 20):
     conn = get_connection()
     
     # Ensure leaders are sorted by TML score just in case
-    sorted_leaders = sorted(leaders, key=lambda x: x.get('tml_score', 0), reverse=True)
+    sorted_leaders = sorted(leaders, key=lambda x: float(x.get('tml_score', 0)), reverse=True)
     top_leaders = sorted_leaders[:top_n]
     
     try:
         cursor = conn.cursor()
         for i, leader in enumerate(top_leaders):
-            ticker = leader.get('ticker', '')
-            tml_score = leader.get('tml_score', 0.0)
-            rs_score = leader.get('rs_score', 0.0)
-            action_status = leader.get('Action_Status', 'Unknown')
-            industry = leader.get('industry', 'Unknown')
+            ticker = str(leader.get('ticker', ''))
+            tml_score = float(leader.get('tml_score', 0.0))
+            rs_score = float(leader.get('rs_score', 0.0))
+            action_status = str(leader.get('Action_Status', 'Unknown'))
+            industry = str(leader.get('industry', 'Unknown'))
             
             cursor.execute('''
                 INSERT OR REPLACE INTO tml_snapshot 
@@ -880,6 +880,11 @@ def save_tml_snapshot(market: str, leaders: list, top_n: int = 20):
         conn.commit()
     except Exception as e:
         print(f"Error saving TML snapshot: {e}")
+        try:
+            import streamlit as st
+            st.error(f"Database Error (save_tml_snapshot): {e}")
+        except Exception:
+            pass
     finally:
         conn.close()
 
