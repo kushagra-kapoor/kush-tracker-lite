@@ -241,8 +241,8 @@ def init_database():
     safe_execute(cursor, '''
         CREATE TABLE IF NOT EXISTS fundamentals_cache (
             ticker TEXT PRIMARY KEY,
-            eps_growth REAL,
-            sales_growth REAL,
+            eps_yoy REAL,
+            sales_yoy REAL,
             roe REAL,
             industry TEXT,
             market_cap REAL DEFAULT 0.0,
@@ -833,9 +833,10 @@ def get_all_fundamentals_cache() -> dict:
         rows = cursor.fetchall()
         cache = {}
         for r in rows:
+            # We map DB columns (eps_yoy, sales_yoy) to app dictionary keys (eps_growth, sales_growth)
             cache[r['ticker']] = {
-                'eps_growth': _safe_float(r['eps_growth']),
-                'sales_growth': _safe_float(r['sales_growth']),
+                'eps_growth': _safe_float(r['eps_yoy'] if 'eps_yoy' in r.keys() else r.get('eps_growth', 0.0)),
+                'sales_growth': _safe_float(r['sales_yoy'] if 'sales_yoy' in r.keys() else r.get('sales_growth', 0.0)),
                 'roe': _safe_float(r['roe']),
                 'industry': r['industry'] if r['industry'] is not None else 'Unknown',
                 'market_cap': _safe_float(r['market_cap']) if 'market_cap' in r.keys() else 0.0,

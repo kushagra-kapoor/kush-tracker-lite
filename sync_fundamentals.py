@@ -27,7 +27,7 @@ def save_fundamentals_cache_batch(data_list: list):
         for item in data_list:
             cursor.execute('''
                 INSERT OR REPLACE INTO fundamentals_cache 
-                (ticker, eps_growth, sales_growth, roe, industry, market_cap, updated_at)
+                (ticker, eps_yoy, sales_yoy, roe, industry, market_cap, updated_at)
                 VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
             ''', (
                 item['ticker'],
