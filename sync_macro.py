@@ -123,6 +123,14 @@ def sync_all_data():
             if etf_results:
                 save_global_etf_momentum(etf_results)
                 
+    # 7. Update NIFTY 500 RS Reference
+    print("Computing NIFTY 500 RS Reference...")
+    try:
+        from nifty500_universe import compute_nifty500_rs_reference
+        compute_nifty500_rs_reference(show_progress=True)
+    except Exception as e:
+        print(f"Failed to compute RS Reference: {e}")
+                
     print("Global Macro Sync Completed!")
 
 if __name__ == "__main__":

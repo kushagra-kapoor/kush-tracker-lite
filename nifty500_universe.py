@@ -254,38 +254,65 @@ def compute_nifty500_rs_reference(show_progress: bool = True):
     success_count = 0
     total = len(nifty500_tickers)
     
+    if show_progress:
+        print(f"  -> Bulk downloading {total} NIFTY 500 stocks (180 days)...")
+        
+    yf_tickers = [f"{t}.NS" for t in nifty500_tickers]
+    
+    try:
+        bulk_data = yf.download(yf_tickers, start=start_date, end=end_date, group_by='ticker', threads=True, progress=show_progress)
+    except Exception as e:
+        print(f"  [X] Error during bulk download: {e}")
+        return False
+
     for i, ticker in enumerate(nifty500_tickers):
-        if show_progress and i % 50 == 0:
-            print(f"  -> Processing {i+1}/{total}...")
+        yf_ticker = f"{ticker}.NS"
         
-        returns = fetch_stock_returns(ticker)
-        
-        if returns is None:
-            continue
-        
-        # Calculate relative returns
-        rr1 = returns['R1'] - b1
-        rr3 = returns['R3'] - b3
-        rr6 = returns['R6'] - b6
-        
-        # Weighted RS_raw
-        rs_raw = (
-            rr1 * RS_WEIGHTS['1M'] +
-            rr3 * RS_WEIGHTS['3M'] +
-            rr6 * RS_WEIGHTS['6M']
-        )
-        
-        # Store in database
         try:
+            if len(yf_tickers) == 1 or not isinstance(bulk_data.columns, pd.MultiIndex):
+                df = bulk_data.copy()
+            else:
+                df = bulk_data[yf_ticker].copy() if yf_ticker in bulk_data.columns.get_level_values(0) else pd.DataFrame()
+                
+            if df.empty or len(df) < DATA_SETTINGS['TRADING_DAYS_6M']:
+                continue
+                
+            if 'Close' in df.columns:
+                close = df['Close']
+            elif 'close' in df.columns:
+                close = df['close']
+            else:
+                continue
+                
+            r1 = calculate_returns(close, DATA_SETTINGS['TRADING_DAYS_1M'])
+            r3 = calculate_returns(close, DATA_SETTINGS['TRADING_DAYS_3M'])
+            r6 = calculate_returns(close, DATA_SETTINGS['TRADING_DAYS_6M'])
+            
+            if r1 is None or r3 is None or r6 is None:
+                continue
+            
+            # Calculate relative returns
+            rr1 = r1 - b1
+            rr3 = r3 - b3
+            rr6 = r6 - b6
+            
+            # Weighted RS_raw
+            rs_raw = (
+                rr1 * RS_WEIGHTS['1M'] +
+                rr3 * RS_WEIGHTS['3M'] +
+                rr6 * RS_WEIGHTS['6M']
+            )
+            
+            # Store in database
             cursor.execute('''
                 INSERT OR REPLACE INTO rs_reference_nifty500 
                 (date, ticker, rs_raw, r1, r3, r6)
                 VALUES (?, ?, ?, ?, ?, ?)
-            ''', (today, ticker, rs_raw, returns['R1'], returns['R3'], returns['R6']))
+            ''', (today, ticker, rs_raw, r1, r3, r6))
             success_count += 1
-        except Exception as e:
+        except Exception:
             pass
-    
+            
     conn.commit()
     conn.close()
     
