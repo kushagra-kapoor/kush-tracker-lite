@@ -503,9 +503,9 @@ def render_institutional_footprints(market: str):
             
         slider_col1, slider_col2 = st.columns(2)
         with slider_col1:
-            min_rs = st.slider("Min RS Score", min_value=0, max_value=99, value=70, key=f"rs_{market}")
+            min_rs = st.slider("Min RS Score", min_value=0, max_value=99, value=0, key=f"rs_{market}")
         with slider_col2:
-            max_dist_input = st.slider("Max Dist from 52W High (%)", min_value=0, max_value=100, value=25, key=f"dist_{market}")
+            max_dist_input = st.slider("Max Dist from 52W High (%)", min_value=0, max_value=100, value=100, key=f"dist_{market}")
             max_dist = -max_dist_input
             
         if show_tennis:

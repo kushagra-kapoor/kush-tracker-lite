@@ -660,13 +660,8 @@ def main():
                     log_volume_shock(t, shock_date, float(vol_exp), float(row.get('Close', 0)), float(row.get('Today High', 0)), float(row.get('Today Low', 0)), "INDIA")
                 
             if signals_to_save:
-                from database import save_intraday_signals, add_to_focus_list
+                from database import save_intraday_signals
                 save_intraday_signals("INDIA", signals_to_save)
-                
-                # Automatically add breakouts and apex stocks to Focus List
-                for sig in signals_to_save:
-                    if sig['signal_name'] in ['Stage 2', 'GLB Breakout', 'Launchpad', 'Apex']:
-                        add_to_focus_list(sig['ticker'], "INDIA")
             
             # Store in session state
             st.session_state['results_df'] = results_df
