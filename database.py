@@ -652,21 +652,24 @@ def get_recent_intraday_signals(market: str, days: int = 3) -> dict:
     # Calculate cutoff date
     cutoff_date = (datetime.now() - timedelta(days=days)).strftime('%Y-%m-%d')
     
-    cursor.execute('''
-        SELECT ticker, signal_name, date FROM intraday_signals_history
-        WHERE market = ? AND date >= ?
-        ORDER BY date DESC
-    ''', (market, cutoff_date))
-    
     results = {}
-    for row in cursor.fetchall():
-        ticker = row[0]
-        signal = row[1]
-        date_val = row[2]
+    try:
+        cursor.execute('''
+            SELECT ticker, signal_name, date FROM intraday_signals_history
+            WHERE market = ? AND date >= ?
+            ORDER BY date DESC
+        ''', (market, cutoff_date))
         
-        if ticker not in results:
-            results[ticker] = []
-        results[ticker].append((signal, date_val))
+        for row in cursor.fetchall():
+            ticker = row[0]
+            signal = row[1]
+            date_val = row[2]
+            
+            if ticker not in results:
+                results[ticker] = []
+            results[ticker].append((signal, date_val))
+    except Exception as e:
+        print(f"Error fetching recent intraday signals: {e}")
         
     conn.close()
     return results
