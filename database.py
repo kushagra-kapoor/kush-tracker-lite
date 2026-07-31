@@ -1353,6 +1353,7 @@ def auto_backfill_footprints(ticker_data: dict, market: str, lookback_days: int 
     Scans a dictionary of dataframes for historic volume shocks 
     and logs them into the database automatically if missing.
     """
+    market = "INDIA" if market in ["IN", "INDIA"] else "USA"
     count = 0
     if not ticker_data: return count
         
