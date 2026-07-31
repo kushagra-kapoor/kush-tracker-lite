@@ -115,7 +115,22 @@ pages = {
 }
 
 # Sign Out Button in Sidebar Footer
+# Database Connection Status
 st.sidebar.markdown("---")
+try:
+    from database import get_connection
+    conn = get_connection()
+    conn_type = type(conn).__name__
+    if 'libsql' in str(type(conn)).lower() or 'Connection' in str(type(conn)) and 'sqlite3' not in str(type(conn)):
+        st.sidebar.success(f"🟢 Database: Turso Cloud")
+    else:
+        st.sidebar.warning(f"🟡 Database: Local SQLite")
+        st.sidebar.caption("⚠️ If you expect Cloud DB, check Streamlit Secrets.")
+except Exception as e:
+    st.sidebar.error("🔴 Database: Disconnected")
+
+st.sidebar.markdown("---")
+st.sidebar.caption("Kush Tracker Lite v2.0")
 if st.sidebar.button("🚪 Sign Out", use_container_width=True):
     st.session_state.authenticated = False
     st.rerun()
