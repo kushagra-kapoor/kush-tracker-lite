@@ -32,6 +32,33 @@ try:
     dicts = [dict(zip(cols, r)) for r in raw_rows]
     st.write(dicts)
     
+    st.subheader("3. Test TML Snapshot Insertion")
+    if st.button("Test Insert to tml_snapshot"):
+        try:
+            from database import save_tml_snapshot
+            dummy_leaders = [{
+                'ticker': 'TEST.NS',
+                'tml_score': 99.9,
+                'rs_score': 99,
+                'Action_Status': 'Test Status',
+                'industry': 'Test Industry'
+            }]
+            save_tml_snapshot("TEST_MARKET", dummy_leaders, top_n=1)
+            st.success("Successfully executed save_tml_snapshot!")
+            
+            # Verify insertion
+            c.execute("SELECT * FROM tml_snapshot WHERE ticker = 'TEST.NS'")
+            test_row = c.fetchall()
+            st.write("Verification Query Result:")
+            st.write(test_row)
+            
+            # Clean up
+            c.execute("DELETE FROM tml_snapshot WHERE ticker = 'TEST.NS'")
+            conn.commit()
+        except Exception as e:
+            st.error(f"Insertion failed: {e}")
+            st.text(traceback.format_exc())
+            
 except Exception as e:
     st.error(f"Error: {e}")
     st.text(traceback.format_exc())
