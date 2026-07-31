@@ -677,9 +677,16 @@ def main():
                         st.write(f"4. Injecting fresh CANSLIM fundamentals from Cloud Database for {len(pre_screened)} survivors...")
                         db_cache = get_all_fundamentals_cache()
                         final_leaders = []
+                        debug_lookups = []
                         for stock in pre_screened:
+                            # The live yfinance matrix retains the .NS suffix, but our db_cache strips it
                             ticker = stock['ticker']
-                            cached = db_cache.get(ticker, {})
+                            clean_ticker = ticker.replace('.NS', '')
+                            cached = db_cache.get(clean_ticker, {})
+                            
+                            if len(debug_lookups) < 5:
+                                debug_lookups.append(f"Looking for '{clean_ticker}' -> Found: {cached}")
+                                
                             funds = {
                                 'eps_growth': cached.get('eps_growth', 0.0),
                                 'sales_growth': cached.get('sales_growth', 0.0),
@@ -689,6 +696,10 @@ def main():
                             mcap = cached.get('market_cap', 0.0)
                             funds['mcap_cr'] = mcap / 10000000.0 if mcap else 0.0
                             final_leaders.append({**stock, **funds})
+                            
+                        st.write("🔍 DEBUG - Cache Lookup Test:")
+                        for d in debug_lookups:
+                            st.write(d)
                 
                 final_leaders = score_leaders(final_leaders, is_etf=(asset_class == "ETFs"))
                 
