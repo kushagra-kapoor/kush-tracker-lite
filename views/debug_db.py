@@ -26,11 +26,18 @@ try:
     raw_rows = c.fetchall()
     st.write(raw_rows)
     
-    st.write("Fetch all dicts:")
+    st.write("Fetch all dicts (Limit 5):")
     cols = [desc[0] for desc in c.description]
     st.write(f"Cols: {cols}")
     dicts = [dict(zip(cols, r)) for r in raw_rows]
     st.write(dicts)
+    
+    st.subheader("2.5 Look up specific tickers")
+    c.execute("SELECT * FROM fundamentals_cache WHERE ticker IN ('ADANIENT.NS', 'ADANIENT', 'SMLISUZU.NS', 'SMLISUZU')")
+    spec_rows = c.fetchall()
+    spec_dicts = [dict(zip(cols, r)) for r in spec_rows]
+    st.write(spec_dicts)
+
     
     st.subheader("3. Test TML Snapshot Insertion")
     if st.button("Test Insert to tml_snapshot"):
