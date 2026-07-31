@@ -1294,8 +1294,13 @@ def get_active_volume_shocks(market: str = None):
     query = "SELECT * FROM institutional_footprints WHERE status = 'Active'"
     params = []
     if market:
-        query += " AND market = ?"
-        params.append(market)
+        if market in ["IN", "INDIA"]:
+            query += " AND market IN ('IN', 'INDIA')"
+        elif market in ["US", "USA"]:
+            query += " AND market IN ('US', 'USA')"
+        else:
+            query += " AND market = ?"
+            params.append(market)
         
     try:
         cursor.execute(query, params)
