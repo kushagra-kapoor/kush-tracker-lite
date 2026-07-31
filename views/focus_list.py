@@ -217,9 +217,7 @@ def render_institutional_footprints(market: str):
     shocks = get_active_volume_shocks(db_market)
     
     if not shocks:
-        return
-        
-    st.markdown("---")
+        st.info(f"No active volume shocks found for {market}. Click 'Sync Missing Days' to run a deep scan.")
     
     # Neon World-Class Header with Animation
     col_hdr, col_btn = st.columns([4, 1])
