@@ -1303,7 +1303,7 @@ def get_active_volume_shocks(market: str = None):
             params.append(market)
         
     try:
-        cursor.execute(query, params)
+        cursor.execute(query, tuple(params))
         return _fetch_all_dicts(cursor)
     except Exception as e:
         print(f"Error fetching active volume shocks: {e}")
