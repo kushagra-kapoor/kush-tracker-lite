@@ -37,5 +37,17 @@ jobs:
           turso_token = "${TURSO_TOKEN}"
           EOF
           
+      - name: Debug Fundamentals Cache
+        run: |
+          python -c "
+          import sys; sys.path.append('.')
+          from database import get_connection, _fetch_all_dicts
+          conn = get_connection()
+          c = conn.cursor()
+          c.execute(\"SELECT * FROM fundamentals_cache WHERE ticker LIKE '%RELIANCE%' LIMIT 5\")
+          print('--- DEBUG CACHE ---')
+          for r in _fetch_all_dicts(c): print(r)
+          "
+          
       - name: Run Cloud Fundamentals Sync Engine
         run: python sync_fundamentals.py

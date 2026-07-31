@@ -37,5 +37,8 @@ jobs:
           turso_token = "${TURSO_TOKEN}"
           EOF
           
+      - name: Patch Database Schema
+        run: python patch_db.py
+        
       - name: Run Global Macro Sync
         run: python sync_macro.py
