@@ -110,7 +110,8 @@ pages = {
         st.Page("views/sector_leadership.py", title="Sector Leadership", icon="🔥")
     ],
     "⭐ Execution Workspace": [
-        st.Page("views/focus_list.py", title="Focus List & Breakouts", icon="⭐")
+        st.Page("views/focus_list.py", title="Focus List & Breakouts", icon="⭐"),
+        st.Page("views/debug_db.py", title="Debug DB internals", icon="🐛")
     ]
 }
 
