@@ -830,11 +830,13 @@ def get_all_fundamentals_cache() -> dict:
     
     try:
         cursor.execute("SELECT * FROM fundamentals_cache")
-        rows = cursor.fetchall()
+        rows = _fetch_all_dicts(cursor)
         cache = {}
         for r in rows:
+            # Strip .NS to match the UI pipeline which strips suffixes for presentation
+            clean_ticker = r['ticker'].replace('.NS', '')
             # We map DB columns (eps_yoy, sales_yoy) to app dictionary keys (eps_growth, sales_growth)
-            cache[r['ticker']] = {
+            cache[clean_ticker] = {
                 'eps_growth': _safe_float(r['eps_yoy'] if 'eps_yoy' in r.keys() else r.get('eps_growth', 0.0)),
                 'sales_growth': _safe_float(r['sales_yoy'] if 'sales_yoy' in r.keys() else r.get('sales_growth', 0.0)),
                 'roe': _safe_float(r['roe']),
