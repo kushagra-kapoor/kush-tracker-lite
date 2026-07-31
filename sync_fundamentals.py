@@ -72,8 +72,10 @@ def get_stale_tickers(all_tickers: list) -> list:
             if updated_at_str:
                 try:
                     last_updated = datetime.strptime(updated_at_str, '%Y-%m-%d %H:%M:%S')
-                    # If updated more than 7 days (168 hours) ago, consider it stale
-                    if (now - last_updated).total_seconds() > (7 * 24 * 3600):
+                    # If updated more than 6 days (144 hours) ago, consider it stale
+                    # We use 6 days instead of 7 to ensure the weekly cron (which runs every 7 days) 
+                    # definitively triggers a fetch without timing race conditions.
+                    if (now - last_updated).total_seconds() > (6 * 24 * 3600):
                         stale_tickers.append(ticker)
                 except Exception:
                     stale_tickers.append(ticker)
