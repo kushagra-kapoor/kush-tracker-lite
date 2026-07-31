@@ -1,12 +1,12 @@
-name: Daily Sync
+name: Weekly Fundamentals Sync
 
 on:
   schedule:
-    - cron: '0 20 * * *' # 4 AM SGT (UTC+8)
+    - cron: '0 20 * * 5' # 4 AM SGT on Saturday (20:00 UTC Friday)
   workflow_dispatch: # Allows manual trigger from GitHub UI
 
 jobs:
-  sync_data:
+  sync_fundamentals:
     runs-on: ubuntu-latest
     
     steps:
@@ -37,5 +37,5 @@ jobs:
           turso_token = "${TURSO_TOKEN}"
           EOF
           
-      - name: Run Global Macro Sync
-        run: python sync_macro.py
+      - name: Run Cloud Fundamentals Sync Engine
+        run: python sync_fundamentals.py

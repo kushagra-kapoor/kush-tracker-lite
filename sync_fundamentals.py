@@ -72,8 +72,8 @@ def get_stale_tickers(all_tickers: list) -> list:
             if updated_at_str:
                 try:
                     last_updated = datetime.strptime(updated_at_str, '%Y-%m-%d %H:%M:%S')
-                    # If updated more than 23 hours ago, consider it stale
-                    if (now - last_updated).total_seconds() > (23 * 3600):
+                    # If updated more than 7 days (168 hours) ago, consider it stale
+                    if (now - last_updated).total_seconds() > (7 * 24 * 3600):
                         stale_tickers.append(ticker)
                 except Exception:
                     stale_tickers.append(ticker)
