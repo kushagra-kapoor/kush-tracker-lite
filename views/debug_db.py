@@ -81,6 +81,22 @@ try:
         except Exception as e:
             st.error(f"Failed to patch schema: {e}")
             st.text(traceback.format_exc())
+
+    st.subheader("5. Emergency Intraday Signals Schema Patch")
+    if st.button("🚨 Patch intraday_signals_history Schema"):
+        try:
+            conn = get_connection()
+            c = conn.cursor()
+            c.execute("DROP TABLE IF EXISTS intraday_signals_history")
+            
+            # Recreate with correct schema
+            from database import init_database
+            init_database()
+            
+            st.success("Successfully dropped and recreated intraday_signals_history in Turso!")
+        except Exception as e:
+            st.error(f"Failed to patch schema: {e}")
+            st.text(traceback.format_exc())
             
 except Exception as e:
     st.error(f"Error: {e}")

@@ -91,6 +91,12 @@ def render_focus_table(market: str):
         st.info(f"No stocks pinned for {market}. Use the Quick Add above or go to the True Market Leader page to pin setups.")
         return
         
+    # --- FETCH INTRADAY SIGNALS ---
+    from database import get_recent_intraday_signals
+    market_str = "INDIA" if market == "IN" else "US"
+    tickers_list = [s['ticker'] for s in stocks]
+    recent_signals = get_recent_intraday_signals(market_str, tickers_list, days=7)
+        
     # Prepare Dataframe
     df_data = []
     for s in stocks:
@@ -120,8 +126,22 @@ def render_focus_table(market: str):
             current_price = 0.0
             status = "⚠️ No Price Data"
             
+        # Format Signals
+        sig_list = recent_signals.get(ticker.replace('.NS', ''), [])
+        sig_badges = []
+        if 'Apex' in sig_list: sig_badges.append("👑 Apex")
+        if 'Stage 2' in sig_list: sig_badges.append("🚀 Stage 2")
+        if 'Launchpad' in sig_list: sig_badges.append("🔥 Launchpad")
+        if 'GLB Breakout' in sig_list: sig_badges.append("🟩 GLB")
+        if '3WT' in sig_list: sig_badges.append("⚡ 3WT")
+        if 'EP' in sig_list: sig_badges.append("💥 EP")
+        if 'HV1' in sig_list: sig_badges.append("🐘 HV1")
+        
+        sig_str = " | ".join(sig_badges) if sig_badges else "-"
+            
         df_data.append({
             "Ticker": ticker,
+            "Recent Signals": sig_str,
             "Live Price": current_price,
             "Entry Trigger": s['entry_trigger'],
             "Stop Loss": s['stop_loss'],
@@ -140,6 +160,7 @@ def render_focus_table(market: str):
         df,
         column_config={
             "Ticker": st.column_config.TextColumn("Ticker", disabled=True),
+            "Recent Signals": st.column_config.TextColumn("Recent Signals (7D)", disabled=True),
             "Live Price": st.column_config.NumberColumn("Live Price", format=f"{currency_symbol}%.2f", disabled=True),
             "Status": st.column_config.TextColumn("Status", disabled=True),
             "Entry Trigger": st.column_config.NumberColumn("Entry Trigger", format="%.2f", step=0.05),
