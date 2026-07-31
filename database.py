@@ -19,7 +19,18 @@ def get_connection():
     except Exception:
         pass
         
-    # 2. Try manual TOML parsing (when running via python sync_macro.py)
+    # 2. Try Environment Variables (for GitHub Actions)
+    import os
+    env_url = os.environ.get("TURSO_URL")
+    env_token = os.environ.get("TURSO_TOKEN")
+    if env_url and env_token:
+        try:
+            import libsql_experimental as libsql
+            return libsql.connect(database=env_url, auth_token=env_token)
+        except Exception:
+            pass
+            
+    # 3. Try manual TOML parsing (when running via python sync_macro.py)
     try:
         import toml
         import os

@@ -58,6 +58,22 @@ try:
         except Exception as e:
             st.error(f"Insertion failed: {e}")
             st.text(traceback.format_exc())
+
+    st.subheader("4. Emergency Turso Schema Patch")
+    if st.button("🚨 Patch tml_snapshot Schema"):
+        try:
+            conn = get_connection()
+            c = conn.cursor()
+            c.execute("DROP TABLE IF EXISTS tml_snapshot")
+            
+            # Recreate with correct schema
+            from database import init_database
+            init_database()
+            
+            st.success("Successfully dropped and recreated tml_snapshot in Turso!")
+        except Exception as e:
+            st.error(f"Failed to patch schema: {e}")
+            st.text(traceback.format_exc())
             
 except Exception as e:
     st.error(f"Error: {e}")
