@@ -54,7 +54,7 @@ def get_stale_tickers(all_tickers: list) -> list:
     try:
         cursor.execute("SELECT ticker, updated_at FROM fundamentals_cache")
         rows = cursor.fetchall()
-        cache = {r['ticker']: r['updated_at'] for r in rows}
+        cache = {r[0]: r[1] for r in rows}
     except Exception as e:
         print(f"Error reading fundamentals cache: {e}")
         cache = {}
