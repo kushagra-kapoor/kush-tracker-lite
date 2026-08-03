@@ -319,10 +319,15 @@ def main():
     from components import render_header
     render_header("📊 KUSH TRACKER", "Portfolio Execution & Risk Management Dashboard")
     
-    # Journal Notification
+    # Nightly AI Briefing
     today_str = datetime.now().strftime("%Y-%m-%d")
-    if not get_journal_entry(today_str):
-        st.warning("🚨 **Daily Journal Pending:** You have not logged your institutional bias today. Go to the **daily journal** page to review your analytics.")
+    journal_entry = get_journal_entry(today_str)
+    
+    if journal_entry and journal_entry.get('review'):
+        st.markdown("### 🤖 Nightly AI Battle Plan")
+        st.info(journal_entry.get('review'))
+    else:
+        st.warning("🚨 **Daily Journal Pending:** No AI Briefing or Journal generated for today yet.")
     
     # Sidebar
     with st.sidebar:
