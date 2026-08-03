@@ -15,7 +15,7 @@ from database import (
     save_intraday_signals,
     get_connection
 )
-from market_data import fetch_yfinance_batch
+from views.intraday_monitor import fetch_yfinance_batch
 from signal_engine import process_intraday_data
 from llm_utils import robust_llm_call
 
