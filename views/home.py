@@ -323,9 +323,9 @@ def main():
     today_str = datetime.now().strftime("%Y-%m-%d")
     journal_entry = get_journal_entry(today_str)
     
-    if journal_entry and journal_entry.get('review'):
+    if journal_entry and journal_entry.get('journal_notes'):
         st.markdown("### 🤖 Nightly AI Battle Plan")
-        st.info(journal_entry.get('review'))
+        st.info(journal_entry.get('journal_notes'))
     else:
         st.warning("🚨 **Daily Journal Pending:** No AI Briefing or Journal generated for today yet.")
     
