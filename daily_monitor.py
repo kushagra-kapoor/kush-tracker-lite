@@ -102,7 +102,8 @@ def process_market(tickers, market_label, index_ticker):
 def run_daily_monitor():
     print("--- STARTING DAILY MONITOR ---")
     
-    nse_tickers = read_tickers('tickers.txt')
+    from market_data import fetch_nifty_total_market_tickers
+    nse_tickers = fetch_nifty_total_market_tickers(return_industry_map=False)
     us_tickers = read_tickers('tickers_us.txt')
     
     nse_summary = process_market(nse_tickers, "INDIA", "^CRSLDX")
