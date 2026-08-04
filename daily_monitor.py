@@ -105,8 +105,13 @@ def run_daily_monitor():
     nse_tickers = read_tickers('tickers.txt')
     us_tickers = read_tickers('tickers_us.txt')
     
-    nse_summary = process_market(nse_tickers, "INDIA", "^CRSLDX")
-    us_summary = process_market(us_tickers, "USA", "^IXIC")
+    import concurrent.futures
+    with concurrent.futures.ThreadPoolExecutor(max_workers=2) as executor:
+        future_nse = executor.submit(process_market, nse_tickers, "INDIA", "^CRSLDX")
+        future_us = executor.submit(process_market, us_tickers, "USA", "^IXIC")
+        
+        nse_summary = future_nse.result()
+        us_summary = future_us.result()
     
     # Generate Nightly Briefing via LLM
     print("Generating AI Nightly Briefing...")
