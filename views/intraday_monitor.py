@@ -544,7 +544,8 @@ def main():
                     st.error("Failed to pin.")
     st.markdown("---")
     
-    from database import get_latest_top_sectors, get_market_regime
+    from database import get_latest_top_sectors, get_market_regime, init_database
+    init_database()
     regime = get_market_regime()
     st.markdown(f"### 🔭 Scanner Configuration | Market Regime: {regime}")
     

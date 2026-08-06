@@ -320,6 +320,7 @@ def main():
     render_header("📊 KUSH TRACKER", "Portfolio Execution & Risk Management Dashboard")
     
     # Nightly AI Briefing
+    init_database()
     today_str = datetime.now().strftime("%Y-%m-%d")
     journal_entry = get_journal_entry(today_str)
     
