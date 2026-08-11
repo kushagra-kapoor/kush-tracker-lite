@@ -2494,5 +2494,6 @@ def render_sector_heat_rankings(history_df, tickers, db_cache, rs_scores, sort_b
     st.markdown(html_payload, unsafe_allow_html=True)
 
 
-main()
+if __name__ == "__main__":
+    main()
 
