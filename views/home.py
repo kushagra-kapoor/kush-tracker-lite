@@ -1794,6 +1794,113 @@ def main():
                 st.dataframe(styled_df, use_container_width=True, hide_index=True)
         
         st.markdown("---")
+        
+        # --- INSTITUTIONAL THEME TRACKER (O'NEIL NEW HIGHS) ---
+        try:
+            from theme_engine import calculate_theme_alignment
+            theme_data = calculate_theme_alignment()
+            if theme_data and 'top_themes' in theme_data and theme_data['top_themes']:
+                
+                st.markdown("### 🔥 Institutional Theme Tracker (O'Neil New Highs)")
+                
+                with st.expander("📚 How is this calculated?"):
+                    st.markdown("""
+                    **The Philosophy:** Institutional money moves in massive themes. When mutual funds accumulate a sector, they don't just buy one stock; they buy the top 5 or 10 names in that group. By tracking the *density* of 52-week highs within a sector, we are tracking the footprint of massive institutional capital flow.
+                    
+                    **The Calculation (No Black Box):**
+                    1. **Universe:** We scan the Top 750 most liquid stocks on the NSE (The Nifty Total Market).
+                    2. **Net New Highs:** We analyze the last 5 trading days. For every stock, we check if its high price breached a 250-day (52-week) high. We also count new 52-week lows. We calculate **Net New Highs (New Highs minus New Lows)** to ensure the sector is genuinely trending up, not just volatile.
+                    3. **Ranking:** We group these 750 stocks into their official NSE Macro-Economic Sectors and rank the sectors by the highest density of Net New Highs.
+                    4. **The Leaders & RS Score:** Under each sector, we print the top 3 specific stocks that made a new high, ranked by their Relative Strength (RS). 
+                    *Note: The RS Score (0-99) is calculated by aggressively weighting recent momentum: (1M Return × 40%) + (3M Return × 35%) + (6M Return × 25%), and then percentile-ranking the stock against all 750 names in the universe.*
+                    """)
+                
+                st.markdown("""
+                <style>
+                .theme-card {
+                    background: linear-gradient(145deg, rgba(30, 41, 59, 0.9) 0%, rgba(15, 23, 42, 0.9) 100%);
+                    border: 1px solid rgba(255,255,255,0.05);
+                    border-radius: 12px;
+                    padding: 16px;
+                    height: 100%;
+                    transition: transform 0.2s ease, box-shadow 0.2s ease;
+                    box-shadow: 0 4px 10px rgba(0,0,0,0.3);
+                }
+                .theme-card:hover {
+                    transform: translateY(-5px);
+                    box-shadow: 0 12px 24px rgba(0,0,0,0.6);
+                    border: 1px solid rgba(255,255,255,0.15);
+                }
+                .theme-title {
+                    font-size: 0.95rem;
+                    font-weight: 700;
+                    color: #f8fafc;
+                    margin-bottom: 4px;
+                    display: -webkit-box;
+                    -webkit-line-clamp: 2;
+                    -webkit-box-orient: vertical;
+                    overflow: hidden;
+                    line-height: 1.3;
+                }
+                .theme-metric {
+                    font-size: 0.75rem;
+                    color: #94a3b8;
+                    margin: 0;
+                    margin-bottom: 12px;
+                }
+                .rs-badge {
+                    padding: 1px 6px;
+                    border-radius: 10px;
+                    font-size: 0.7rem;
+                    font-weight: bold;
+                    border: 1px solid;
+                }
+                .leader-row {
+                    font-size: 0.8rem;
+                    margin: 6px 0;
+                    display: flex;
+                    align-items: center;
+                    justify-content: space-between;
+                }
+                .leader-ticker {
+                    color: #e2e8f0;
+                    font-weight: 600;
+                }
+                </style>
+                """, unsafe_allow_html=True)
+                
+                top_themes = theme_data['top_themes']
+                cols = st.columns(6)
+                
+                rank_colors = ["#fbbf24", "#94a3b8", "#b45309", "#3b82f6", "#3b82f6", "#3b82f6"]
+                
+                for i, theme in enumerate(top_themes):
+                    if i < 6:
+                        with cols[i]:
+                            border_color = rank_colors[i]
+                            
+                            leaders_html = ""
+                            for l in theme['leaders']:
+                                rs_val = l['rs']
+                                if rs_val >= 90:
+                                    rs_bg, rs_txt, rs_brd = "rgba(16, 185, 129, 0.2)", "#34d399", "rgba(16, 185, 129, 0.3)"
+                                elif rs_val >= 80:
+                                    rs_bg, rs_txt, rs_brd = "rgba(59, 130, 246, 0.2)", "#60a5fa", "rgba(59, 130, 246, 0.3)"
+                                else:
+                                    rs_bg, rs_txt, rs_brd = "rgba(234, 179, 8, 0.2)", "#facc15", "rgba(234, 179, 8, 0.3)"
+                                    
+                                leaders_html += f"<div class='leader-row'><span class='leader-ticker'>✦ {l['ticker']}</span><span class='rs-badge' style='background: {rs_bg}; color: {rs_txt}; border-color: {rs_brd};'>{rs_val:.0f} RS</span></div>"
+                                
+                            st.markdown(f"""<div class='theme-card' style='border-top: 4px solid {border_color};'>
+<div class='theme-title'>{i+1}. {theme['sector']}</div>
+<p class='theme-metric'>{theme['net_highs']} Net New Highs</p>
+<hr style="margin: 8px 0; border: none; border-top: 1px solid rgba(255,255,255,0.05);">
+<p style="font-size: 0.7rem; color: #64748b; margin-bottom: 8px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px;">Theme Leaders</p>
+{leaders_html}
+</div>""", unsafe_allow_html=True)
+                st.markdown("<br>", unsafe_allow_html=True)
+        except Exception as e:
+            print(f"Failed to render Theme Tracker: {e}")
 
 if __name__ == "__main__":
     main()
