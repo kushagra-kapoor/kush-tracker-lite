@@ -898,7 +898,14 @@ if "Active CANSLIM Swing Trader" in terminal_mode:
                 z_badge = format_z_badge(b.get('z_score'), b.get('clean_ticker'))
                 adtv_badge = format_adtv_badge(b.get('adtv_cr'))
                 theme_badge = format_industry_badge(b.get('industry'), b.get('is_thematic_cluster'), b.get('cluster_count'))
-                theme_html = f"<div style='margin-top: 3px; margin-bottom: 6px;'>{theme_badge}</div>" if theme_badge else ""
+                setup_lbl = b.get('setup_type', '🔥 Base Breakout')
+                setup_col = "#38bdf8" if "21 EMA" in setup_lbl else "#fb923c"
+                setup_pill = f"<span style='font-size: 0.70rem; font-weight: 700; color: {setup_col}; background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.12); padding: 2px 7px; border-radius: 4px; display: inline-flex; align-items: center;'>{setup_lbl}</span>"
+                
+                meta_row_html = f"""<div style="display: flex; align-items: center; justify-content: space-between; gap: 4px; margin-top: 4px; margin-bottom: 7px; flex-wrap: wrap;">
+<div>{theme_badge if theme_badge else ''}</div>
+<div>{setup_pill}</div>
+</div>"""
                 dist_color = "#34d399" if b['dist_now_pct'] >= 0 else "#f87171"
                 tv_url = get_tradingview_url(b['clean_ticker'])
                 
@@ -913,7 +920,7 @@ if "Active CANSLIM Swing Trader" in terminal_mode:
 </div>
 <span class="action-pill action-pill-{badge_class}">{badge_lbl}</span>
 </div>
-{theme_html}
+{meta_row_html}
 <div class="metrics-grid">
 <div class="metric-cell">
 <span class="metric-cell-lbl">CMP (vs Pivot)</span>
