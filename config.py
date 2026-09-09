@@ -114,3 +114,24 @@ DISPLAY = {
         'RISK': 'red',
     }
 }
+
+# =============================================================================
+# CANSLIM SWING TRADING SYSTEM SETTINGS
+# =============================================================================
+CANSLIM_SWING_SETTINGS = {
+    'MAX_POSITIONS': 8,                      # Target 12.5% allocation each
+    'MIN_SALES_GROWTH_PCT': 25.0,            # Minimum 25% Sales growth YoY (Sole Fundamental Gate)
+    'INITIAL_STOP_LOSS_PCT': 4.5,            # Target initial risk
+    'HARD_MAX_STOP_PCT': 7.5,                # O'Neil maximum cutoff
+    'BUY_ZONE_MAX_PCT': 5.0,                 # Max 5% above pivot (never chase extended)
+    'BREAKOUT_VOL_MULTIPLIER': 1.4,          # 1.4x 50-day average volume
+    'TRAILING_EXIT_CONSECUTIVE_DAYS_21EMA': 2, # 2 consecutive closes below 21 EMA
+    'EIGHT_WEEK_HOLD_GAIN_PCT': 20.0,        # 20% gain within 3 weeks
+    'EIGHT_WEEK_HOLD_MAX_DAYS': 15,          # 15 trading days (~3 weeks)
+    # Pyramiding (Averaging Up)
+    'PYRAMID_MIN_GAIN_PCT': 2.5,             # Position must be up at least 2.5% to add
+    'PYRAMID_MAX_EXTENSION_21EMA': 5.0,      # Add only within 5% of 21 EMA
+    'PYRAMID_TRANCHE_INITIAL': 0.50,         # Tranche 1: 50% size
+    'PYRAMID_TRANCHE_ADD1': 0.30,            # Tranche 2: 30% size
+    'PYRAMID_TRANCHE_ADD2': 0.20,            # Tranche 3: 20% size
+}

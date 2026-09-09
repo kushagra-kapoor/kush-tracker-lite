@@ -95,6 +95,9 @@ pages = {
     "🏠 Main Dashboard": [
         st.Page("views/home.py", title="Kush Tracker Home", icon="🏠")
     ],
+    "⚡ Fast Momentum": [
+        st.Page("views/fast_momentum_index.py", title="Fast Momentum Index", icon="⚡")
+    ],
     "⚡ Intraday Monitors": [
         st.Page("views/intraday_monitor.py", title="Intraday Monitor (India)", icon="🇮🇳"),
         st.Page("views/intraday_monitor_us.py", title="Intraday Monitor (US)", icon="🇺🇸")

@@ -57,8 +57,8 @@ def calculate_fast_momentum_scores(close_df):
     z6 = _cross_sectional_z(mr6)
     
     # 3. Weighted Z-Score 
-    # (50% 1M, 30% 3M, 20% 6M)
-    weighted_z = (z1 * 0.50) + (z3 * 0.30) + (z6 * 0.20)
+    # (40% 1M, 40% 3M, 20% 6M)
+    weighted_z = (z1 * 0.40) + (z3 * 0.40) + (z6 * 0.20)
     
     # 4. Normalized Momentum Score (NSE Formula)
     # If Z >= 0: 1 + Z
@@ -79,16 +79,27 @@ def calculate_fast_momentum_scores(close_df):
     normalized_score.iloc[:, :] = out
     return normalized_score.astype(float)
 
-def compute_live_fast_momentum_matrix():
+def compute_live_fast_momentum_matrix(universe_mode="nifty_750"):
     """
     Orchestrates the data loads from the cache and returns the scoring matrix.
     Ties deeply into the existing Kush Tracker app caching logic.
+    
+    Args:
+        universe_mode: "nifty_750" (default, ~750 stocks) or "deep_market" (~2500+ NSE stocks)
     """
-    from market_data import fetch_nifty_total_market_tickers
     from price_history_manager import fetch_incremental_history
     
-    # 1. Fetch Universe
-    universe_tickers = fetch_nifty_total_market_tickers(show_progress=False)
+    # 1. Fetch Universe based on mode
+    if universe_mode == "deep_market":
+        try:
+            from views.true_market_leader import get_cached_universe
+        except ImportError:
+            from pages.true_market_leader import get_cached_universe
+        universe_tickers = get_cached_universe("Deep Market (2500+ NSE Stocks)")
+    else:
+        from market_data import fetch_nifty_total_market_tickers
+        universe_tickers = fetch_nifty_total_market_tickers(show_progress=False)
+    
     if not universe_tickers:
         return None, None
         

@@ -157,6 +157,104 @@ def check_minervini_trend_template(df: pd.DataFrame, rs_score: float = None) -> 
     return result
 
 
+def calculate_base_stage(df: pd.DataFrame) -> dict:
+    """
+    Calculate the current Base Stage (Base 1, Base 2, Base 3, Base 4+).
+    
+    Logic:
+    - Counts significant consolidations (15-35% depth) lasting 3+ weeks.
+    - Base count resets to 0 if price breaches 200 SMA significantly or for extended period.
+    """
+    result = {
+        'base_count': 0,
+        'stage_label': 'Unknown',
+        'danger_zone': False
+    }
+    
+    if df.empty or len(df) < 200:
+        return result
+        
+    # Simplify by finding periods above 200 SMA
+    sma_200 = df['close'].rolling(window=200, min_periods=200).mean()
+    
+    # Track states
+    in_uptrend = False
+    base_count = 0
+    in_base = False
+    base_start_idx = 0
+    base_high = 0
+    
+    # We iterate over the last 3-4 years if available, else what we have
+    lookback = min(len(df), 1000)
+    recent_df = df.tail(lookback).copy()
+    recent_sma200 = sma_200.tail(lookback).values
+    closes = recent_df['close'].values
+    highs = recent_df['high'].values
+    
+    for i in range(200, len(recent_df)):
+        c = closes[i]
+        h = highs[i]
+        s200 = recent_sma200[i]
+        
+        if pd.isna(s200): continue
+        
+        # Trend detection
+        if not in_uptrend and c > s200 * 1.05:
+            in_uptrend = True
+            base_count = 0
+            in_base = False
+            base_high = h
+            
+        elif in_uptrend and c < s200 * 0.90:
+            # Significant breach resets trend
+            in_uptrend = False
+            base_count = 0
+            in_base = False
+            
+        if in_uptrend:
+            # Update local high if not in base
+            if not in_base:
+                if h > base_high:
+                    base_high = h
+                
+                # Check for base trigger (drawdown > 12%)
+                if c < base_high * 0.88:
+                    in_base = True
+                    base_start_idx = i
+            else:
+                # In base, check if breakout
+                if c > base_high * 0.99:
+                    # Breakout! Check if base was long enough (15 days)
+                    if i - base_start_idx >= 15:
+                        base_count += 1
+                    in_base = False
+                    base_high = c
+                    
+    # Determine current structural stage
+    if not in_uptrend:
+        stage = "Downtrend / Trend Reset"
+        current_base_num = 0
+    else:
+        current_base_num = base_count + 1 if in_base else base_count
+        
+        if current_base_num == 0:
+            stage = "Uptrend (Pre-Base)"
+        elif current_base_num == 1:
+            stage = "Forming Base 1" if in_base else "Base 1 Breakout"
+        elif current_base_num == 2:
+            stage = "Forming Base 2" if in_base else "Base 2 Breakout"
+        elif current_base_num == 3:
+            stage = "Base 3 (Late Stage)" if in_base else "Base 3 Breakout"
+        else:
+            stage = f"Base {current_base_num}+ (Danger Zone)"
+            
+    result['base_count'] = current_base_num if in_uptrend else 0
+    result['stage_label'] = stage
+    result['danger_zone'] = (current_base_num >= 4) and in_uptrend
+    
+    return result
+
+
 def detect_vcp_pattern(df: pd.DataFrame) -> dict:
     """
     Detect Volatility Contraction Pattern (VCP).
