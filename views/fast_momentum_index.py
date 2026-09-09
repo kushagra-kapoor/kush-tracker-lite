@@ -873,6 +873,15 @@ if "Active CANSLIM Swing Trader" in terminal_mode:
     with col1:
         st.markdown(f"### 🟢 Buy Triggers ({len(display_buys)})")
         st.caption(fr"Breakouts & 21 EMA bounces with Sales $\ge 25\%$.")
+        st.markdown(
+            "<div style='font-size: 0.73rem; color: #94a3b8; margin-top: -6px; margin-bottom: 10px; line-height: 1.5; padding: 6px 8px; background: rgba(15,23,42,0.65); border-radius: 8px; border: 1px solid rgba(255,255,255,0.06);'>"
+            "<b style='color:#10b981;'>🟢 IN BUY ZONE:</b> 0 to +5% above pivot (Actionable entry) &nbsp;|&nbsp; "
+            "<b style='color:#3b82f6;'>🔵 RETEST:</b> Testing pivot support (-1.5% to 0%)<br/>"
+            "<b style='color:#f59e0b;'>🟠 EXTENDED:</b> &gt;5% above pivot (Do not chase) &nbsp;|&nbsp; "
+            "<b style='color:#ef4444;'>🔴 FAILED:</b> Breached 21 EMA / pivot (Stop-loss exit)"
+            "</div>",
+            unsafe_allow_html=True
+        )
         
         if display_buys:
             for b in display_buys:
