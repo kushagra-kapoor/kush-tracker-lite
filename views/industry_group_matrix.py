@@ -38,10 +38,14 @@ except ImportError:
 
 render_disk_cache_sidebar(get_cached_universe)
 
+def clean_html(html_str: str) -> str:
+    """Strips leading whitespace from every line so Markdown never treats it as code."""
+    return "\n".join(line.strip() for line in html_str.splitlines() if line.strip())
+
 # =============================================================================
 # WORLD-CLASS TERMINAL DESIGN SYSTEM (BLOOMBERG / HEDGE-FUND GRADE)
 # =============================================================================
-st.markdown("""
+st.markdown(clean_html("""
 <style>
 /* Executive HUD Layout */
 .hud-grid {
@@ -137,19 +141,6 @@ st.markdown("""
 .pill-amber { background: rgba(245, 158, 11, 0.15); color: #fbbf24; border: 1px solid rgba(245, 158, 11, 0.4); }
 
 /* Thematic Card Grid */
-.group-card-grid {
-    display: grid;
-    grid-template-columns: repeat(3, 1fr);
-    gap: 16px;
-    margin-top: 16px;
-}
-@media (max-width: 1200px) {
-    .group-card-grid { grid-template-columns: repeat(2, 1fr); }
-}
-@media (max-width: 768px) {
-    .group-card-grid { grid-template-columns: 1fr; }
-}
-
 .terminal-group-card {
     background: linear-gradient(145deg, rgba(15, 23, 42, 0.85) 0%, rgba(2, 6, 23, 0.95) 100%);
     border: 1px solid rgba(255, 255, 255, 0.08);
@@ -159,6 +150,7 @@ st.markdown("""
     transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
     position: relative;
     overflow: hidden;
+    margin-bottom: 16px;
 }
 .terminal-group-card:hover {
     transform: translateY(-3px);
@@ -245,8 +237,21 @@ st.markdown("""
 .ab-ext { background: rgba(249, 115, 22, 0.25); color: #fb923c; border: 1px solid rgba(249, 115, 22, 0.6); }
 .ab-fail { background: rgba(239, 68, 68, 0.25); color: #fca5a5; border: 1px solid rgba(239, 68, 68, 0.6); }
 .ab-base { background: rgba(100, 116, 139, 0.2); color: #94a3b8; border: 1px solid rgba(100, 116, 139, 0.4); }
+
+.info-banner-bubble {
+    background: linear-gradient(135deg, rgba(15, 23, 42, 0.9) 0%, rgba(30, 41, 59, 0.7) 100%);
+    border: 1px solid rgba(56, 189, 248, 0.25);
+    border-radius: 10px;
+    padding: 12px 16px;
+    margin-bottom: 16px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 12px;
+}
 </style>
-""", unsafe_allow_html=True)
+"""), unsafe_allow_html=True)
 
 def main():
     render_header(
@@ -309,7 +314,7 @@ def main():
     top_pack = df_matrix.sort_values("Pack_Hunting_Count", ascending=False).iloc[0]
     coldest = df_matrix.sort_values("Delta_1M", ascending=True).iloc[0]
 
-    st.markdown(f"""
+    hud_html = f"""
     <div class='hud-grid'>
         <div class='hud-panel'>
             <div class='hud-panel-title'>👑 #1 Dominant Super-Leader</div>
@@ -345,7 +350,8 @@ def main():
             </div>
         </div>
     </div>
-    """, unsafe_allow_html=True)
+    """
+    st.markdown(clean_html(hud_html), unsafe_allow_html=True)
 
     # -------------------------------------------------------------
     # 4. FILTERING TABLE DATA
@@ -461,7 +467,7 @@ def main():
                         )
                     )
                     
-                    chips_html = ""
+                    chips_html_list = []
                     for ldr in g_data['Top_3_Leaders']:
                         st_lbl = ldr['status']
                         if "IN BUY ZONE" in st_lbl:
@@ -483,14 +489,22 @@ def main():
                             b_cls = "ab-base"
                             b_text = "⏳ BASE"
                             
-                        chips_html += f"""
+                        exchange = 'BSE' if str(ldr.get('raw_ticker', '')).endswith('.BO') else 'NSE'
+                        tv_link = f"https://www.tradingview.com/chart/?symbol={exchange}%3A{ldr['ticker']}"
+                        
+                        chips_html_list.append(f"""
                         <div class='anchor-chip'>
-                            <span class='anchor-sym'>{ldr['ticker']} <span style='font-size:0.72rem; color:#94a3b8;'>RS {ldr['rs']}</span></span>
+                            <span class='anchor-sym'>
+                                <a href='{tv_link}' target='_blank' style='color:#38bdf8; text-decoration:none;'>{ldr['ticker']} ↗</a>
+                                <span style='font-size:0.72rem; color:#94a3b8; margin-left:4px;'>RS {ldr['rs']}</span>
+                            </span>
                             <span style='color:#f8fafc; font-weight:700;'>₹{ldr['cmp']:,.1f}</span>
                             <span class='anchor-badge {b_cls}'>{b_text}</span>
                         </div>
-                        """
+                        """)
                         
+                    chips_combined = "".join(chips_html_list)
+                    
                     card_html = f"""
                     <div class='terminal-group-card'>
                         <div style='display:flex; justify-content:space-between; align-items:flex-start;'>
@@ -525,21 +539,42 @@ def main():
                             Top Anchor Leaders:
                         </div>
                         <div class='anchor-chip-row'>
-                            {chips_html}
+                            {chips_combined}
                         </div>
                     </div>
                     """
-                    st.markdown(card_html, unsafe_allow_html=True)
-                    st.markdown("<div style='margin-bottom:12px;'></div>", unsafe_allow_html=True)
+                    st.markdown(clean_html(card_html), unsafe_allow_html=True)
 
     # -------------------------------------------------------------
     # TAB 3: ROTATION VELOCITY QUADRANTS (SCATTER PLOT)
     # -------------------------------------------------------------
     with tab_quad:
         st.markdown("##### 🌪️ Institutional Rotation Quadrants (Strength vs 1M Velocity)")
-        st.caption("Identifies groups breaking out with high momentum acceleration (Top-Right) vs groups undergoing institutional distribution (Left).")
         
+        # Explicit user control & banner answering: "what does the size of bubble mean on rotation quadrant"
+        c_size_toggle, c_size_desc = st.columns([1.8, 2.2])
+        with c_size_toggle:
+            size_mode = st.radio(
+                "Bubble Size Represents",
+                ["🐺 Pack-Hunting Breadth (Stocks RS ≥ 80)", "🏢 Universe Stock Count (Total Constituents)"],
+                index=0,
+                horizontal=True,
+                help="Choose what diameter/size represents on the chart."
+            )
+            
+        is_pack_size = "Pack-Hunting" in size_mode
+        size_metric_name = "🐺 Pack-Hunting Breadth (RS ≥ 80)" if is_pack_size else "🏢 Total Constituent Count"
+        size_col = "Pack_Hunting_Count" if is_pack_size else "Stock_Count"
+        
+        with c_size_desc:
+            if is_pack_size:
+                st.info("💡 **Bubble Size = Number of Stocks with RS ≥ 80**. Larger bubbles highlight groups experiencing coordinated multi-stock institutional pack accumulation.")
+            else:
+                st.info("💡 **Bubble Size = Total Constituent Stock Count** (universe breadth of the industry group).")
+
         plot_df = filtered_df.copy()
+        plot_df["Bubble_Size"] = plot_df[size_col].clip(lower=1)
+        
         color_map = {
             "🚀 Surging": "#10b981",
             "🔄 Accumulating": "#38bdf8",
@@ -553,7 +588,8 @@ def main():
             plot_df,
             x="Delta_1M",
             y="Comp_RS",
-            size="Stock_Count",
+            size="Bubble_Size",
+            size_max=36,
             color="Rotation_Status",
             color_discrete_map=color_map,
             hover_name="Industry_Group",
@@ -561,24 +597,31 @@ def main():
                 "Rank_Today": True,
                 "Delta_1M": True,
                 "Pack_Hunting_Count": True,
+                "Stock_Count": True,
                 "Return_1M": ":.1f%",
-                "Return_6M": ":.1f%"
+                "Return_6M": ":.1f%",
+                "Bubble_Size": False
             },
             labels={
                 "Delta_1M": "1-Month Rank Velocity (Δ Spots Gained/Lost)",
                 "Comp_RS": "Composite Relative Strength (0 to 99 Percentile)",
                 "Rotation_Status": "Rotation State",
-                "Stock_Count": "Universe Size"
+                "Pack_Hunting_Count": "Pack (RS≥80)",
+                "Stock_Count": "Total Stocks"
             }
         )
         
+        # Zero line crosshairs
         fig_quad.add_vline(x=0, line_width=1, line_dash="dash", line_color="#475569")
         fig_quad.add_hline(y=50, line_width=1, line_dash="dash", line_color="#475569")
         
-        fig_quad.add_annotation(x=plot_df["Delta_1M"].max()*0.75, y=92, text="👑 ACCELERATING LEADERS", showarrow=False, font=dict(color="#34d399", size=11, family="JetBrains Mono"))
-        fig_quad.add_annotation(x=plot_df["Delta_1M"].max()*0.75, y=25, text="🔄 STEALTH ACCUMULATION", showarrow=False, font=dict(color="#38bdf8", size=11, family="JetBrains Mono"))
-        fig_quad.add_annotation(x=plot_df["Delta_1M"].min()*0.75, y=92, text="⏸️ DIGESTING LEADERS", showarrow=False, font=dict(color="#fbbf24", size=11, family="JetBrains Mono"))
-        fig_quad.add_annotation(x=plot_df["Delta_1M"].min()*0.75, y=25, text="⚠️ DISTRIBUTION VECTOR", showarrow=False, font=dict(color="#f87171", size=11, family="JetBrains Mono"))
+        max_x = max(abs(plot_df["Delta_1M"].max()), 10)
+        min_x = min(plot_df["Delta_1M"].min(), -10)
+        
+        fig_quad.add_annotation(x=max_x*0.65, y=94, text="👑 ACCELERATING LEADERS", showarrow=False, font=dict(color="#34d399", size=11, family="JetBrains Mono"))
+        fig_quad.add_annotation(x=max_x*0.65, y=20, text="🔄 STEALTH ACCUMULATION", showarrow=False, font=dict(color="#38bdf8", size=11, family="JetBrains Mono"))
+        fig_quad.add_annotation(x=min_x*0.65, y=94, text="⏸️ DIGESTING LEADERS", showarrow=False, font=dict(color="#fbbf24", size=11, family="JetBrains Mono"))
+        fig_quad.add_annotation(x=min_x*0.65, y=20, text="⚠️ DISTRIBUTION VECTOR", showarrow=False, font=dict(color="#f87171", size=11, family="JetBrains Mono"))
 
         fig_quad.update_layout(
             template="plotly_dark",
@@ -724,7 +767,7 @@ def main():
                     b_color = "#10b981" if "BUY" in a_row['Execution Status'] else (
                         "#38bdf8" if "RETEST" in a_row['Execution Status'] else "#fbbf24"
                     )
-                    st.markdown(f"""
+                    spotlight_html = f"""
                     <div style='background:rgba(15,23,42,0.8); border:1px solid {b_color}; border-radius:8px; padding:10px 12px; margin-bottom:8px;'>
                         <div style='display:flex; justify-content:space-between; align-items:center;'>
                             <b style='font-family:JetBrains Mono; font-size:1.0rem; color:#f8fafc;'>{a_row["Symbol"]}</b>
@@ -735,7 +778,8 @@ def main():
                             <span>Pivot: <b>₹{a_row["Pivot Price"]:,.1f}</b> ({a_row["Dist Pivot %"]:+.1f}%)</span>
                         </div>
                     </div>
-                    """, unsafe_allow_html=True)
+                    """
+                    st.markdown(clean_html(spotlight_html), unsafe_allow_html=True)
 
         # Full constituent table
         st.markdown(f"##### 📋 All {len(df_constits)} Constituents in {chosen_group}")
