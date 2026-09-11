@@ -645,6 +645,39 @@ def main():
 
         ---
 
+        ### 🧮 How Relative Strength (RS) is Calculated
+        The platform computes **two distinct tiers of Relative Strength (RS)**:
+        
+        #### 1. Constituent Stock RS Rating (0 to 99 Percentile)
+        Every stock in the ~2,500+ Indian equity universe is scored using William J. O'Neil's quarterly-weighted performance algorithm:
+        
+        $$\text{Stock Performance Score} = 0.40 \times R_{\text{3M}} + 0.30 \times R_{\text{6M}} + 0.30 \times R_{\text{1Y}}$$
+        
+        - **$R_{\text{3M}}$ (63-Day Return, 40% Weight)**: The most recent quarter carries the heaviest weighting because institutional accumulation manifests as rapid recent acceleration.
+        - **$R_{\text{6M}}$ (126-Day Return, 30% Weight)**: Confirms intermediate momentum and trend sustainability.
+        - **$R_{\text{1Y}}$ (250-Day Return, 30% Weight)**: Validates primary structural stage-2 uptrend over the trailing 12 months.
+        
+        This raw performance score is converted into a **Percentile Rank from 0 to 99** across the entire universe:
+        $$\text{Stock RS Rating} = \text{Percentile}(\text{Stock Performance Score}) \times 99$$
+        
+        *Example*: A stock with an **RS Rating of 94** has outperformed 94% of all listed companies in the entire Indian market over the past year. In CANSLIM, we exclusively target true market leaders with **RS $\ge 80$** (the top 20% of the market).
+
+        #### 2. Industry Group Composite RS & Momentum Score
+        For each industry group and thematic cluster:
+        1. **Synthetic Group Price Index**: We construct an equal-weighted daily synthetic equity curve by normalizing all constituent stock prices to a base of 1.0 at inception:
+           $$\text{Index}_{\text{Group}}(t) = \frac{1}{N} \sum_{i=1}^N \frac{P_{i}(t)}{P_{i}(t_0)}$$
+        2. **Multi-Horizon Momentum Score**: Calculated across 4 strategic cycle horizons:
+           $$\text{Group Momentum Score} = 0.40 \times R_{\text{3M}} + 0.30 \times R_{\text{6M}} + 0.20 \times R_{\text{1M}} + 0.10 \times R_{\text{1W}}$$
+           - **40% (3-Month / 63d)**: The core quarterly institutional allocation cycle.
+           - **30% (6-Month / 126d)**: Secular trend anchor that filters short squeezes from genuine multi-quarter themes.
+           - **20% (1-Month / 21d)**: Tactical swing acceleration and early rotation detection.
+           - **10% (1-Week / 5d)**: Immediate short-term velocity.
+        3. **Group Composite RS Percentile (0 to 99)**:
+           $$\text{Group Composite RS} = \text{Percentile}(\text{Group Momentum Score}) \times 99$$
+           This composite score is what appears on the Y-Axis of the **Rotation Velocity Quadrants** and powers group hierarchy ranking.
+
+        ---
+
         ### The 5 Time Horizon Matrix
         1. **Today**: Current composite momentum rank (1 = Strongest).
         2. **1-Week Ago (5d)**: Short-term tactical positioning.
