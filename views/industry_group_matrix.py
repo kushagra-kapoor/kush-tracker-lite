@@ -713,17 +713,36 @@ def main():
     # 6. CONSTITUENT DEEP-DIVE DRILLDOWN SECTION
     # -------------------------------------------------------------
     st.markdown("---")
-    st.subheader("🔬 Constituent Deep-Dive & Actionable Setup Inspector")
+    
+    # Section Header
+    st.markdown(clean_html("""
+    <div style='margin-bottom:14px;'>
+        <h3 style='margin:0; font-size:1.30rem; font-weight:800; color:#f8fafc; letter-spacing:-0.02em;'>
+            🔬 Constituent Deep-Dive & Actionable Setup Inspector
+        </h3>
+        <p style='margin:4px 0 0 0; font-size:0.80rem; color:#94a3b8;'>
+            Granular multi-stock execution terminal, pivot proximity radar, and benchmark alpha curve for the chosen industry group.
+        </p>
+    </div>
+    """), unsafe_allow_html=True)
     
     group_options = df_matrix["Industry_Group"].tolist()
     default_index = 0
     if selected_table_group and selected_table_group in group_options:
         default_index = group_options.index(selected_table_group)
 
+    def format_group_label(grp_name):
+        match = df_matrix[df_matrix["Industry_Group"] == grp_name]
+        if not match.empty:
+            r = match.iloc[0]
+            return f"#{r['Rank_Today']}  {grp_name}  ({r['Stock_Count']} Stocks • {r['Rotation_Status']})"
+        return grp_name
+
     chosen_group = st.selectbox(
         "Select Industry Group to Drill Down",
         options=group_options,
         index=default_index,
+        format_func=format_group_label,
         help="Select any group to inspect its constituent stocks, pivots, and synthetic equity curve"
     )
 
@@ -731,84 +750,207 @@ def main():
         df_constits, curve_df, tv_copy_box = get_group_deep_dive_data(chosen_group, taxonomy=tax_key)
         grp_row = df_matrix[df_matrix["Industry_Group"] == chosen_group].iloc[0]
 
-        # Top Group Metrics Strip
-        c_g1, c_g2, c_g3, c_g4 = st.columns(4)
-        with c_g1:
-            st.metric("Hierarchy Rank", f"#{grp_row['Rank_Today']}", delta=f"{grp_row['Delta_1M']:+d} spots in 1M")
-        with c_g2:
-            st.metric("Rotation State", grp_row["Rotation_Status"], delta=f"1W: {grp_row['Delta_1W']:+d}")
-        with c_g3:
-            st.metric("Pack Hunting Breadth", f"{grp_row['Pack_Hunting_Count']} Stocks RS≥80", delta=f"Total {grp_row['Stock_Count']} stocks")
-        with c_g4:
-            st.metric("Trailing 6M Return", f"{grp_row['Return_6M']:+.1f}%", delta=f"3M: {grp_row['Return_3M']:+.1f}%")
+        # Top Group Metrics Strip using Terminal Glass HUD Panels
+        r_delta_class = "pill-emerald" if grp_row['Delta_1M'] >= 0 else "pill-rose"
+        r_delta_sign = "+" if grp_row['Delta_1M'] >= 0 else ""
+        r_1w_sign = "+" if grp_row['Delta_1W'] >= 0 else ""
+        
+        rot_panel_class = "accel" if "Surging" in grp_row['Rotation_Status'] else (
+            "pack" if "Accumulating" in grp_row['Rotation_Status'] else (
+                "dist" if "Distributing" in grp_row['Rotation_Status'] else ""
+            )
+        )
+        
+        pack_pct = int((grp_row['Pack_Hunting_Count'] / max(1, grp_row['Stock_Count'])) * 100)
+        c6m_class = "pill-emerald" if grp_row['Return_6M'] >= 0 else "pill-rose"
+        
+        hud_html = f"""
+        <div class='hud-grid' style='margin-top:8px; margin-bottom:20px;'>
+            <div class='hud-panel'>
+                <div class='hud-panel-title'>🏆 Group Hierarchy Rank</div>
+                <div class='hud-panel-val'>#{grp_row['Rank_Today']} <span style='font-size:0.85rem; color:#64748b; font-weight:500;'>of {len(df_matrix)}</span></div>
+                <div class='hud-panel-sub'>
+                    <span class='badge-pill {r_delta_class}'>▲ {r_delta_sign}{grp_row['Delta_1M']} in 1M</span>
+                    <span style='color:#64748b;'>• 1W: {r_1w_sign}{grp_row['Delta_1W']}</span>
+                </div>
+            </div>
+            <div class='hud-panel {rot_panel_class}'>
+                <div class='hud-panel-title'>🌪️ Rotation State</div>
+                <div class='hud-panel-val' style='font-size:1.15rem;'>{grp_row['Rotation_Status']}</div>
+                <div class='hud-panel-sub'>
+                    <span class='badge-pill pill-cyan'>Velocity: {grp_row['Delta_1M']:+d} spots</span>
+                    <span style='color:#94a3b8;'>Composite RS: <b>{grp_row['Comp_RS']}</b></span>
+                </div>
+            </div>
+            <div class='hud-panel pack'>
+                <div class='hud-panel-title'>🐺 Pack-Hunting Breadth</div>
+                <div class='hud-panel-val'>{grp_row['Pack_Hunting_Count']} Stocks <span style='font-size:0.80rem; color:#c084fc; font-weight:600;'>RS ≥ 80</span></div>
+                <div class='hud-panel-sub'>
+                    <span class='badge-pill pill-purple'>{pack_pct}% of Group</span>
+                    <span style='color:#94a3b8;'>• Total {grp_row['Stock_Count']} Active Stocks</span>
+                </div>
+            </div>
+            <div class='hud-panel'>
+                <div class='hud-panel-title'>📈 Momentum & Returns</div>
+                <div class='hud-panel-val'>{grp_row['Return_6M']:+.1f}% <span style='font-size:0.80rem; color:#64748b;'>6M</span></div>
+                <div class='hud-panel-sub'>
+                    <span class='badge-pill {c6m_class}'>3M: {grp_row['Return_3M']:+.1f}%</span>
+                    <span style='color:#94a3b8;'>• 1M: {grp_row['Return_1M']:+.1f}%</span>
+                </div>
+            </div>
+        </div>
+        """
+        st.markdown(clean_html(hud_html), unsafe_allow_html=True)
 
-        # Two columns: Chart on left, TV copy box on right
-        ch_col, tv_col = st.columns([2.2, 1.2])
+        # Two columns: Chart on left (60%), TV copy box on right (40%)
+        ch_col, tv_col = st.columns([1.8, 1.2])
 
         with ch_col:
-            st.markdown(f"##### 📈 Synthetic Index: {chosen_group} vs Universe Benchmark (1-Year)")
             if not curve_df.empty:
-                fig = go.Figure()
-                y_group = (curve_df["Industry Group"] / curve_df["Industry Group"].iloc[0] * 100)
-                y_bench = (curve_df["Universe Benchmark"] / curve_df["Universe Benchmark"].iloc[0] * 100)
+                y_grp_final = curve_df["Industry Group"].iloc[-1] - 100
+                y_bnc_final = curve_df["Universe Benchmark"].iloc[-1] - 100
+                alpha_val = y_grp_final - y_bnc_final
+                alpha_sign = "+" if alpha_val >= 0 else ""
+                alpha_color = "#10b981" if alpha_val >= 0 else "#ef4444"
                 
+                st.markdown(clean_html(f"""
+                <div style='display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;'>
+                    <div style='font-weight:700; color:#f8fafc; font-size:0.95rem;'>
+                        📈 Synthetic Index: {chosen_group} vs Universe Benchmark (1-Year)
+                    </div>
+                    <div style='font-size:0.80rem; font-weight:700; font-family:JetBrains Mono; color:{alpha_color};'>
+                        Alpha: {alpha_sign}{alpha_val:.1f}% vs Market
+                    </div>
+                </div>
+                """), unsafe_allow_html=True)
+                
+                fig = go.Figure()
                 fig.add_trace(go.Scatter(
                     x=curve_df.index,
-                    y=y_group,
+                    y=curve_df["Industry Group"],
                     name=chosen_group,
                     mode="lines",
                     line=dict(color="#10b981", width=2.5),
-                    fill="tonexty",
-                    fillcolor="rgba(16, 185, 129, 0.08)"
+                    fill="tozeroy",
+                    fillcolor="rgba(16, 185, 129, 0.08)",
+                    hovertemplate=f"<b>{chosen_group}</b>: %{{y:.1f}} (Base 100)<extra></extra>"
                 ))
                 fig.add_trace(go.Scatter(
                     x=curve_df.index,
-                    y=y_bench,
+                    y=curve_df["Universe Benchmark"],
                     name="Universe Benchmark",
                     mode="lines",
-                    line=dict(color="#64748b", width=1.5, dash="dot")
+                    line=dict(color="#94a3b8", width=1.5, dash="dot"),
+                    hovertemplate="<b>Universe Benchmark</b>: %{y:.1f}<extra></extra>"
                 ))
+                
                 fig.update_layout(
                     template="plotly_dark",
                     paper_bgcolor="rgba(15, 23, 42, 0.4)",
                     plot_bgcolor="rgba(15, 23, 42, 0.4)",
-                    margin=dict(l=20, r=20, t=20, b=20),
-                    height=280,
+                    margin=dict(l=20, r=20, t=15, b=20),
+                    height=290,
                     legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
-                    hovermode="x unified"
+                    hovermode="x unified",
+                    xaxis=dict(
+                        showgrid=False,
+                        rangeselector=dict(
+                            buttons=list([
+                                dict(count=1, label="1M", step="month", stepmode="backward"),
+                                dict(count=3, label="3M", step="month", stepmode="backward"),
+                                dict(count=6, label="6M", step="month", stepmode="backward"),
+                                dict(count=1, label="1Y", step="year", stepmode="backward"),
+                                dict(step="all", label="ALL")
+                            ]),
+                            bgcolor="rgba(30, 41, 59, 0.8)",
+                            activecolor="#10b981",
+                            font=dict(color="#f8fafc", size=10)
+                        )
+                    ),
+                    yaxis=dict(showgrid=True, gridcolor="rgba(255,255,255,0.05)")
                 )
                 st.plotly_chart(fig, use_container_width=True)
 
         with tv_col:
-            st.markdown("##### 📋 TradingView 1-Click Watchlist")
-            st.caption("Paste directly into TradingView symbol search or watchlist import modal:")
+            st.markdown(clean_html("""
+            <div style='font-weight:700; color:#f8fafc; font-size:0.95rem; margin-bottom:4px;'>
+                📋 TradingView 1-Click Watchlist
+            </div>
+            <div style='font-size:0.75rem; color:#94a3b8; margin-bottom:8px;'>
+                Select all & copy into TradingView symbol search or watchlist import modal:
+            </div>
+            """), unsafe_allow_html=True)
+            
             st.text_area(
                 "TradingView Symbols",
                 value=tv_copy_box,
-                height=180,
+                height=110,
+                label_visibility="collapsed",
                 help="Select all and paste directly into TradingView symbol search or watchlist modal."
             )
-            st.markdown(f"**Total Constituents:** `{len(df_constits)}`  |  **RS ≥ 80 Leaders:** `{grp_row['Pack_Hunting_Count']}`")
+            
+            # Interactive Clickable Quick-Launch Chips
+            if not df_constits.empty:
+                chip_links = []
+                for _, s_row in df_constits.head(8).iterrows():
+                    chip_links.append(f"<a href='{s_row['TradingView_URL']}' target='_blank' style='text-decoration:none;'><span class='badge-pill pill-cyan' style='margin:2px;'>{s_row['Symbol']} ↗</span></a>")
+                chips_rendered = "".join(chip_links)
+                st.markdown(clean_html(f"""
+                <div style='margin-top:6px;'>
+                    <div style='font-size:0.72rem; color:#64748b; font-weight:700; text-transform:uppercase; margin-bottom:4px;'>Quick Chart Launch:</div>
+                    <div style='display:flex; flex-wrap:wrap; gap:4px;'>{chips_rendered}</div>
+                </div>
+                """), unsafe_allow_html=True)
+                
+            st.markdown(clean_html(f"""
+            <div style='margin-top:10px; font-size:0.75rem; color:#94a3b8; display:flex; gap:12px;'>
+                <span>Total Constituents: <b style='color:#f8fafc;'>{len(df_constits)}</b></span>
+                <span>•</span>
+                <span>🐺 RS ≥ 80 Leaders: <b style='color:#34d399;'>{grp_row['Pack_Hunting_Count']}</b></span>
+            </div>
+            """), unsafe_allow_html=True)
 
-        # Actionable spotlight cards (if any stock is in buy zone or retest)
-        actionable_stocks = df_constits[df_constits['Execution Status'].str.contains("BUY|RETEST|COILING")]
-        if not actionable_stocks.empty:
-            st.markdown("##### 🎯 Low-Risk CANSLIM Entry Setups in this Group:")
-            act_cols = st.columns(min(4, len(actionable_stocks)))
-            for a_idx, (_, a_row) in enumerate(actionable_stocks.head(4).iterrows()):
+        # -------------------------------------------------------------
+        # Actionable spotlight cards (Show top setups / anchors)
+        # -------------------------------------------------------------
+        # Prioritize actionable setups (BUY, RETEST, COILING), else show top RS anchors
+        act_subset = df_constits[df_constits['Execution Status'].str.contains("BUY|RETEST|COILING")]
+        if act_subset.empty:
+            act_subset = df_constits.head(4)
+            section_title = "🎯 Top Institutional Anchors & Setups in this Group:"
+        else:
+            act_subset = act_subset.head(4)
+            section_title = "🎯 Low-Risk CANSLIM Entry Setups in this Group:"
+            
+        if not act_subset.empty:
+            st.markdown(f"##### {section_title}")
+            act_cols = st.columns(min(4, len(act_subset)))
+            for a_idx, (_, a_row) in enumerate(act_subset.iterrows()):
                 with act_cols[a_idx % len(act_cols)]:
                     b_color = "#10b981" if "BUY" in a_row['Execution Status'] else (
-                        "#38bdf8" if "RETEST" in a_row['Execution Status'] else "#fbbf24"
+                        "#38bdf8" if "RETEST" in a_row['Execution Status'] else (
+                            "#fbbf24" if "COIL" in a_row['Execution Status'] else (
+                                "#f87171" if "FAIL" in a_row['Execution Status'] else "#94a3b8"
+                            )
+                        )
                     )
                     spotlight_html = f"""
-                    <div style='background:rgba(15,23,42,0.8); border:1px solid {b_color}; border-radius:8px; padding:10px 12px; margin-bottom:8px;'>
+                    <div style='background:linear-gradient(135deg, rgba(15,23,42,0.85) 0%, rgba(2,6,23,0.95) 100%); border:1px solid rgba(255,255,255,0.08); border-top:3px solid {b_color}; border-radius:10px; padding:12px 14px; box-shadow:0 6px 18px rgba(0,0,0,0.4);'>
                         <div style='display:flex; justify-content:space-between; align-items:center;'>
-                            <b style='font-family:JetBrains Mono; font-size:1.0rem; color:#f8fafc;'>{a_row["Symbol"]}</b>
-                            <span style='font-size:0.75rem; font-weight:700; color:{b_color};'>{a_row["Execution Status"]}</span>
+                            <div>
+                                <a href='{a_row["TradingView_URL"]}' target='_blank' style='text-decoration:none; font-family:JetBrains Mono; font-size:1.05rem; font-weight:800; color:#f8fafc;'>{a_row["Symbol"]} ↗</a>
+                                <span style='font-size:0.70rem; color:#94a3b8; margin-left:6px; font-weight:700;'>RS {a_row["RS Rating"]}</span>
+                            </div>
+                            <span style='font-size:0.72rem; font-weight:700; color:{b_color}; background:rgba(255,255,255,0.05); padding:2px 6px; border-radius:4px;'>{a_row["Execution Status"]}</span>
                         </div>
-                        <div style='display:flex; justify-content:space-between; font-size:0.80rem; color:#94a3b8; margin-top:4px;'>
-                            <span>CMP: <b>₹{a_row["CMP (₹)"]:,.1f}</b></span>
-                            <span>Pivot: <b>₹{a_row["Pivot Price"]:,.1f}</b> ({a_row["Dist Pivot %"]:+.1f}%)</span>
+                        <div style='display:flex; justify-content:space-between; align-items:baseline; margin-top:8px;'>
+                            <span style='font-size:1.15rem; font-weight:800; color:#f8fafc;'>₹{a_row["CMP (₹)"]:,.2f}</span>
+                            <span style='font-size:0.75rem; color:#94a3b8;'>Pivot: <b style='color:#f8fafc;'>₹{a_row["Pivot Price"]:,.1f}</b> ({a_row["Dist Pivot %"]:+.1f}%)</span>
+                        </div>
+                        <div style='display:flex; justify-content:space-between; font-size:0.75rem; color:#64748b; margin-top:6px; border-top:1px solid rgba(255,255,255,0.05); padding-top:6px;'>
+                            <span>21 EMA: <b style='color:#94a3b8;'>{a_row["Dist 21 EMA %"]:+.1f}%</b></span>
+                            <span>1M: <b style='color:{"#10b981" if a_row["1M %"]>=0 else "#f87171"};'>{a_row["1M %"]:+.1f}%</b></span>
+                            <span>1Y: <b style='color:{"#10b981" if a_row["1Y %"]>=0 else "#f87171"};'>{a_row["1Y %"]:+.1f}%</b></span>
                         </div>
                     </div>
                     """
@@ -824,18 +966,18 @@ def main():
         ]].copy()
 
         c_constit_cfg = {
-            "Symbol": st.column_config.TextColumn("Symbol", width=90),
-            "CMP (₹)": st.column_config.NumberColumn("CMP (₹)", format="₹%.2f", width=100),
-            "1D %": st.column_config.NumberColumn("1D %", format="%.2f%%", width=80),
-            "1W %": st.column_config.NumberColumn("1W %", format="%.2f%%", width=80),
-            "1M %": st.column_config.NumberColumn("1M %", format="%.2f%%", width=80),
-            "3M %": st.column_config.NumberColumn("3M %", format="%.2f%%", width=80),
-            "1Y %": st.column_config.NumberColumn("1Y %", format="%.2f%%", width=80),
-            "RS Rating": st.column_config.ProgressColumn("RS Score", min_value=0, max_value=99, format="%d", width=100),
-            "Pivot Price": st.column_config.NumberColumn("25D Pivot", format="₹%.2f", width=100),
-            "Dist Pivot %": st.column_config.NumberColumn("Dist Pivot", format="%.1f%%", width=95, help="Distance from 25-day pivot"),
-            "Dist 21 EMA %": st.column_config.NumberColumn("Dist 21 EMA", format="%.1f%%", width=95, help="Distance from 21-day EMA"),
-            "Execution Status": st.column_config.TextColumn("CANSLIM Action State", width=140),
+            "Symbol": st.column_config.TextColumn("Symbol", width=100),
+            "CMP (₹)": st.column_config.NumberColumn("CMP (₹)", format="₹%.2f", width=110),
+            "1D %": st.column_config.NumberColumn("1D %", format="%.2f%%", width=85),
+            "1W %": st.column_config.NumberColumn("1W %", format="%.2f%%", width=85),
+            "1M %": st.column_config.NumberColumn("1M %", format="%.2f%%", width=85),
+            "3M %": st.column_config.NumberColumn("3M %", format="%.2f%%", width=85),
+            "1Y %": st.column_config.NumberColumn("1Y %", format="%.2f%%", width=85),
+            "RS Rating": st.column_config.ProgressColumn("RS Score", min_value=0, max_value=99, format="%d", width=110),
+            "Pivot Price": st.column_config.NumberColumn("25D Pivot", format="₹%.2f", width=110),
+            "Dist Pivot %": st.column_config.NumberColumn("Dist Pivot", format="%.1f%%", width=100, help="Distance from 25-day pivot"),
+            "Dist 21 EMA %": st.column_config.NumberColumn("Dist 21 EMA", format="%.1f%%", width=105, help="Distance from 21-day EMA"),
+            "Execution Status": st.column_config.TextColumn("CANSLIM Action State", width=150),
             "TradingView_URL": st.column_config.LinkColumn("Chart", display_text="Open ↗", width=80)
         }
 

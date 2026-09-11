@@ -449,24 +449,45 @@ def compute_industry_group_matrix(taxonomy: str = "canonical", universe_scope: s
     df_result = pd.DataFrame(rows).sort_values('Rank_Today', ascending=True).reset_index(drop=True)
     return df_result, benchmark_curve
 
-def get_group_deep_dive_data(group_name: str, taxonomy: str = "canonical"):
+def get_group_deep_dive_data(group_name: str, taxonomy: str = "canonical", universe_scope: str = "India (NSE/BSE)"):
     """
     Extracts deep-dive constituent table and historical comparison curve for a chosen group.
+    Ensures pure universe scoping (e.g. India NSE/BSE only) with no orphan/null stocks.
     """
     close_df, high_df = load_price_history_matrix()
     if close_df.empty:
-        return pd.DataFrame(), pd.Series(), ""
+        return pd.DataFrame(), pd.DataFrame(), ""
         
+    if universe_scope.startswith("India"):
+        valid_cols = [c for c in close_df.columns if c.endswith(".NS") or c.endswith(".BO")]
+        close_df = close_df[valid_cols]
+        high_df = high_df[[c for c in valid_cols if c in high_df.columns]]
+        
+    # Calculate universe-wide RS rating so constituent RS is globally accurate
+    n_bars = len(close_df)
+    c0_all = close_df.iloc[-1]
+    idx_1y = max(0, n_bars - 250)
+    idx_6m = max(0, n_bars - 126)
+    idx_3m = max(0, n_bars - 63)
+    
+    r3m_all = (c0_all / close_df.iloc[idx_3m] - 1) * 100
+    r6m_all = (c0_all / close_df.iloc[idx_6m] - 1) * 100
+    r1y_all = (c0_all / close_df.iloc[idx_1y] - 1) * 100
+    
+    comp_all = 0.4 * r3m_all.fillna(0) + 0.3 * r6m_all.fillna(0) + 0.3 * r1y_all.fillna(0)
+    rs_percentile_all = (comp_all.rank(pct=True) * 99).fillna(0).round(0).astype(int)
+
     group_map = get_group_constituents_map(taxonomy=taxonomy)
     tickers = group_map.get(group_name, [])
-    avail = [t for t in tickers if t in close_df.columns]
-    if not avail:
-        return pd.DataFrame(), pd.Series(), ""
-        
-    sub_close = close_df[avail]
-    sub_high = high_df[[t for t in avail if t in high_df.columns]]
     
-    n_bars = len(close_df)
+    # Filter to only tickers that are in close_df AND have valid current price
+    avail = [t for t in tickers if t in close_df.columns and pd.notna(c0_all.get(t)) and c0_all.get(t) > 0]
+    if not avail:
+        return pd.DataFrame(), pd.DataFrame(), ""
+        
+    sub_close = close_df[avail].ffill().bfill()
+    sub_high = high_df[[t for t in avail if t in high_df.columns]].ffill().bfill()
+    
     c0 = sub_close.iloc[-1]
     c_1d = sub_close.iloc[-2] if n_bars > 1 else c0
     c_1w = sub_close.iloc[-6] if n_bars > 5 else c0
@@ -482,9 +503,6 @@ def get_group_deep_dive_data(group_name: str, taxonomy: str = "canonical"):
     r1m = ((c0 / c_1m - 1) * 100).round(2)
     r3m = ((c0 / c_3m - 1) * 100).round(2)
     r1y = ((c0 / c_1y - 1) * 100).round(2)
-    
-    comp = 0.4 * r3m.fillna(0) + 0.3 * ((c0 / sub_close.iloc[max(0, n_bars - 126)] - 1) * 100).fillna(0) + 0.3 * r1y.fillna(0)
-    rs_pct = (comp.rank(pct=True) * 99).fillna(0).round(0).astype(int)
     
     dist_piv = (((c0 - pivot_25) / pivot_25) * 100).round(2)
     dist_ema = (((c0 - ema_21) / ema_21) * 100).round(2)
@@ -510,7 +528,7 @@ def get_group_deep_dive_data(group_name: str, taxonomy: str = "canonical"):
             '1M %': float(r1m.get(t, 0.0)),
             '3M %': float(r3m.get(t, 0.0)),
             '1Y %': float(r1y.get(t, 0.0)),
-            'RS Rating': int(rs_pct.get(t, 0)),
+            'RS Rating': int(rs_percentile_all.get(t, 0)),
             'Pivot Price': round(float(pivot_25.get(t, 0.0)), 2),
             'Dist Pivot %': p_dist,
             'Dist 21 EMA %': e_dist,
@@ -522,12 +540,21 @@ def get_group_deep_dive_data(group_name: str, taxonomy: str = "canonical"):
         
     df_constits = pd.DataFrame(constit_rows).sort_values(['Status_Priority', 'RS Rating'], ascending=[True, False]).reset_index(drop=True)
     
-    norm_group = sub_close.div(sub_close.bfill().iloc[0], axis=1).mean(axis=1)
-    norm_bench = close_df.div(close_df.bfill().iloc[0], axis=1).mean(axis=1)
+    # Clean synthetic index normalized over trailing 250 bars (1 year)
+    window_bars = min(250, len(sub_close))
+    sub_window = sub_close.iloc[-window_bars:]
+    bench_window = close_df.iloc[-window_bars:].ffill().bfill()
+    
+    # Normalize each stock from day 0 of window to avoid spikes
+    norm_group_stocks = sub_window.div(sub_window.iloc[0], axis=1) * 100
+    norm_group = norm_group_stocks.mean(axis=1)
+    
+    norm_bench_stocks = bench_window.div(bench_window.iloc[0], axis=1) * 100
+    norm_bench = norm_bench_stocks.mean(axis=1)
     
     curve_df = pd.DataFrame({
-        'Industry Group': norm_group.iloc[-250:],
-        'Universe Benchmark': norm_bench.iloc[-250:]
+        'Industry Group': norm_group.round(2),
+        'Universe Benchmark': norm_bench.round(2)
     })
     
     tv_copy_box = ",".join(tv_tickers)
