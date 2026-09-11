@@ -144,7 +144,6 @@ def get_group_constituents_map(taxonomy: str = "canonical"):
         return INDIAN_ALPHA_THEMES
         
     group_map = {}
-    # 1. Try local JSON map (covers 3,542 stocks)
     if os.path.exists(MAP_JSON_PATH):
         try:
             with open(MAP_JSON_PATH, "r", encoding="utf-8") as f:
@@ -156,7 +155,6 @@ def get_group_constituents_map(taxonomy: str = "canonical"):
         except Exception:
             pass
 
-    # 2. Try database fundamentals_cache
     if os.path.exists(DB_PATH):
         conn = sqlite3.connect(DB_PATH)
         try:
@@ -172,14 +170,12 @@ def get_group_constituents_map(taxonomy: str = "canonical"):
         finally:
             conn.close()
             
-    # 3. Fallback to get_all_fundamentals_cache if available
     try:
         from database import get_all_fundamentals_cache
         cache = get_all_fundamentals_cache()
         for t, d in cache.items():
             ind = d.get('industry')
             if ind and ind != 'Unknown':
-                # Re-add .NS for price matrix lookup if needed
                 sym = t if t.endswith('.NS') or t.endswith('.BO') else t + '.NS'
                 group_map.setdefault(ind, []).append(sym)
         return {k: v for k, v in group_map.items() if len(v) >= 3}
@@ -199,7 +195,7 @@ def classify_stock_action_state(dist_pivot: float, dist_ema: float) -> tuple[str
     - 🔴 FAILED (< 21 EMA or > -8% below pivot): 6
     """
     if np.isnan(dist_pivot) or np.isnan(dist_ema):
-        return "⏳ FORMING BASE", "base", 5
+        return "⏳ BASE", "base", 5
     if dist_ema < -2.0 or dist_pivot < -8.0:
         return "🔴 FAILED", "failed", 6
     elif dist_pivot > 5.5:
@@ -211,19 +207,19 @@ def classify_stock_action_state(dist_pivot: float, dist_ema: float) -> tuple[str
     elif -5.0 <= dist_pivot < -2.0:
         return "⏳ COILING", "coiling", 3
     else:
-        return "⏳ FORMING BASE", "base", 5
+        return "⏳ BASE", "base", 5
 
 def classify_rotation_status(cur_rank: int, delta_1m: int) -> tuple[str, str]:
     """
     Classifies the institutional rotation velocity of an industry group:
-    - 🚀 Surging Leader: Top 20 rank AND delta_1m >= +5
-    - 🔄 Accumulating: Rank 21-70 AND delta_1m >= +15 (Smart money rotating in early)
+    - 🚀 Surging: Top 20 rank AND delta_1m >= +5
+    - 🔄 Accumulating: Rank 21-70 AND delta_1m >= +15
     - ⏸️ Consolidating: Top 25 rank AND -5 <= delta_1m <= +5
-    - ⚠️ Distributing: delta_1m <= -15 (Smart money rotating out)
+    - ⚠️ Distributing: delta_1m <= -15
     - 💤 Lagging: Rank > 70
     """
     if cur_rank <= 20 and delta_1m >= 5:
-        return "🚀 Surging Leader", "surging"
+        return "🚀 Surging", "surging"
     elif 21 <= cur_rank <= 70 and delta_1m >= 15:
         return "🔄 Accumulating", "accumulating"
     elif cur_rank <= 25 and -5 <= delta_1m <= 5:
@@ -384,12 +380,17 @@ def compute_industry_group_matrix(taxonomy: str = "canonical", universe_scope: s
         for t in sorted_constits[:3]:
             st_info = stock_status_dict.get(t, {})
             clean_t = t.replace('.NS', '').replace('.BO', '')
+            dist_p = st_info.get('dist_pivot', 0.0)
+            sign = "+" if dist_p > 0 else ""
+            dist_str = f"{sign}{dist_p:.1f}%"
+            
             top_3.append({
                 'ticker': clean_t,
                 'raw_ticker': t,
                 'rs': st_info.get('rs', 0),
                 'cmp': st_info.get('cmp', 0.0),
-                'dist_pivot': st_info.get('dist_pivot', 0.0),
+                'dist_pivot': dist_p,
+                'dist_pivot_str': dist_str,
                 'dist_ema': st_info.get('dist_ema', 0.0),
                 'status': st_info.get('status', '⏳ BASE'),
                 'style': st_info.get('style', 'base')
@@ -405,17 +406,17 @@ def compute_industry_group_matrix(taxonomy: str = "canonical", universe_scope: s
         for ldr in top_3:
             st_lbl = ldr['status']
             if "IN BUY ZONE" in st_lbl:
-                badge_str = f"**{ldr['ticker']}** `🟢 BUY`"
+                badge_str = f"{ldr['ticker']} [🟢 BUY {ldr['dist_pivot_str']}]"
             elif "RETEST" in st_lbl:
-                badge_str = f"**{ldr['ticker']}** `🔵 RETEST`"
+                badge_str = f"{ldr['ticker']} [🔵 RETEST {ldr['dist_pivot_str']}]"
             elif "COILING" in st_lbl:
-                badge_str = f"**{ldr['ticker']}** `⏳ COIL`"
+                badge_str = f"{ldr['ticker']} [⏳ COIL {ldr['dist_pivot_str']}]"
             elif "EXTENDED" in st_lbl:
-                badge_str = f"**{ldr['ticker']}** `🟠 EXT`"
+                badge_str = f"{ldr['ticker']} [🟠 EXT {ldr['dist_pivot_str']}]"
             elif "FAILED" in st_lbl:
-                badge_str = f"{ldr['ticker']} `🔴 FAIL`"
+                badge_str = f"{ldr['ticker']} [🔴 FAIL]"
             else:
-                badge_str = f"{ldr['ticker']} `⏳ BASE`"
+                badge_str = f"{ldr['ticker']} [⏳ BASE]"
             leader_badges.append(badge_str)
             
         leader_display = "  •  ".join(leader_badges)
