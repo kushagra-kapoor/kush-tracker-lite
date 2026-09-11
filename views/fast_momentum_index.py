@@ -900,7 +900,7 @@ def format_catalyst_dropdown_html(ticker: str, catalysts: dict) -> str:
         {content_html}
     </details>
     """
-    return details_html
+    return "\n".join(line.strip() for line in details_html.splitlines() if line.strip())
 
 
 
@@ -1292,7 +1292,8 @@ if "Active CANSLIM Swing Trader" in terminal_mode:
 <span class="vol-tag">📊 <b>Vol:</b> {b['volume_ratio']}x</span>
 </div>
 </div>"""
-                st.markdown(card_html, unsafe_allow_html=True)
+                clean_card_html = "\n".join(line.strip() for line in card_html.splitlines() if line.strip())
+                st.markdown(clean_card_html, unsafe_allow_html=True)
         else:
             render_empty_state(f"No triggers matching {buy_lookback}.", icon="🛡️")
 
