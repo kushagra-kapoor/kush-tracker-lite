@@ -9,6 +9,8 @@ import plotly.graph_objects as go
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from systematic_engine import compute_live_fast_momentum_matrix, get_target_portfolio
 from canslim_swing_engine import generate_daily_canslim_swing_state
+from catalyst_engine import get_catalysts_for_buy_triggers
+import html
 
 # st.set_page_config removed for Lite routing
 
@@ -334,11 +336,244 @@ a.terminal-card-link:visited {
     transition: all 0.2s ease;
 }
 
-a.terminal-card-link:hover .tv-link-badge {
+a.terminal-card-link:hover .tv-link-badge,
+.tv-link-badge:hover {
     background: rgba(37, 99, 235, 0.4);
     border-color: #60a5fa;
-    color: #bfdbfe;
+    color: #bfdbfe !important;
     box-shadow: 0 0 8px rgba(59, 130, 246, 0.5);
+}
+
+/* =============================================================================
+   CATALYST & CORPORATE FILINGS RADAR ACCORDION
+   ============================================================================= */
+
+.catalyst-details {
+    margin-top: 8px;
+    margin-bottom: 6px;
+    background: rgba(15, 23, 42, 0.65);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 8px;
+    overflow: hidden;
+    transition: all 0.25s ease;
+}
+
+.catalyst-details[open] {
+    border-color: rgba(56, 189, 248, 0.4);
+    background: rgba(15, 23, 42, 0.92);
+    box-shadow: 0 6px 16px rgba(0, 0, 0, 0.5), 0 0 12px rgba(56, 189, 248, 0.1);
+}
+
+.catalyst-summary {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 6px 9px;
+    cursor: pointer;
+    font-size: 0.72rem;
+    font-weight: 600;
+    color: #cbd5e1;
+    list-style: none;
+    user-select: none;
+    background: rgba(255, 255, 255, 0.02);
+    transition: background 0.15s ease, color 0.15s ease;
+}
+
+.catalyst-summary::-webkit-details-marker {
+    display: none;
+}
+
+.catalyst-summary:hover {
+    background: rgba(255, 255, 255, 0.06);
+    color: #f8fafc;
+}
+
+.catalyst-summary-left {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+}
+
+.catalyst-lightning {
+    color: #facc15;
+    font-size: 0.78rem;
+}
+
+.catalyst-summary-title {
+    font-weight: 700;
+    letter-spacing: 0.2px;
+}
+
+.catalyst-summary-right {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.catalyst-badge-pill {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.64rem;
+    padding: 2px 6px;
+    border-radius: 4px;
+    background: rgba(56, 189, 248, 0.12);
+    border: 1px solid rgba(56, 189, 248, 0.28);
+    color: #38bdf8;
+    font-weight: 600;
+    white-space: nowrap;
+}
+
+.catalyst-chevron {
+    font-size: 0.68rem;
+    color: #94a3b8;
+    transition: transform 0.2s ease;
+    display: inline-block;
+}
+
+.catalyst-details[open] .catalyst-chevron {
+    transform: rotate(180deg);
+}
+
+.catalyst-content {
+    padding: 8px 10px;
+    border-top: 1px solid rgba(255, 255, 255, 0.06);
+    display: flex;
+    flex-direction: column;
+    gap: 7px;
+}
+
+.catalyst-sec-label {
+    font-size: 0.61rem;
+    font-weight: 800;
+    letter-spacing: 0.6px;
+    color: #64748b;
+    margin-bottom: 2px;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+}
+
+.catalyst-item {
+    background: rgba(255, 255, 255, 0.025);
+    border: 1px solid rgba(255, 255, 255, 0.05);
+    border-left: 2px solid #38bdf8;
+    border-radius: 6px;
+    padding: 5px 8px;
+    transition: all 0.15s ease;
+}
+
+.catalyst-item.filing-item {
+    border-left-color: #a855f7;
+}
+
+.catalyst-item:hover {
+    background: rgba(255, 255, 255, 0.05);
+}
+
+.catalyst-item-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 3px;
+    flex-wrap: wrap;
+    gap: 4px;
+}
+
+.catalyst-src-pill {
+    font-size: 0.63rem;
+    font-weight: 700;
+    color: #94a3b8;
+    display: flex;
+    align-items: center;
+    gap: 3px;
+}
+
+.catalyst-cat-pill {
+    font-size: 0.62rem;
+    font-weight: 700;
+    padding: 1px 5px;
+    border-radius: 3px;
+    border: 1px solid;
+    background: rgba(255, 255, 255, 0.03);
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+}
+
+.catalyst-time {
+    font-size: 0.62rem;
+    color: #64748b;
+    font-family: 'JetBrains Mono', monospace;
+}
+
+.catalyst-headline {
+    font-size: 0.72rem;
+    line-height: 1.35;
+}
+
+.catalyst-headline-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 6px;
+    font-size: 0.72rem;
+    line-height: 1.35;
+}
+
+.catalyst-filing-text {
+    color: #e2e8f0;
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+}
+
+a.catalyst-link {
+    color: #e2e8f0 !important;
+    text-decoration: none !important;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    transition: color 0.15s ease;
+}
+
+a.catalyst-link:hover {
+    color: #38bdf8 !important;
+    text-decoration: underline !important;
+}
+
+a.catalyst-pdf-btn {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.62rem;
+    font-weight: 700;
+    padding: 2px 7px;
+    border-radius: 4px;
+    background: rgba(239, 68, 68, 0.15);
+    border: 1px solid rgba(239, 68, 68, 0.4);
+    color: #f87171 !important;
+    text-decoration: none !important;
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+    white-space: nowrap;
+    transition: all 0.2s ease;
+}
+
+a.catalyst-pdf-btn:hover {
+    background: rgba(239, 68, 68, 0.3);
+    border-color: #ef4444;
+    color: #fca5a5 !important;
+    box-shadow: 0 0 8px rgba(239, 68, 68, 0.3);
+}
+
+.catalyst-empty-sub {
+    font-size: 0.68rem;
+    color: #64748b;
+    font-style: italic;
+    padding: 3px 6px;
 }
 
 /* ADTV Liquidity Badges */
@@ -563,6 +798,109 @@ def get_tradingview_url(ticker: str) -> str:
     if clean.isdigit():
         return f"https://in.tradingview.com/chart/?symbol=BSE:{clean}"
     return f"https://in.tradingview.com/chart/?symbol=NSE:{clean}"
+
+
+def format_catalyst_dropdown_html(ticker: str, catalysts: dict) -> str:
+    """Renders Bloomberg dark-glass accordion containing 2 latest news and 2 corporate filings."""
+    if not catalysts:
+        news_list = []
+        filings_list = []
+    else:
+        news_list = catalysts.get('news', [])
+        filings_list = catalysts.get('filings', [])
+        
+    news_count = len(news_list)
+    filings_count = len(filings_list)
+    
+    if news_count == 0 and filings_count == 0:
+        badge_text = "0 News • 0 Filings"
+    else:
+        badge_text = f"📰 {news_count} News • 📑 {filings_count} Filings"
+        
+    news_html_items = []
+    if news_list:
+        for n in news_list:
+            t = html.escape(str(n.get('title', '')))
+            src = html.escape(str(n.get('source', 'News')))
+            t_ago = html.escape(str(n.get('time_ago', '')))
+            url = n.get('url', '#')
+            is_rec = n.get('is_recent', False)
+            rec_dot = "<span style='color: #10b981; font-size: 0.65rem;' title='Published within 48h'>● </span>" if is_rec else ""
+            news_html_items.append(f"""
+            <div class="catalyst-item">
+                <div class="catalyst-item-header">
+                    <span class="catalyst-src-pill">{rec_dot}{src}</span>
+                    <span class="catalyst-time">{t_ago}</span>
+                </div>
+                <div class="catalyst-headline">
+                    <a href="{url}" target="_blank" rel="noopener noreferrer" class="catalyst-link" title="{t}">{t} <span style="font-size: 0.65rem; color: #38bdf8;">↗</span></a>
+                </div>
+            </div>
+            """)
+    else:
+        news_html_items.append("""
+        <div class="catalyst-empty-sub">
+            <span>No news headlines detected in last 48h</span>
+        </div>
+        """)
+        
+    filings_html_items = []
+    if filings_list:
+        for f in filings_list:
+            t = html.escape(str(f.get('title', '')))
+            cat = html.escape(str(f.get('category', 'Filing')))
+            cat_col = f.get('category_color', '#64748b')
+            icon = f.get('icon', '📄')
+            src = html.escape(str(f.get('source', 'NSE')))
+            t_ago = html.escape(str(f.get('time_ago', '')))
+            pdf = f.get('pdf_url', '')
+            
+            pdf_btn = f'<a href="{pdf}" target="_blank" rel="noopener noreferrer" class="catalyst-pdf-btn" title="Open official PDF announcement">PDF 📄</a>' if pdf else ''
+            
+            filings_html_items.append(f"""
+            <div class="catalyst-item filing-item">
+                <div class="catalyst-item-header">
+                    <span class="catalyst-cat-pill" style="border-color: {cat_col}; color: {cat_col};">{icon} {cat} ({src})</span>
+                    <span class="catalyst-time">{t_ago}</span>
+                </div>
+                <div class="catalyst-headline-row">
+                    <span class="catalyst-filing-text" title="{t}">{t}</span>
+                    {pdf_btn}
+                </div>
+            </div>
+            """)
+    else:
+        filings_html_items.append("""
+        <div class="catalyst-empty-sub">
+            <span>No corporate filings • Clean price/volume breakout</span>
+        </div>
+        """)
+        
+    content_html = f"""
+    <div class="catalyst-content">
+        <div class="catalyst-sec-label">📰 LATEST NEWS (24-48H)</div>
+        {''.join(news_html_items)}
+        <div class="catalyst-sec-label" style="margin-top: 6px;">📑 CORPORATE ANNOUNCEMENTS & FILINGS</div>
+        {''.join(filings_html_items)}
+    </div>
+    """
+    
+    details_html = f"""
+    <details class="catalyst-details">
+        <summary class="catalyst-summary">
+            <span class="catalyst-summary-left">
+                <span class="catalyst-lightning">⚡</span>
+                <span class="catalyst-summary-title">Catalysts & Filings</span>
+            </span>
+            <span class="catalyst-summary-right">
+                <span class="catalyst-badge-pill">{badge_text}</span>
+                <span class="catalyst-chevron">▾</span>
+            </span>
+        </summary>
+        {content_html}
+    </details>
+    """
+    return details_html
 
 
 
@@ -884,6 +1222,10 @@ if "Active CANSLIM Swing Trader" in terminal_mode:
         )
         
         if display_buys:
+            # Multi-threaded batch prefetch of catalysts (news + filings) for all buy triggers
+            buy_tickers = [b.get('clean_ticker') for b in display_buys if b.get('clean_ticker')]
+            catalysts_map = get_catalysts_for_buy_triggers(buy_tickers) if buy_tickers else {}
+
             for b in display_buys:
                 is_act = b['actionable']
                 is_retest = "Retesting" in b['status']
@@ -909,12 +1251,17 @@ if "Active CANSLIM Swing Trader" in terminal_mode:
                 dist_color = "#34d399" if b['dist_now_pct'] >= 0 else "#f87171"
                 tv_url = get_tradingview_url(b['clean_ticker'])
                 
-                card_html = f"""<a href="{tv_url}" target="_blank" rel="noopener noreferrer" class="terminal-card-link" title="Open {b['clean_ticker']} interactive chart on TradingView">
-<div class="terminal-card {card_style_class}">
+                ticker_sym = b['clean_ticker']
+                ticker_catalysts = catalysts_map.get(ticker_sym, {})
+                catalyst_dropdown_html = format_catalyst_dropdown_html(ticker_sym, ticker_catalysts)
+                
+                card_html = f"""<div class="terminal-card {card_style_class}">
 <div class="card-header-row">
 <div style="display: flex; align-items: center; gap: 6px; flex-wrap: wrap;">
+<a href="{tv_url}" target="_blank" rel="noopener noreferrer" style="text-decoration: none;" title="Open {b['clean_ticker']} interactive chart on TradingView">
 <span class="ticker-title" style="color: {border_c};">{b['clean_ticker']}</span>
-<span class="tv-link-badge">TV ↗</span>
+</a>
+<a href="{tv_url}" target="_blank" rel="noopener noreferrer" class="tv-link-badge" title="Open {b['clean_ticker']} interactive chart on TradingView">TV ↗</a>
 {z_badge}
 {adtv_badge}
 </div>
@@ -939,12 +1286,12 @@ if "Active CANSLIM Swing Trader" in terminal_mode:
 <span class="metric-cell-val" style="color: #34d399;">+{b['sales_growth']:.1f}%</span>
 </div>
 </div>
+{catalyst_dropdown_html}
 <div class="card-footer">
 <span>⏱️ <b>Triggered:</b> {timing_lbl}</span>
 <span class="vol-tag">📊 <b>Vol:</b> {b['volume_ratio']}x</span>
 </div>
-</div>
-</a>"""
+</div>"""
                 st.markdown(card_html, unsafe_allow_html=True)
         else:
             render_empty_state(f"No triggers matching {buy_lookback}.", icon="🛡️")
