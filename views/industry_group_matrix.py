@@ -262,7 +262,7 @@ def main():
     # -------------------------------------------------------------
     # 1. TAXONOMY SELECTION & CONTROLS (UP FRONT)
     # -------------------------------------------------------------
-    c_tax, c_rot, c_top, c_search = st.columns([1.6, 1.2, 0.9, 1.3])
+    c_tax, c_sort, c_rot, c_top, c_search = st.columns([1.5, 1.3, 1.1, 0.9, 1.2])
     
     with c_tax:
         taxonomy_choice = st.radio(
@@ -275,6 +275,21 @@ def main():
         
     tax_key = "thematic" if "Alpha" in taxonomy_choice else "canonical"
     
+    with c_sort:
+        sort_choice = st.selectbox(
+            "Sort Groups By",
+            [
+                "🏆 Leadership Rank (1 to N)",
+                "🐺 Wolfpack Breadth (RS ≥ 80 Count)",
+                "🐺 Wolfpack Concentration (% RS ≥ 80)",
+                "🚀 1M Rank Velocity (Δ Spots)",
+                "📈 1M Momentum Return %",
+                "🏢 Total Constituent Count"
+            ],
+            index=0,
+            help="Sort groups across tables and cards by leadership momentum rank, wolfpack pack size, or velocity."
+        )
+
     with c_rot:
         status_filter = st.selectbox(
             "Rotation Velocity Filter",
@@ -354,7 +369,7 @@ def main():
     st.markdown(clean_html(hud_html), unsafe_allow_html=True)
 
     # -------------------------------------------------------------
-    # 4. FILTERING TABLE DATA
+    # 4. FILTERING & SORTING TABLE DATA
     # -------------------------------------------------------------
     filtered_df = df_matrix.copy()
 
@@ -372,6 +387,21 @@ def main():
             filtered_df["Industry_Group"].str.lower().str.contains(search_query) |
             filtered_df["Constituents"].apply(lambda clist: any(search_query in str(t).lower() for t in clist))
         ]
+
+    # Apply Selected Sort Hierarchy
+    if "Wolfpack Breadth" in sort_choice or "RS ≥ 80 Count" in sort_choice:
+        filtered_df = filtered_df.sort_values(["Pack_Hunting_Count", "Rank_Today"], ascending=[False, True])
+    elif "Concentration" in sort_choice:
+        filtered_df["_pack_ratio"] = filtered_df["Pack_Hunting_Count"] / filtered_df["Stock_Count"].clip(lower=1)
+        filtered_df = filtered_df.sort_values(["_pack_ratio", "Pack_Hunting_Count", "Rank_Today"], ascending=[False, False, True])
+    elif "Velocity" in sort_choice:
+        filtered_df = filtered_df.sort_values(["Delta_1M", "Rank_Today"], ascending=[False, True])
+    elif "Return" in sort_choice:
+        filtered_df = filtered_df.sort_values(["Return_1M", "Rank_Today"], ascending=[False, True])
+    elif "Constituent" in sort_choice:
+        filtered_df = filtered_df.sort_values(["Stock_Count", "Rank_Today"], ascending=[False, True])
+    else:
+        filtered_df = filtered_df.sort_values("Rank_Today", ascending=True)
 
     if limit_choice == "Top 25 Groups":
         filtered_df = filtered_df.head(25)
@@ -441,9 +471,54 @@ def main():
     # TAB 2: ACTIONABLE LEADER CARDS GRID
     # -------------------------------------------------------------
     with tab_cards:
-        st.caption("⚡ *High-density visual terminal cards highlighting the top actionable anchor stocks and live execution badges for every group.*")
+        c_cinfo, c_csort, c_cscope = st.columns([1.6, 1.4, 1.0])
+        with c_cinfo:
+            st.caption("⚡ *High-density visual terminal cards highlighting the top actionable anchor stocks and live execution badges for every group.*")
+        with c_csort:
+            card_sort_choice = st.selectbox(
+                "Sort Cards By",
+                [
+                    "Same as Top Filter",
+                    "🏆 Hierarchy Rank (#1 to #N)",
+                    "🐺 Wolfpack Breadth (RS ≥ 80 Count)",
+                    "🐺 Wolfpack Concentration (% RS ≥ 80)",
+                    "🚀 1M Rank Velocity (Δ Spots)",
+                    "📈 1M Momentum Return %"
+                ],
+                index=0,
+                key="actionable_cards_sort_choice",
+                help="Sort cards by momentum rank, wolfpack breadth, or velocity"
+            )
+        with c_cscope:
+            card_count_choice = st.selectbox(
+                "Show Cards",
+                ["Top 18 Cards", "Top 36 Cards", "All Filtered Groups"],
+                index=1,
+                key="actionable_cards_count_choice"
+            )
+            
+        effective_card_sort = sort_choice if card_sort_choice == "Same as Top Filter" else card_sort_choice
+        cards_df = filtered_df.copy()
         
-        cards_slice = filtered_df.head(18)
+        if "Wolfpack Breadth" in effective_card_sort or "RS ≥ 80 Count" in effective_card_sort:
+            cards_df = cards_df.sort_values(["Pack_Hunting_Count", "Rank_Today"], ascending=[False, True])
+        elif "Concentration" in effective_card_sort:
+            cards_df["_pack_ratio"] = cards_df["Pack_Hunting_Count"] / cards_df["Stock_Count"].clip(lower=1)
+            cards_df = cards_df.sort_values(["_pack_ratio", "Pack_Hunting_Count", "Rank_Today"], ascending=[False, False, True])
+        elif "Velocity" in effective_card_sort:
+            cards_df = cards_df.sort_values(["Delta_1M", "Rank_Today"], ascending=[False, True])
+        elif "Return" in effective_card_sort:
+            cards_df = cards_df.sort_values(["Return_1M", "Rank_Today"], ascending=[False, True])
+        else:
+            cards_df = cards_df.sort_values("Rank_Today", ascending=True)
+
+        if card_count_choice == "Top 18 Cards":
+            cards_slice = cards_df.head(18)
+        elif card_count_choice == "Top 36 Cards":
+            cards_slice = cards_df.head(36)
+        else:
+            cards_slice = cards_df
+
         cols_per_row = 3
         card_rows = [cards_slice.iloc[i:i+cols_per_row] for i in range(0, len(cards_slice), cols_per_row)]
         
@@ -510,11 +585,14 @@ def main():
                         <div style='display:flex; justify-content:space-between; align-items:flex-start;'>
                             <div>
                                 <div class='tg-title' title='{g_data["Industry_Group"]}'>{g_data["Industry_Group"]}</div>
-                                <div class='tg-stock-count'>{g_data["Stock_Count"]} Stocks • 🐺 {g_data["Pack_Hunting_Count"]} with RS ≥ 80</div>
+                                <div class='tg-stock-count'>{g_data["Stock_Count"]} Stocks • <b style='color:#c084fc;'>🐺 {g_data["Pack_Hunting_Count"]} with RS ≥ 80</b></div>
                             </div>
                             <div style='text-align:right;'>
                                 <div class='tg-rank-num'>#{g_data["Rank_Today"]}</div>
-                                <span class='badge-pill {rot_pill}'>{g_data["Rotation_Status"]}</span>
+                                <div style='display:flex; gap:4px; justify-content:flex-end; margin-top:2px;'>
+                                    <span class='badge-pill pill-purple'>🐺 {g_data["Pack_Hunting_Count"]} Pack</span>
+                                    <span class='badge-pill {rot_pill}'>{g_data["Rotation_Status"]}</span>
+                                </div>
                             </div>
                         </div>
                         <div class='tg-perf-row'>
