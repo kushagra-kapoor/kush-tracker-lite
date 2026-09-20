@@ -14,7 +14,7 @@ import numpy as np
 import plotly.express as px
 import plotly.graph_objects as go
 
-from components import render_header, render_metric_card, apply_plotly_theme
+from components import render_header, render_metric_card, apply_plotly_theme, render_disk_cache_sidebar
 from market_data import fetch_nifty_total_market_tickers
 from new_highs_engine import (
     load_price_matrix,
@@ -22,6 +22,10 @@ from new_highs_engine import (
     compute_new_highs_universe,
     get_industry_clustering_stats
 )
+try:
+    from views.true_market_leader import get_cached_universe
+except ImportError:
+    get_cached_universe = None
 
 # Page configuration (guarded for st.navigation routing in Lite)
 try:
@@ -40,12 +44,13 @@ render_header(
     icon="🌟"
 )
 
-@st.cache_data(ttl=900, show_spinner="Analyzing multi-year price matrix across universe...")
+@st.cache_data(ttl=900, show_spinner="Syncing price history & scanning breakouts on the go... Please wait ~20-30s...")
 def get_cached_new_highs_data(universe_mode: str = "NIFTY 750 (High Conviction)"):
     """
     Loads price matrix and runs full vectorized new highs quantitative engine.
+    If historical_prices_matrix.pkl does not exist (e.g. Streamlit Cloud),
+    downloads on the go using price_history_manager.
     """
-    close_df, high_df, low_df, volume_df = load_price_matrix()
     industry_map = load_industry_map()
     
     if universe_mode == "NIFTY 750 (High Conviction)":
@@ -53,7 +58,25 @@ def get_cached_new_highs_data(universe_mode: str = "NIFTY 750 (High Conviction)"
         if nifty_ind:
             industry_map = {**nifty_ind, **industry_map}
     else:
-        tickers = None
+        tickers_file = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "tickers.txt")
+        if os.path.exists(tickers_file):
+            try:
+                with open(tickers_file, "r") as f:
+                    tickers = [line.strip().upper() for line in f if line.strip() and '-' not in line]
+            except Exception:
+                tickers = fetch_nifty_total_market_tickers(show_progress=False)
+        else:
+            tickers = fetch_nifty_total_market_tickers(show_progress=False)
+
+    close_df, high_df, low_df, volume_df = load_price_matrix(tickers=tickers, days=252)
+    
+    if close_df.empty and tickers:
+        try:
+            from price_history_manager import fetch_incremental_history
+            fetch_incremental_history(tickers, days=252)
+            close_df, high_df, low_df, volume_df = load_price_matrix(tickers=tickers, days=252)
+        except Exception as e:
+            print(f"Incremental history download failed: {e}")
         
     df = compute_new_highs_universe(
         close_df=close_df,
@@ -82,6 +105,9 @@ with st.sidebar:
         st.cache_data.clear()
         st.rerun()
 
+    if get_cached_universe is not None:
+        render_disk_cache_sidebar(get_cached_universe)
+
 # Load data
 df = get_cached_new_highs_data(universe_mode)
 
@@ -91,7 +117,10 @@ if not df.empty and 'Days Since ATH' not in df.columns:
     df = get_cached_new_highs_data(universe_mode)
 
 if df.empty:
-    st.warning("⚠️ No price matrix data available. Please verify 'historical_prices_matrix.pkl' is synced.")
+    st.info("📡 Price history matrix is building on the go from Yahoo Finance. Please wait a moment or click below to initialize:")
+    if st.button("🚀 Initialize & Sync Universe History Now", type="primary", use_container_width=True):
+        st.cache_data.clear()
+        st.rerun()
     st.stop()
 
 # -----------------------------------------------------------------------------

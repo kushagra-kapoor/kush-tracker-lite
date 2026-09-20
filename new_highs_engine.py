@@ -22,28 +22,46 @@ DB_PATH = os.path.join(BASE_DIR, ".cache", "kush_tracker_lite.db")
 if not os.path.exists(DB_PATH):
     DB_PATH = os.path.join(BASE_DIR, "kush_tracker.db")
 
-def load_price_matrix(matrix_path: str = MATRIX_PKL_PATH):
+def load_price_matrix(matrix_path: str = MATRIX_PKL_PATH, tickers: list = None, days: int = 252):
     """
     Loads historical prices matrix from pickle.
+    If pickle does not exist or is empty and tickers is provided,
+    downloads price history on the go via price_history_manager.
     Returns close_df, high_df, low_df, volume_df.
     """
-    if not os.path.exists(matrix_path):
+    matrix = None
+    if os.path.exists(matrix_path):
+        try:
+            with open(matrix_path, "rb") as f:
+                matrix = pickle.load(f)
+        except Exception as e:
+            print(f"Error loading {matrix_path}: {e}")
+            matrix = None
+
+    if (matrix is None or matrix.empty) and tickers:
+        try:
+            from price_history_manager import fetch_incremental_history
+            print(f"[NewHighsEngine] Downloading price history on the go for {len(tickers)} tickers...")
+            matrix = fetch_incremental_history(tickers, days=days)
+        except Exception as e:
+            print(f"[NewHighsEngine] Auto-download error: {e}")
+
+    if matrix is None or matrix.empty:
         return pd.DataFrame(), pd.DataFrame(), pd.DataFrame(), pd.DataFrame()
         
     try:
-        with open(matrix_path, "rb") as f:
-            matrix = pickle.load(f)
-            
         if not isinstance(matrix.columns, pd.MultiIndex):
             return matrix, matrix, matrix, pd.DataFrame()
             
-        levels = [str(v).lower() for v in matrix.columns.get_level_values(1)]
-        
         # Safe extraction of price attributes
         def get_level_slice(target_name):
-            for col_type in [target_name, target_name.capitalize(), target_name.upper()]:
-                if col_type in matrix.columns.levels[1]:
-                    return matrix.xs(col_type, level=1, axis=1)
+            if matrix.columns.nlevels >= 2:
+                for col_type in [target_name, target_name.capitalize(), target_name.upper(), target_name.lower()]:
+                    if col_type in matrix.columns.levels[1]:
+                        return matrix.xs(col_type, level=1, axis=1)
+                for col_type in [target_name, target_name.capitalize(), target_name.upper(), target_name.lower()]:
+                    if col_type in matrix.columns.levels[0]:
+                        return matrix.xs(col_type, level=0, axis=1)
             return pd.DataFrame()
 
         close_df = get_level_slice("Close")
@@ -58,7 +76,7 @@ def load_price_matrix(matrix_path: str = MATRIX_PKL_PATH):
             
         return close_df, high_df, low_df, volume_df
     except Exception as e:
-        print(f"Error loading price matrix: {e}")
+        print(f"Error extracting price matrix slices: {e}")
         return pd.DataFrame(), pd.DataFrame(), pd.DataFrame(), pd.DataFrame()
 
 def load_industry_map(map_path: str = MAP_JSON_PATH, db_path: str = DB_PATH) -> dict:
