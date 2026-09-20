@@ -109,6 +109,7 @@ def load_css():
         .red-text { color: #ef4444 !important; text-shadow: 0 0 20px rgba(239,68,68,0.4) !important; }
         .yellow-text { color: #f59e0b !important; text-shadow: 0 0 20px rgba(245,158,11,0.4) !important; }
         .blue-text { color: #3b82f6 !important; text-shadow: 0 0 20px rgba(59,130,246,0.4) !important; }
+        .cyan-text { color: #06b6d4 !important; text-shadow: 0 0 20px rgba(6,182,212,0.4) !important; }
         
         .rs-blue-dot-glow {
             color: #60a5fa !important;
