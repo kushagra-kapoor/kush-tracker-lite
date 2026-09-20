@@ -22,13 +22,22 @@ DB_PATH = os.path.join(BASE_DIR, ".cache", "kush_tracker_lite.db")
 if not os.path.exists(DB_PATH):
     DB_PATH = os.path.join(BASE_DIR, "kush_tracker.db")
 
-def load_price_matrix(matrix_path: str = MATRIX_PKL_PATH, tickers: list = None, days: int = 252):
+def load_price_matrix(matrix_path: str = MATRIX_PKL_PATH, tickers: list = None, days: int = 252, *args, **kwargs):
     """
     Loads historical prices matrix from pickle.
     If pickle does not exist or is empty and tickers is provided,
     downloads price history on the go via price_history_manager.
     Returns close_df, high_df, low_df, volume_df.
     """
+    if tickers is None and 'tickers' in kwargs:
+        tickers = kwargs['tickers']
+    if 'days' in kwargs:
+        days = kwargs['days']
+    if args:
+        if len(args) >= 1 and tickers is None:
+            tickers = args[0]
+        if len(args) >= 2:
+            days = args[1]
     matrix = None
     if os.path.exists(matrix_path):
         try:

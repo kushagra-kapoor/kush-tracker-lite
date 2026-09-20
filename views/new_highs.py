@@ -16,6 +16,14 @@ import plotly.graph_objects as go
 
 from components import render_header, render_metric_card, apply_plotly_theme, render_disk_cache_sidebar
 from market_data import fetch_nifty_total_market_tickers
+
+import importlib
+import new_highs_engine
+try:
+    importlib.reload(new_highs_engine)
+except Exception:
+    pass
+
 from new_highs_engine import (
     load_price_matrix,
     load_industry_map,
@@ -68,13 +76,19 @@ def get_cached_new_highs_data(universe_mode: str = "NIFTY 750 (High Conviction)"
         else:
             tickers = fetch_nifty_total_market_tickers(show_progress=False)
 
-    close_df, high_df, low_df, volume_df = load_price_matrix(tickers=tickers, days=252)
+    try:
+        close_df, high_df, low_df, volume_df = load_price_matrix(tickers=tickers, days=252)
+    except TypeError:
+        import importlib
+        import new_highs_engine
+        importlib.reload(new_highs_engine)
+        close_df, high_df, low_df, volume_df = new_highs_engine.load_price_matrix(tickers=tickers, days=252)
     
     if close_df.empty and tickers:
         try:
             from price_history_manager import fetch_incremental_history
             fetch_incremental_history(tickers, days=252)
-            close_df, high_df, low_df, volume_df = load_price_matrix(tickers=tickers, days=252)
+            close_df, high_df, low_df, volume_df = new_highs_engine.load_price_matrix(tickers=tickers, days=252)
         except Exception as e:
             print(f"Incremental history download failed: {e}")
         
