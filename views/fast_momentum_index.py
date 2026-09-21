@@ -11,6 +11,7 @@ from systematic_engine import compute_live_fast_momentum_matrix, get_target_port
 from canslim_swing_engine import generate_daily_canslim_swing_state
 from catalyst_engine import get_catalysts_for_buy_triggers
 import html
+import math
 
 # st.set_page_config removed for Lite routing
 
@@ -1998,14 +1999,47 @@ if "Active CANSLIM Swing Trader" in terminal_mode:
             for t in topper_themes:
                 filter_options.append(f"🔥 Theme: {t['industry']} ({t['count']})")
 
-        f_col1, f_col2 = st.columns([1.5, 3.5])
+        # Determine sensible bounds for ADTV and Z-Score sliders
+        max_adtv_data = float(leaderboard['ADTV_Cr'].max()) if (isinstance(leaderboard, pd.DataFrame) and not leaderboard.empty and 'ADTV_Cr' in leaderboard.columns) else 25.0
+        max_adtv_limit = max(10.0, min(100.0, float(math.ceil(max_adtv_data))))
+        adtv_step = 0.1 if max_adtv_limit <= 30.0 else 0.5
+
+        min_z_data = float(leaderboard['Z_Score'].min()) if (isinstance(leaderboard, pd.DataFrame) and not leaderboard.empty and 'Z_Score' in leaderboard.columns) else 0.0
+        max_z_data = float(leaderboard['Z_Score'].max()) if (isinstance(leaderboard, pd.DataFrame) and not leaderboard.empty and 'Z_Score' in leaderboard.columns) else 5.0
+        min_slider_z = min(0.0, float(math.floor(min_z_data)))
+        max_slider_z = max(5.0, float(math.ceil(max_z_data)))
+
+        f_col1, f_col2, f_col3 = st.columns([1.6, 1.2, 1.2])
         with f_col1:
             view_filter = st.selectbox(
                 "Filter Leaderboard:",
-                filter_options
+                filter_options,
+                key="lead_table_view_filter"
+            )
+        with f_col2:
+            sel_min_adtv = st.slider(
+                "💧 Min ADTV (₹ Cr):",
+                min_value=0.0,
+                max_value=max_adtv_limit,
+                value=0.0,
+                step=adtv_step,
+                format="₹%.1f Cr",
+                key="lead_table_min_adtv",
+                help="Filter leaderboard by minimum 20-day Average Daily Turnover in ₹ Crores. Step: ₹10 Lacs."
+            )
+        with f_col3:
+            sel_min_z = st.slider(
+                "⚡ Min Momentum Z-Score:",
+                min_value=min_slider_z,
+                max_value=max_slider_z,
+                value=min_slider_z,
+                step=0.1,
+                format="%.1f",
+                key="lead_table_min_z",
+                help="Filter leaderboard by minimum Volatility-Adjusted Momentum Z-Score (40% 1M + 40% 3M + 20% 6M)."
             )
 
-        df_filtered = leaderboard.copy()
+        df_filtered = leaderboard.copy() if isinstance(leaderboard, pd.DataFrame) else pd.DataFrame(leaderboard)
         if view_filter == "In Buy Zone Only":
             df_filtered = df_filtered[df_filtered['In_Buy_Zone'] == True]
         elif view_filter == "All Thematic Clusters (≥3 Leaders)":
@@ -2018,32 +2052,50 @@ if "Active CANSLIM Swing Trader" in terminal_mode:
         elif view_filter == "RS Line New High (RSNH) Only":
             df_filtered = df_filtered[df_filtered['RSNH'] == True]
 
-        if min_adtv > 0.0 and 'ADTV_Cr' in df_filtered.columns:
-            df_filtered = df_filtered[df_filtered['ADTV_Cr'] >= min_adtv]
+        if sel_min_adtv > 0.0 and 'ADTV_Cr' in df_filtered.columns:
+            df_filtered = df_filtered[df_filtered['ADTV_Cr'] >= sel_min_adtv]
 
-        df_filtered_view = df_filtered.copy()
-        df_filtered_view['Chart'] = df_filtered_view['Ticker'].apply(get_tradingview_url)
-        df_filtered_view['Industry_Theme'] = df_filtered_view.apply(
-            lambda r: f"🔥 {r['Industry']} ({r['Cluster_Count']})" if r.get('Is_Cluster') else str(r.get('Industry', 'Unknown')),
-            axis=1
-        )
-        leader_cols = [
-            'Rank', 'Ticker', 'Chart', 'Industry_Theme', 'ADTV_Cr', 'Z_Score', 'Price', 'Setup', 'In_Buy_Zone',
-            'Dist_Pivot', 'Vol_Ratio', 'EPS_YoY', 'Sales_YoY', 'ROE', 'Base_Stage', 'RSNH'
+        if 'Z_Score' in df_filtered.columns and sel_min_z > min_slider_z:
+            df_filtered = df_filtered[df_filtered['Z_Score'] >= sel_min_z]
+
+        st.caption(f"Showing **{len(df_filtered)}** of **{len(leaderboard)}** momentum leaders matching active filters.")
+
+        if df_filtered.empty:
+            st.warning("⚠️ No momentum leaders match the current filter criteria. Try lowering the Min ADTV or Min Z-Score sliders.")
+        else:
+            df_filtered_view = df_filtered.copy()
+            df_filtered_view['Chart'] = df_filtered_view['Ticker'].apply(get_tradingview_url)
+            df_filtered_view['Industry_Theme'] = df_filtered_view.apply(
+                lambda r: f"🔥 {r['Industry']} ({r['Cluster_Count']})" if r.get('Is_Cluster') else str(r.get('Industry', 'Unknown')),
+                axis=1
+            )
+            leader_cols = [
+                'Rank', 'Ticker', 'Chart', 'Industry_Theme', 'ADTV_Cr', 'Z_Score', 'Price', 'Setup', 'In_Buy_Zone',
+                'Dist_Pivot', 'Vol_Ratio', 'EPS_YoY', 'Sales_YoY', 'ROE', 'Base_Stage', 'RSNH'
+            ]
+            st.dataframe(
+                df_filtered_view[leader_cols],
+                column_config={
+                    "Chart": st.column_config.LinkColumn("Chart", display_text="Open TV ↗"),
+                    "Industry_Theme": st.column_config.TextColumn("Industry / Theme"),
+                    "ADTV_Cr": st.column_config.NumberColumn("ADTV (₹ Cr)", format="₹%.1f Cr")
+                },
+                use_container_width=True
+            )
+
+        clean_tv_tickers = [
+            str(t).replace('.NS', '').replace('.BO', '').split('-')[0].strip().upper()
+            for t in df_filtered['Ticker'].tolist()
+            if str(t).strip()
         ]
-        st.dataframe(
-            df_filtered_view[leader_cols],
-            column_config={
-                "Chart": st.column_config.LinkColumn("Chart", display_text="Open TV ↗"),
-                "Industry_Theme": st.column_config.TextColumn("Industry / Theme"),
-                "ADTV_Cr": st.column_config.NumberColumn("ADTV (₹ Cr)", format="₹%.1f Cr")
-            },
-            use_container_width=True
-        )
+        tv_list = ", ".join([f"NSE:{t}" for t in clean_tv_tickers])
 
-        with st.expander("📋 Copy Filtered Leaders for TradingView"):
-            tv_list = ",".join(["NSE:" + t for t in df_filtered['Ticker'].tolist()])
-            st.code(tv_list, language="text")
+        with st.expander(f"📋 Copy Filtered Leaders for TradingView ({len(clean_tv_tickers)})", expanded=False):
+            if tv_list:
+                st.code(tv_list, language="text")
+                st.caption("💡 Click the copy button in the top-right of the code box above, then in TradingView press **Alt+I** (or '+') in your Watchlist and paste (**Ctrl+V**) to import.")
+            else:
+                st.info("No tickers match active filters.")
 
 
 # =============================================================================
