@@ -1,6 +1,21 @@
 # Kush Tracker - Streamlit Dashboard
 # Professional Portfolio Execution & Risk Management App
 
+import sys
+import os
+
+# Ensure root directory is in Python path for Lite multi-page views
+root_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if root_dir not in sys.path:
+    sys.path.insert(0, root_dir)
+
+import importlib
+try:
+    import database
+    importlib.reload(database)
+except Exception:
+    pass
+
 import streamlit as st
 import pandas as pd
 from datetime import datetime, timedelta
@@ -18,7 +33,29 @@ from signal_engine import calculate_weighted_rs_for_universe
 from price_history_manager import fetch_incremental_history
 from trend_analyzer import determine_trend_state, get_trend_details
 from decision_engine import make_decision, ACTION_EXIT, ACTION_TRIM, ACTION_HOLD, ACTION_ADD
-from database import init_database, save_snapshot, get_signal_change_days, save_sector_leadership, get_sector_leadership_history, get_journal_entry, get_all_fundamentals_cache, get_current_tml_leaders, get_hat_stocks, get_top_5_rs_leaders, get_top_rs_leaders
+from database import (
+    init_database,
+    save_snapshot,
+    get_signal_change_days,
+    save_sector_leadership,
+    get_sector_leadership_history,
+    get_journal_entry,
+    get_all_fundamentals_cache,
+    get_current_tml_leaders,
+    get_hat_stocks,
+    get_top_5_rs_leaders
+)
+
+try:
+    from database import get_top_rs_leaders
+except ImportError:
+    try:
+        import database
+        importlib.reload(database)
+        from database import get_top_rs_leaders
+    except Exception:
+        def get_top_rs_leaders(market='INDIA', limit=15):
+            return get_top_5_rs_leaders(market=market)
 from climax_exhaustion import detect_climax_exhaustion
 from macro_regime_engine import calculate_distribution_days, get_market_regime_label, detect_change_of_character
 from daily_insights_engine import generate_exposure_guide, get_sector_clusters, generate_macro_health_score

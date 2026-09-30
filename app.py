@@ -7,7 +7,16 @@ import sys
 import os
 
 # Ensure app directory is in Python path
-sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+app_dir = os.path.dirname(os.path.abspath(__file__))
+if app_dir not in sys.path:
+    sys.path.insert(0, app_dir)
+
+import importlib
+try:
+    import database
+    importlib.reload(database)
+except Exception:
+    pass
 
 from database import init_database
 from styles import load_css
