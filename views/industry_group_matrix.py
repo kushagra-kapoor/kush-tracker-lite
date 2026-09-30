@@ -1,6 +1,6 @@
 """
-CANSLIM Industry Group Momentum Matrix (197 Themes) - Lite View
-==============================================================
+CANSLIM Industry Group Momentum Matrix (197 Themes)
+===================================================
 Institutional group rotation tracker with multi-timeframe relative strength rankings,
 rank velocity deltas, pack-hunting breadth, actionable leader cards, and constituent drilldowns.
 """
@@ -21,10 +21,10 @@ try:
     from views.true_market_leader import get_cached_universe
 except ImportError:
     from pages.true_market_leader import get_cached_universe
-
 from industry_group_engine import (
     compute_industry_group_matrix,
     get_group_deep_dive_data,
+    get_top_and_worst_40_groups,
     INDIAN_ALPHA_THEMES
 )
 
@@ -35,7 +35,6 @@ except ImportError:
     pass
 
 # st.set_page_config removed for Lite router
-
 render_disk_cache_sidebar(get_cached_universe)
 
 def clean_html(html_str: str) -> str:
@@ -280,6 +279,8 @@ def main():
             "Sort Groups By",
             [
                 "🏆 Leadership Rank (1 to N)",
+                "🛡️ Sortino 3M (High to Low)",
+                "👑 Apex Leaders Count (High to Low)",
                 "🐺 Wolfpack Breadth (RS ≥ 80 Count)",
                 "🐺 Wolfpack Concentration (% RS ≥ 80)",
                 "🚀 1M Rank Velocity (Δ Spots)",
@@ -287,7 +288,7 @@ def main():
                 "🏢 Total Constituent Count"
             ],
             index=0,
-            help="Sort groups across tables and cards by leadership momentum rank, wolfpack pack size, or velocity."
+            help="Sort groups across tables and cards by leadership momentum rank, Sortino ratio, wolfpack pack size, or velocity."
         )
 
     with c_rot:
@@ -327,7 +328,7 @@ def main():
     top_leader = df_matrix.iloc[0]
     fastest_accel = df_matrix.sort_values("Delta_1M", ascending=False).iloc[0]
     top_pack = df_matrix.sort_values("Pack_Hunting_Count", ascending=False).iloc[0]
-    coldest = df_matrix.sort_values("Delta_1M", ascending=True).iloc[0]
+    top_sortino = df_matrix.sort_values("Sortino_3M", ascending=False).iloc[0]
 
     hud_html = f"""
     <div class='hud-grid'>
@@ -337,7 +338,8 @@ def main():
             <div class='hud-panel-sub'>
                 <span class='badge-pill pill-emerald'>Rank #1</span>
                 <span>1M: <b style='color:#34d399;'>{top_leader["Return_1M"]:+.1f}%</b></span>
-                <span>• {top_leader["Stock_Count"]} Stocks</span>
+                <span style='color:#38bdf8; font-weight:700;'>• 🛡️ S(3M): {top_leader.get("Sortino_3M", 0.0):.2f}</span>
+                <span style='color:#c084fc;'>• 👑 {top_leader.get("Apex_Leaders", 0)} Apex</span>
             </div>
         </div>
         <div class='hud-panel accel'>
@@ -346,22 +348,25 @@ def main():
             <div class='hud-panel-sub'>
                 <span class='badge-pill pill-cyan'>Δ 1M: {fastest_accel["Delta_1M"]:+d} Spots</span>
                 <span>Now <b>#{fastest_accel["Rank_Today"]}</b> <span style='color:#64748b;'>(was #{fastest_accel["Rank_1M"]})</span></span>
+                <span style='color:#38bdf8;'>• S(3M): {fastest_accel.get("Sortino_3M", 0.0):.2f}</span>
             </div>
         </div>
         <div class='hud-panel pack'>
             <div class='hud-panel-title'>🐺 Top Pack Hunting Concentration</div>
             <div class='hud-panel-val' title='{top_pack["Industry_Group"]}'>{top_pack["Industry_Group"]}</div>
             <div class='hud-panel-sub'>
-                <span class='badge-pill pill-purple'>{top_pack["Pack_Hunting_Count"]} Stocks RS ≥ 80</span>
+                <span class='badge-pill pill-purple'>{top_pack["Pack_Hunting_Count"]} RS ≥ 80</span>
+                <span class='badge-pill pill-emerald'>👑 {top_pack.get("Apex_Leaders", 0)} Apex</span>
                 <span>Rank <b>#{top_pack["Rank_Today"]}</b></span>
             </div>
         </div>
-        <div class='hud-panel dist'>
-            <div class='hud-panel-title'>⚠️ Coldest Institutional Distribution</div>
-            <div class='hud-panel-val' title='{coldest["Industry_Group"]}'>{coldest["Industry_Group"]}</div>
+        <div class='hud-panel dist' style='border-top:3px solid #06b6d4;'>
+            <div class='hud-panel-title'>🛡️ Top Downside Quality (Sortino)</div>
+            <div class='hud-panel-val' title='{top_sortino["Industry_Group"]}'>{top_sortino["Industry_Group"]}</div>
             <div class='hud-panel-sub'>
-                <span class='badge-pill pill-rose'>Δ 1M: {coldest["Delta_1M"]:+d} Spots</span>
-                <span>Now <b>#{coldest["Rank_Today"]}</b> <span style='color:#64748b;'>(was #{coldest["Rank_1M"]})</span></span>
+                <span class='badge-pill pill-cyan'>🛡️ Sortino {top_sortino["Sortino_3M"]:.2f}</span>
+                <span class='badge-pill pill-emerald'>👑 {top_sortino.get("Apex_Leaders", 0)} Apex</span>
+                <span>Rank <b>#{top_sortino["Rank_Today"]}</b></span>
             </div>
         </div>
     </div>
@@ -369,7 +374,7 @@ def main():
     st.markdown(clean_html(hud_html), unsafe_allow_html=True)
 
     # -------------------------------------------------------------
-    # 4. FILTERING & SORTING TABLE DATA
+    # 4. FILTERING & SORTING DATA ACROSS ALL VIEWS
     # -------------------------------------------------------------
     filtered_df = df_matrix.copy()
 
@@ -388,8 +393,46 @@ def main():
             filtered_df["Constituents"].apply(lambda clist: any(search_query in str(t).lower() for t in clist))
         ]
 
+    # In-page Dual-Horizon Sortino & Apex Leader controls (Global across Table, Cards & Quadrants)
+    f_c1, f_c2, f_c3 = st.columns([1.8, 1.1, 1.1])
+    with f_c1:
+        st.markdown("**🛡️ Downside-Adjusted Quality Filters** *(MAR = 6.5%)*")
+        st.caption("Filters themes with high risk-adjusted consistency & institutional compounder density across all tabs.")
+    with f_c2:
+        igm_min_s3m = st.slider(
+            "Min Sortino (3M)",
+            min_value=-2.0,
+            max_value=15.0,
+            value=-2.0,
+            step=0.5,
+            help="Filter groups by minimum 3-month Sortino Ratio of the theme synthetic curve.",
+            key="igm_min_s3m"
+        )
+    with f_c3:
+        igm_min_apex = st.slider(
+            "Min Apex Leaders",
+            min_value=0,
+            max_value=10,
+            value=0,
+            step=1,
+            help="Filter groups with minimum count of Apex Leaders (RS ≥ 80 AND 3M Sortino ≥ 3.0).",
+            key="igm_min_apex"
+        )
+
+    if igm_min_s3m > -2.0:
+        filtered_df = filtered_df[filtered_df["Sortino_3M"] >= igm_min_s3m]
+    if igm_min_apex > 0:
+        filtered_df = filtered_df[filtered_df["Apex_Leaders"] >= igm_min_apex]
+
+    if igm_min_s3m > -2.0 or igm_min_apex > 0:
+        st.info(f"🔍 **Quality Filter Active**: Showing **{len(filtered_df)} of {len(df_matrix)}** groups matching Min Sortino 3M ≥ {igm_min_s3m:.1f} and Min Apex Leaders ≥ {igm_min_apex}")
+
     # Apply Selected Sort Hierarchy
-    if "Wolfpack Breadth" in sort_choice or "RS ≥ 80 Count" in sort_choice:
+    if "Sortino 3M" in sort_choice:
+        filtered_df = filtered_df.sort_values(["Sortino_3M", "Rank_Today"], ascending=[False, True])
+    elif "Apex Leaders" in sort_choice:
+        filtered_df = filtered_df.sort_values(["Apex_Leaders", "Rank_Today"], ascending=[False, True])
+    elif "Wolfpack Breadth" in sort_choice or "RS ≥ 80 Count" in sort_choice:
         filtered_df = filtered_df.sort_values(["Pack_Hunting_Count", "Rank_Today"], ascending=[False, True])
     elif "Concentration" in sort_choice:
         filtered_df["_pack_ratio"] = filtered_df["Pack_Hunting_Count"] / filtered_df["Stock_Count"].clip(lower=1)
@@ -411,11 +454,26 @@ def main():
         filtered_df = filtered_df.head(100)
 
     # -------------------------------------------------------------
+    # TRACK FILTER & SORT SIGNATURE FOR SYNCING DRILLDOWN
+    # -------------------------------------------------------------
+    filter_sig = f"{tax_key}|{sort_choice}|{status_filter}|{limit_choice}|{search_query}|{igm_min_s3m}|{igm_min_apex}"
+    sel_widget_key = f"igm_drilldown_sel_{filter_sig}"
+    
+    if st.session_state.get("igm_last_filter_sig") != filter_sig:
+        st.session_state["igm_last_filter_sig"] = filter_sig
+        # Top-level sort or filter changed! Reset drilldown to top group of the newly sorted list
+        if not filtered_df.empty:
+            new_top_group = filtered_df.iloc[0]["Industry_Group"]
+            st.session_state["igm_selected_group"] = new_top_group
+            st.session_state[sel_widget_key] = new_top_group
+
+    # -------------------------------------------------------------
     # 5. MULTI-TABBED WORLD-CLASS PRESENTATION
     # -------------------------------------------------------------
-    tab_matrix, tab_cards, tab_quad, tab_guide = st.tabs([
+    tab_matrix, tab_top_worst, tab_cards, tab_quad, tab_guide = st.tabs([
         f"📑 Leadership Matrix Table ({len(filtered_df)})",
-        f"🎴 Actionable Leader Cards",
+        "🏆 Top 40 Leaders vs Worst 40 Laggards (6-Week)",
+        f"🎴 Actionable Leader Cards ({len(filtered_df)})",
         "🌪️ Rotation Velocity Quadrants",
         "📖 Institutional Methodology"
     ])
@@ -424,19 +482,54 @@ def main():
     # TAB 1: MASTER MATRIX TABLE
     # -------------------------------------------------------------
     with tab_matrix:
-        st.caption("💡 *Click on any row in the table to immediately sync its constituent breakdown, pivots, and 1-year curve below.*")
-        
-        display_df = filtered_df[[
-            "Rank_Today", "Industry_Group", "Rotation_Status",
-            "Rank_1W", "Delta_1W", "Rank_1M", "Delta_1M", "Rank_3M", "Rank_6M",
-            "Pack_Hunting_Count", "Return_1M", "Return_3M", "Return_6M",
-            "Top_Leaders_Display", "Sparkline_1M"
-        ]].copy()
+        tv_col1, tv_col2 = st.columns([1.6, 2.4])
+        with tv_col1:
+            st.caption("💡 *Click on any row in the table to immediately sync constituent breakdown below.*")
+        with tv_col2:
+            tv_mode = st.radio(
+                "Table View:",
+                ["📊 Executive Overview", "🛡️ Risk & Quality", "🌪️ Momentum Velocity", "📑 All Columns"],
+                horizontal=True,
+                key="igm_table_view_mode"
+            )
 
-        col_cfg = {
+        if "Executive" in tv_mode:
+            disp_cols = [
+                "Rank_Today", "Industry_Group", "Rotation_Status",
+                "Sortino_3M", "Apex_Leaders", "Pack_Hunting_Count",
+                "Return_1M", "Top_Leaders_Display", "Sparkline_1M"
+            ]
+        elif "Risk" in tv_mode:
+            disp_cols = [
+                "Rank_Today", "Industry_Group", "Rotation_Status",
+                "Sortino_3M", "Sortino_6M", "Apex_Leaders",
+                "Pack_Hunting_Count", "Stock_Count", "Return_3M", "Return_6M",
+                "Top_Leaders_Display"
+            ]
+        elif "Velocity" in tv_mode:
+            disp_cols = [
+                "Rank_Today", "Industry_Group", "Rotation_Status",
+                "Rank_1W", "Delta_1W", "Rank_1M", "Delta_1M", "Rank_3M", "Rank_6M",
+                "Pack_Hunting_Count", "Sparkline_1M"
+            ]
+        else:
+            disp_cols = [
+                "Rank_Today", "Industry_Group", "Rotation_Status",
+                "Sortino_3M", "Sortino_6M", "Apex_Leaders",
+                "Rank_1W", "Delta_1W", "Rank_1M", "Delta_1M", "Rank_3M", "Rank_6M",
+                "Pack_Hunting_Count", "Return_1M", "Return_3M", "Return_6M",
+                "Top_Leaders_Display", "Sparkline_1M"
+            ]
+
+        display_df = filtered_df[disp_cols].copy()
+
+        master_col_cfg = {
             "Rank_Today": st.column_config.NumberColumn("Rank", format="%d", width=70, help="Current Relative Strength Rank (1 = Market Leader)"),
             "Industry_Group": st.column_config.TextColumn("Industry Sub-Group", width=250),
             "Rotation_Status": st.column_config.TextColumn("Rotation State", width=120),
+            "Sortino_3M": st.column_config.NumberColumn("Sortino 3M", format="%.2f", width=95, help="3-Month Downside-adjusted Sortino ratio (MAR=6.5%)"),
+            "Sortino_6M": st.column_config.NumberColumn("Sortino 6M", format="%.2f", width=95, help="6-Month Downside-adjusted Sortino ratio (MAR=6.5%)"),
+            "Apex_Leaders": st.column_config.NumberColumn("👑 Apex", format="%d", width=90, help="Count of constituents with RS >= 80 AND Sortino 3M >= 3.0"),
             "Rank_1W": st.column_config.NumberColumn("1W Ago", format="%d", width=80),
             "Delta_1W": st.column_config.NumberColumn("Δ 1W", format="%+d", width=75, help="Change in rank over 1 week (positive = improving)"),
             "Rank_1M": st.column_config.NumberColumn("1M Ago", format="%d", width=80),
@@ -444,12 +537,15 @@ def main():
             "Rank_3M": st.column_config.NumberColumn("3M Ago", format="%d", width=80),
             "Rank_6M": st.column_config.NumberColumn("6M Ago", format="%d", width=80),
             "Pack_Hunting_Count": st.column_config.NumberColumn("🐺 Pack (RS≥80)", format="%d", width=110, help="Count of stocks in group with RS >= 80"),
+            "Stock_Count": st.column_config.NumberColumn("Total Stocks", format="%d", width=90, help="Total active constituents in this group"),
             "Return_1M": st.column_config.NumberColumn("1M %", format="%.1f%%", width=85),
             "Return_3M": st.column_config.NumberColumn("3M %", format="%.1f%%", width=85),
             "Return_6M": st.column_config.NumberColumn("6M %", format="%.1f%%", width=85),
             "Top_Leaders_Display": st.column_config.TextColumn("Top 3 Anchor Leaders & Live Action State", width=380),
             "Sparkline_1M": st.column_config.LineChartColumn("1M Trend", width=120, help="Normalized daily price trend over trailing 21 trading days")
         }
+
+        col_cfg = {k: v for k, v in master_col_cfg.items() if k in display_df.columns}
 
         event = st.dataframe(
             display_df,
@@ -466,9 +562,123 @@ def main():
             sel_idx = event.selection.rows[0]
             if 0 <= sel_idx < len(display_df):
                 selected_table_group = display_df.iloc[sel_idx]["Industry_Group"]
+                st.session_state["igm_selected_group"] = selected_table_group
+                st.session_state[sel_widget_key] = selected_table_group
 
     # -------------------------------------------------------------
-    # TAB 2: ACTIONABLE LEADER CARDS GRID
+    # TAB: TOP 40 LEADERS VS WORST 40 LAGGARDS (6-WEEK TRAJECTORY)
+    # -------------------------------------------------------------
+    with tab_top_worst:
+        top_40_df, worst_40_df = get_top_and_worst_40_groups(df_matrix)
+        
+        st.markdown(clean_html("""
+        <div style='background: linear-gradient(135deg, rgba(15, 23, 42, 0.85) 0%, rgba(2, 6, 23, 0.95) 100%);
+                    border: 1px solid rgba(56, 189, 248, 0.25); border-radius: 12px; padding: 16px 20px; margin-bottom: 20px;'>
+            <div style='display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px;'>
+                <div>
+                    <h4 style='margin:0; font-size:1.15rem; font-weight:800; color:#f8fafc;'>
+                        🏆 IBD 197 Industry Groups: 6-Week Momentum Trajectory (Daily GMI Standard)
+                    </h4>
+                    <p style='margin:4px 0 0 0; font-size:0.82rem; color:#94a3b8;'>
+                        Institutional money rotates systematically into top-performing industries. The canonical CANSLIM rule dictates: 
+                        <b>concentrate long exposure exclusively in the Top 40 leading groups</b> and strictly avoid or short the Bottom 40 laggards.
+                    </p>
+                </div>
+                <div style='display:flex; gap:12px;'>
+                    <span style='background:rgba(16,185,129,0.15); border:1px solid rgba(16,185,129,0.4); color:#34d399; padding:4px 10px; border-radius:6px; font-size:0.78rem; font-weight:700;'>
+                        Top 40 = Institutional Accumulation
+                    </span>
+                    <span style='background:rgba(239,68,68,0.15); border:1px solid rgba(239,68,68,0.4); color:#f87171; padding:4px 10px; border-radius:6px; font-size:0.78rem; font-weight:700;'>
+                        Worst 40 = Chronic Distribution
+                    </span>
+                </div>
+            </div>
+        </div>
+        """), unsafe_allow_html=True)
+        
+        # Summary metrics
+        m1, m2, m3, m4 = st.columns(4)
+        with m1:
+            t40_rs_med = top_40_df['Comp_RS'].median() if not top_40_df.empty else 0
+            st.metric("Top 40 Median RS", f"{t40_rs_med:.0f}", delta="Leadership Tier", delta_color="normal")
+        with m2:
+            t40_apex_sum = int(top_40_df['Apex_Leaders'].sum()) if not top_40_df.empty else 0
+            st.metric("Top 40 Apex Leaders", f"{t40_apex_sum} 👑", help="Constituents with RS ≥ 80 & Sortino 3M ≥ 3.0")
+        with m3:
+            w40_rs_med = worst_40_df['Comp_RS'].median() if not worst_40_df.empty else 0
+            st.metric("Worst 40 Median RS", f"{w40_rs_med:.0f}", delta="Laggard Tier", delta_color="inverse")
+        with m4:
+            w40_apex_sum = int(worst_40_df['Apex_Leaders'].sum()) if not worst_40_df.empty else 0
+            st.metric("Worst 40 Apex Leaders", f"{w40_apex_sum} 👑", help="Laggard groups typically have near-zero Apex compounders")
+            
+        st.write("")
+        
+        # Columns configuration for IBD tables
+        col_cfg_ibd = {
+            "Rank_Today": st.column_config.NumberColumn("Rank", format="%d", width=65, help="Current Group RS Rank"),
+            "Rank_3W": st.column_config.NumberColumn("3W", format="%d", width=65, help="Rank 3 Weeks Ago"),
+            "Rank_6W": st.column_config.NumberColumn("6W", format="%d", width=65, help="Rank 6 Weeks Ago"),
+            "Delta_6W": st.column_config.NumberColumn("Δ 6W", format="%+d", width=65, help="6-Week Rank Velocity (positive = climbing ranks)"),
+            "Industry_Group": st.column_config.TextColumn("Industry Group", width=220),
+            "Comp_RS": st.column_config.NumberColumn("RS", format="%d", width=60, help="Group RS (0-99)"),
+            "Return_1D": st.column_config.NumberColumn("1D %", format="%+.1f%%", width=75),
+            "Return_YTD": st.column_config.NumberColumn("YTD %", format="%+.1f%%", width=75),
+            "Apex_Leaders": st.column_config.NumberColumn("👑", format="%d", width=55, help="Apex Leaders Count"),
+            "Top_Leaders_Display": st.column_config.TextColumn("Leading Anchor Stocks", width=260)
+        }
+        
+        c_lead, c_lagg = st.columns(2)
+        
+        with c_lead:
+            st.markdown("#### 🏆 Top 40 Leading Industry Groups")
+            st.caption("Click any group to inspect its constituents and pivot chart below.")
+            
+            t40_disp_cols = [c for c in ["Rank_Today", "Rank_3W", "Rank_6W", "Delta_6W", "Industry_Group", "Comp_RS", "Return_1D", "Return_YTD", "Apex_Leaders", "Top_Leaders_Display"] if c in top_40_df.columns]
+            t40_disp = top_40_df[t40_disp_cols].copy()
+            
+            event_top = st.dataframe(
+                t40_disp,
+                column_config={k: v for k, v in col_cfg_ibd.items() if k in t40_disp.columns},
+                use_container_width=True,
+                hide_index=True,
+                on_select="rerun",
+                selection_mode="single-row",
+                key="ibd_top_40_table",
+                height=650
+            )
+            if event_top and event_top.selection and event_top.selection.rows:
+                sel_idx = event_top.selection.rows[0]
+                if 0 <= sel_idx < len(t40_disp):
+                    grp_name = t40_disp.iloc[sel_idx]["Industry_Group"]
+                    st.session_state["igm_selected_group"] = grp_name
+                    st.session_state[sel_widget_key] = grp_name
+
+        with c_lagg:
+            st.markdown("#### ⚠️ Bottom 40 Lagging Industry Groups")
+            st.caption("Groups suffering persistent institutional selling and rank decay.")
+            
+            w40_disp_cols = [c for c in ["Rank_Today", "Rank_3W", "Rank_6W", "Delta_6W", "Industry_Group", "Comp_RS", "Return_1D", "Return_YTD", "Apex_Leaders", "Top_Leaders_Display"] if c in worst_40_df.columns]
+            w40_disp = worst_40_df[w40_disp_cols].copy()
+            
+            event_worst = st.dataframe(
+                w40_disp,
+                column_config={k: v for k, v in col_cfg_ibd.items() if k in w40_disp.columns},
+                use_container_width=True,
+                hide_index=True,
+                on_select="rerun",
+                selection_mode="single-row",
+                key="ibd_worst_40_table",
+                height=650
+            )
+            if event_worst and event_worst.selection and event_worst.selection.rows:
+                sel_idx = event_worst.selection.rows[0]
+                if 0 <= sel_idx < len(w40_disp):
+                    grp_name = w40_disp.iloc[sel_idx]["Industry_Group"]
+                    st.session_state["igm_selected_group"] = grp_name
+                    st.session_state[sel_widget_key] = grp_name
+
+    # -------------------------------------------------------------
+    # TAB 3: ACTIONABLE LEADER CARDS GRID
     # -------------------------------------------------------------
     with tab_cards:
         c_cinfo, c_csort, c_cscope = st.columns([1.6, 1.4, 1.0])
@@ -480,6 +690,8 @@ def main():
                 [
                     "Same as Top Filter",
                     "🏆 Hierarchy Rank (#1 to #N)",
+                    "🛡️ Sortino 3M (High to Low)",
+                    "👑 Apex Leaders Count (High to Low)",
                     "🐺 Wolfpack Breadth (RS ≥ 80 Count)",
                     "🐺 Wolfpack Concentration (% RS ≥ 80)",
                     "🚀 1M Rank Velocity (Δ Spots)",
@@ -500,7 +712,11 @@ def main():
         effective_card_sort = sort_choice if card_sort_choice == "Same as Top Filter" else card_sort_choice
         cards_df = filtered_df.copy()
         
-        if "Wolfpack Breadth" in effective_card_sort or "RS ≥ 80 Count" in effective_card_sort:
+        if "Sortino 3M" in effective_card_sort:
+            cards_df = cards_df.sort_values(["Sortino_3M", "Rank_Today"], ascending=[False, True])
+        elif "Apex Leaders" in effective_card_sort:
+            cards_df = cards_df.sort_values(["Apex_Leaders", "Rank_Today"], ascending=[False, True])
+        elif "Wolfpack Breadth" in effective_card_sort or "RS ≥ 80 Count" in effective_card_sort:
             cards_df = cards_df.sort_values(["Pack_Hunting_Count", "Rank_Today"], ascending=[False, True])
         elif "Concentration" in effective_card_sort:
             cards_df["_pack_ratio"] = cards_df["Pack_Hunting_Count"] / cards_df["Stock_Count"].clip(lower=1)
@@ -566,12 +782,15 @@ def main():
                             
                         exchange = 'BSE' if str(ldr.get('raw_ticker', '')).endswith('.BO') else 'NSE'
                         tv_link = f"https://www.tradingview.com/chart/?symbol={exchange}%3A{ldr['ticker']}"
+                        s_val = ldr.get('sortino_3m', 0.0)
+                        s_color = "#34d399" if s_val >= 3.0 else ("#38bdf8" if s_val >= 1.5 else "#94a3b8")
                         
                         chips_html_list.append(f"""
                         <div class='anchor-chip'>
                             <span class='anchor-sym'>
                                 <a href='{tv_link}' target='_blank' style='color:#38bdf8; text-decoration:none;'>{ldr['ticker']} ↗</a>
                                 <span style='font-size:0.72rem; color:#94a3b8; margin-left:4px;'>RS {ldr['rs']}</span>
+                                <span style='font-size:0.70rem; color:{s_color}; font-weight:700; margin-left:4px;' title='3M Sortino: {s_val:.2f}'>S {s_val:.1f}</span>
                             </span>
                             <span style='color:#f8fafc; font-weight:700;'>₹{ldr['cmp']:,.1f}</span>
                             <span class='anchor-badge {b_cls}'>{b_text}</span>
@@ -585,7 +804,7 @@ def main():
                         <div style='display:flex; justify-content:space-between; align-items:flex-start;'>
                             <div>
                                 <div class='tg-title' title='{g_data["Industry_Group"]}'>{g_data["Industry_Group"]}</div>
-                                <div class='tg-stock-count'>{g_data["Stock_Count"]} Stocks • <b style='color:#c084fc;'>🐺 {g_data["Pack_Hunting_Count"]} with RS ≥ 80</b></div>
+                                <div class='tg-stock-count'>{g_data["Stock_Count"]} Stocks • <b style='color:#c084fc;'>🐺 {g_data["Pack_Hunting_Count"]} RS≥80</b> • <b style='color:#38bdf8;'>🛡️ S(3M) {g_data.get("Sortino_3M", 0.0):.2f}</b> • <b style='color:#34d399;'>👑 {g_data.get("Apex_Leaders", 0)} Apex</b></div>
                             </div>
                             <div style='text-align:right;'>
                                 <div class='tg-rank-num'>#{g_data["Rank_Today"]}</div>
@@ -634,21 +853,31 @@ def main():
         with c_size_toggle:
             size_mode = st.radio(
                 "Bubble Size Represents",
-                ["🐺 Pack-Hunting Breadth (Stocks RS ≥ 80)", "🏢 Universe Stock Count (Total Constituents)"],
+                [
+                    "🐺 Pack-Hunting Breadth (Stocks RS ≥ 80)",
+                    "👑 Apex Leaders (RS ≥ 80 & Sortino ≥ 3.0)",
+                    "🏢 Universe Stock Count (Total Constituents)"
+                ],
                 index=0,
                 horizontal=True,
                 help="Choose what diameter/size represents on the chart."
             )
             
-        is_pack_size = "Pack-Hunting" in size_mode
-        size_metric_name = "🐺 Pack-Hunting Breadth (RS ≥ 80)" if is_pack_size else "🏢 Total Constituent Count"
-        size_col = "Pack_Hunting_Count" if is_pack_size else "Stock_Count"
-        
+        if "Apex Leaders" in size_mode:
+            size_col = "Apex_Leaders"
+            size_metric_name = "👑 Apex Leaders (RS ≥ 80 & S3M ≥ 3.0)"
+            size_desc_text = "💡 **Bubble Size = Number of Apex Leaders**. High-diameter bubbles reveal groups packed with low-drawdown structural compounders."
+        elif "Pack-Hunting" in size_mode:
+            size_col = "Pack_Hunting_Count"
+            size_metric_name = "🐺 Pack-Hunting Breadth (RS ≥ 80)"
+            size_desc_text = "💡 **Bubble Size = Number of Stocks with RS ≥ 80**. Larger bubbles highlight groups experiencing coordinated multi-stock institutional pack accumulation."
+        else:
+            size_col = "Stock_Count"
+            size_metric_name = "🏢 Total Constituent Count"
+            size_desc_text = "💡 **Bubble Size = Total Constituent Stock Count** (universe breadth of the industry group)."
+
         with c_size_desc:
-            if is_pack_size:
-                st.info("💡 **Bubble Size = Number of Stocks with RS ≥ 80**. Larger bubbles highlight groups experiencing coordinated multi-stock institutional pack accumulation.")
-            else:
-                st.info("💡 **Bubble Size = Total Constituent Stock Count** (universe breadth of the industry group).")
+            st.info(size_desc_text)
 
         plot_df = filtered_df.copy()
         plot_df["Bubble_Size"] = plot_df[size_col].clip(lower=1)
@@ -674,6 +903,9 @@ def main():
             hover_data={
                 "Rank_Today": True,
                 "Delta_1M": True,
+                "Sortino_3M": ":.2f",
+                "Sortino_6M": ":.2f",
+                "Apex_Leaders": True,
                 "Pack_Hunting_Count": True,
                 "Stock_Count": True,
                 "Return_1M": ":.1f%",
@@ -684,6 +916,9 @@ def main():
                 "Delta_1M": "1-Month Rank Velocity (Δ Spots Gained/Lost)",
                 "Comp_RS": "Composite Relative Strength (0 to 99 Percentile)",
                 "Rotation_Status": "Rotation State",
+                "Sortino_3M": "Sortino (3M)",
+                "Sortino_6M": "Sortino (6M)",
+                "Apex_Leaders": "👑 Apex Leaders",
                 "Pack_Hunting_Count": "Pack (RS≥80)",
                 "Stock_Count": "Total Stocks"
             }
@@ -785,6 +1020,24 @@ def main():
           - `⏳ COILING`: Tight consolidation within $5\%$ of breakout pivot.
           - `🟠 EXTENDED`: Price is $>5.5\%$ extended beyond pivot (Do not chase!).
           - `🔴 FAILED`: Price broke below 21 EMA or $>8\%$ below pivot (Stop triggered).
+
+        ---
+
+        ### 🛡️ Dual-Horizon Sortino Ratio & Apex Leader Framework
+        While standard CANSLIM Relative Strength measures gross price appreciation, institutional hedge funds and quants evaluate **Downside-Adjusted Asymmetry**. The traditional Sharpe ratio penalizes explosive upside volatility; the **Sortino Ratio** isolates and penalizes only harmful downside variance below the hurdle rate:
+
+        #### 1. Downside Deviation ($\delta_{\text{down}}$)
+        $$\delta_{\text{down}} = \sqrt{\frac{1}{N} \sum_{t=1}^{N} \min(0, R_t - \text{MAR}_{\text{daily}})^2} \times \sqrt{252}$$
+        - **Hurdle Rate ($\text{MAR}$)**: Set to $6.5\%$ for Indian equities, reflecting the risk-free overnight repo benchmark.
+
+        #### 2. Dual-Horizon Deployment
+        - **3-Month Tactical Sortino ($N = 63$ trading days)**: Detects immediate acceleration quality and identifies smooth momentum without deep pullbacks.
+        - **6-Month Structural Sortino ($N = 126$ trading days)**: Evaluates durability across full base-building consolidations (~45–60 down days).
+
+        #### 3. 👑 Apex Leaders Defined
+        An **Apex Leader** is an elite constituent meeting both strict institutional criteria:
+        $$\text{RS Rating} \ge 80 \quad \text{AND} \quad \text{Sortino 3M} \ge 3.0$$
+        Groups with high Apex Leader density represent the highest-quality compounder sectors in the entire market.
         """)
 
     # -------------------------------------------------------------
@@ -804,25 +1057,36 @@ def main():
     </div>
     """), unsafe_allow_html=True)
     
-    group_options = df_matrix["Industry_Group"].tolist()
-    default_index = 0
-    if selected_table_group and selected_table_group in group_options:
-        default_index = group_options.index(selected_table_group)
+    # Options in the exact sorted and filtered order of the user's active view
+    group_options = filtered_df["Industry_Group"].tolist() if not filtered_df.empty else df_matrix["Industry_Group"].tolist()
+
+    # Determine currently selected group (prioritizing table clicks, top sort changes, or manual selectbox picks)
+    target_group = st.session_state.get(sel_widget_key, st.session_state.get("igm_selected_group"))
+    if not target_group or target_group not in group_options:
+        target_group = group_options[0]
+    
+    st.session_state["igm_selected_group"] = target_group
+    st.session_state[sel_widget_key] = target_group
+    default_index = group_options.index(target_group)
 
     def format_group_label(grp_name):
         match = df_matrix[df_matrix["Industry_Group"] == grp_name]
         if not match.empty:
             r = match.iloc[0]
-            return f"#{r['Rank_Today']}  {grp_name}  ({r['Stock_Count']} Stocks • {r['Rotation_Status']})"
+            s3_val = r.get('Sortino_3M', 0.0)
+            apex_val = r.get('Apex_Leaders', 0)
+            return f"#{r['Rank_Today']}  {grp_name}  (👑 {apex_val} Apex • 🛡️ S {s3_val:.2f} • {r['Stock_Count']} Stocks • {r['Rotation_Status']})"
         return grp_name
 
     chosen_group = st.selectbox(
         "Select Industry Group to Drill Down",
         options=group_options,
         index=default_index,
+        key=sel_widget_key,
         format_func=format_group_label,
         help="Select any group to inspect its constituent stocks, pivots, and synthetic equity curve"
     )
+    st.session_state["igm_selected_group"] = chosen_group
 
     if chosen_group:
         df_constits, curve_df, tv_copy_box = get_group_deep_dive_data(chosen_group, taxonomy=tax_key)
@@ -861,19 +1125,21 @@ def main():
                 </div>
             </div>
             <div class='hud-panel pack'>
-                <div class='hud-panel-title'>🐺 Pack-Hunting Breadth</div>
+                <div class='hud-panel-title'>🐺 Pack Breadth & Apex Density</div>
                 <div class='hud-panel-val'>{grp_row['Pack_Hunting_Count']} Stocks <span style='font-size:0.80rem; color:#c084fc; font-weight:600;'>RS ≥ 80</span></div>
                 <div class='hud-panel-sub'>
                     <span class='badge-pill pill-purple'>{pack_pct}% of Group</span>
-                    <span style='color:#94a3b8;'>• Total {grp_row['Stock_Count']} Active Stocks</span>
+                    <span class='badge-pill pill-emerald'>👑 {grp_row.get('Apex_Leaders', 0)} Apex</span>
+                    <span style='color:#94a3b8;'>• {grp_row['Stock_Count']} Stocks</span>
                 </div>
             </div>
             <div class='hud-panel'>
-                <div class='hud-panel-title'>📈 Momentum & Returns</div>
+                <div class='hud-panel-title'>📈 Momentum & Downside Quality</div>
                 <div class='hud-panel-val'>{grp_row['Return_6M']:+.1f}% <span style='font-size:0.80rem; color:#64748b;'>6M</span></div>
                 <div class='hud-panel-sub'>
                     <span class='badge-pill {c6m_class}'>3M: {grp_row['Return_3M']:+.1f}%</span>
-                    <span style='color:#94a3b8;'>• 1M: {grp_row['Return_1M']:+.1f}%</span>
+                    <span style='color:#38bdf8; font-weight:700;'>🛡️ S(3M) {grp_row.get('Sortino_3M', 0.0):.2f}</span>
+                    <span style='color:#64748b;'>• S(6M) {grp_row.get('Sortino_6M', 0.0):.2f}</span>
                 </div>
             </div>
         </div>
@@ -1026,6 +1292,7 @@ def main():
                             <span style='font-size:0.75rem; color:#94a3b8;'>Pivot: <b style='color:#f8fafc;'>₹{a_row["Pivot Price"]:,.1f}</b> ({a_row["Dist Pivot %"]:+.1f}%)</span>
                         </div>
                         <div style='display:flex; justify-content:space-between; font-size:0.75rem; color:#64748b; margin-top:6px; border-top:1px solid rgba(255,255,255,0.05); padding-top:6px;'>
+                            <span>S(3M): <b style='color:#38bdf8;'>{a_row.get("Sortino 3M", 0.0):.2f}</b></span>
                             <span>21 EMA: <b style='color:#94a3b8;'>{a_row["Dist 21 EMA %"]:+.1f}%</b></span>
                             <span>1M: <b style='color:{"#10b981" if a_row["1M %"]>=0 else "#f87171"};'>{a_row["1M %"]:+.1f}%</b></span>
                             <span>1Y: <b style='color:{"#10b981" if a_row["1Y %"]>=0 else "#f87171"};'>{a_row["1Y %"]:+.1f}%</b></span>
@@ -1034,12 +1301,32 @@ def main():
                     """
                     st.markdown(clean_html(spotlight_html), unsafe_allow_html=True)
 
-        # Full constituent table
-        st.markdown(f"##### 📋 All {len(df_constits)} Constituents in {chosen_group}")
-        
-        disp_constits = df_constits[[
+        # Full constituent table with quick filter
+        c_filter_col1, c_filter_col2 = st.columns([1.5, 2.5])
+        with c_filter_col1:
+            st.markdown(f"##### 📋 Constituents in {chosen_group}")
+        with c_filter_col2:
+            constit_filter = st.radio(
+                "Filter Constituents:",
+                ["All Stocks", "👑 Apex Leaders (RS≥80 & S≥3)", "🐺 RS ≥ 80 Only", "🟢 Buy Zone & Retest"],
+                horizontal=True,
+                key="igm_constit_filter"
+            )
+
+        disp_constits_df = df_constits.copy()
+        if "Apex Leaders" in constit_filter:
+            disp_constits_df = disp_constits_df[(disp_constits_df["RS Rating"] >= 80) & (disp_constits_df["Sortino 3M"] >= 3.0)]
+        elif "RS ≥ 80" in constit_filter:
+            disp_constits_df = disp_constits_df[disp_constits_df["RS Rating"] >= 80]
+        elif "Buy Zone" in constit_filter:
+            disp_constits_df = disp_constits_df[disp_constits_df["Execution Status"].str.contains("BUY|RETEST")]
+
+        if len(disp_constits_df) < len(df_constits):
+            st.caption(f"Showing **{len(disp_constits_df)} of {len(df_constits)}** constituents matching *{constit_filter}*.")
+
+        disp_constits = disp_constits_df[[
             "Symbol", "CMP (₹)", "1D %", "1W %", "1M %", "3M %", "1Y %",
-            "RS Rating", "Pivot Price", "Dist Pivot %", "Dist 21 EMA %",
+            "RS Rating", "Sortino 3M", "Sortino 6M", "Pivot Price", "Dist Pivot %", "Dist 21 EMA %",
             "Execution Status", "TradingView_URL"
         ]].copy()
 
@@ -1052,6 +1339,8 @@ def main():
             "3M %": st.column_config.NumberColumn("3M %", format="%.2f%%", width=85),
             "1Y %": st.column_config.NumberColumn("1Y %", format="%.2f%%", width=85),
             "RS Rating": st.column_config.ProgressColumn("RS Score", min_value=0, max_value=99, format="%d", width=110),
+            "Sortino 3M": st.column_config.NumberColumn("Sortino 3M", format="%.2f", width=95, help="3-Month Downside-adjusted Sortino ratio (MAR=6.5%)"),
+            "Sortino 6M": st.column_config.NumberColumn("Sortino 6M", format="%.2f", width=95, help="6-Month Downside-adjusted Sortino ratio (MAR=6.5%)"),
             "Pivot Price": st.column_config.NumberColumn("25D Pivot", format="₹%.2f", width=110),
             "Dist Pivot %": st.column_config.NumberColumn("Dist Pivot", format="%.1f%%", width=100, help="Distance from 25-day pivot"),
             "Dist 21 EMA %": st.column_config.NumberColumn("Dist 21 EMA", format="%.1f%%", width=105, help="Distance from 21-day EMA"),

@@ -224,6 +224,17 @@ def load_css():
         .badge-hold { background: rgba(100,116,139,0.2); color: #cbd5e1; border: 1px solid rgba(100,116,139,0.4); padding: 0.25rem 0.75rem; border-radius: 9999px; font-weight: 700; font-size: 0.75rem; }
         .badge-add  { background: rgba(16,185,129,0.15); color: #6ee7b7; border: 1px solid rgba(16,185,129,0.3); padding: 0.25rem 0.75rem; border-radius: 9999px; font-weight: 700; font-size: 0.75rem; text-shadow: 0 0 10px rgba(16,185,129,0.3); }
 
+        /* Dual Momentum Health Pills */
+        .pill-core { background: rgba(16, 185, 129, 0.15); color: #34d399; border: 1px solid rgba(16, 185, 129, 0.35); padding: 0.25rem 0.75rem; border-radius: 9999px; font-weight: 700; font-size: 0.8rem; text-shadow: 0 0 10px rgba(16,185,129,0.3); display: inline-block; }
+        .pill-buffer { background: rgba(245, 158, 11, 0.15); color: #fbbf24; border: 1px solid rgba(245, 158, 11, 0.35); padding: 0.25rem 0.75rem; border-radius: 9999px; font-weight: 700; font-size: 0.8rem; text-shadow: 0 0 10px rgba(245,158,11,0.3); display: inline-block; }
+        .pill-atrisk { background: rgba(239, 68, 68, 0.2); color: #fca5a5; border: 1px solid rgba(239, 68, 68, 0.45); padding: 0.25rem 0.75rem; border-radius: 9999px; font-weight: 800; font-size: 0.8rem; text-shadow: 0 0 12px rgba(239,68,68,0.5); display: inline-block; }
+
+        /* Rank Drift Badging Colors */
+        .drift-climbing { color: #10b981 !important; font-weight: 700 !important; }
+        .drift-stationary { color: #94a3b8 !important; font-weight: 600 !important; }
+        .drift-buffer { color: #f59e0b !important; font-weight: 700 !important; }
+        .drift-severe { color: #ef4444 !important; font-weight: 800 !important; text-shadow: 0 0 10px rgba(239,68,68,0.4) !important; }
+
         .urgent-alert {
             background: linear-gradient(135deg, rgba(127,29,29,0.4) 0%, rgba(69,10,10,0.8) 100%) !important;
             border-left: 4px solid #ef4444 !important;

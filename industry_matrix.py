@@ -1,9 +1,10 @@
 import pandas as pd
 import numpy as np
+from risk_metrics import calculate_sortino_ratio
 
 def calculate_industry_leadership(history_df: pd.DataFrame, tickers: list, industry_map: dict, rs_scores: dict) -> pd.DataFrame:
     """
-    Ranks Industry Groups based on the average Relative Strength of their constituents.
+    Ranks Industry Groups based on the average Relative Strength and Sortino ratio of their constituents.
     Takes O'Neil's top-down approach: leading stocks command leading groups.
     
     Args:
@@ -17,7 +18,15 @@ def calculate_industry_leadership(history_df: pd.DataFrame, tickers: list, indus
     """
     industry_data = []
 
-    # Map tickers to their industry and RS score
+    try:
+        close_panel = history_df.xs('Close', level=1, axis=1)
+    except:
+        try:
+            close_panel = history_df.xs('Close', level=0, axis=1)
+        except:
+            close_panel = pd.DataFrame()
+
+    # Map tickers to their industry, RS score, and Sortino ratios
     for t in tickers:
         clean_t = t.replace('.NS', '')
         # RS scores dict uses clean tickers or full tickers depending on where it's called from
@@ -25,10 +34,29 @@ def calculate_industry_leadership(history_df: pd.DataFrame, tickers: list, indus
         industry = industry_map.get(t, "Unknown")
         
         if rs is not None and industry != "Unknown" and pd.notna(industry):
+            s3m = 0.0
+            s6m = 0.0
+            if not close_panel.empty:
+                if t in close_panel.columns:
+                    c_series = close_panel[t].dropna()
+                elif clean_t in close_panel.columns:
+                    c_series = close_panel[clean_t].dropna()
+                else:
+                    c_series = pd.Series(dtype=float)
+                
+                if len(c_series) >= 63:
+                    s3m = calculate_sortino_ratio(c_series, window=63, mar_annual=0.065)
+                if len(c_series) >= 126:
+                    s6m = calculate_sortino_ratio(c_series, window=126, mar_annual=0.065)
+
+            is_apex = 1 if (rs >= 80 and s3m >= 3.0) else 0
             industry_data.append({
                 'Ticker': t,
                 'Industry': industry,
-                'RS_Score': rs
+                'RS_Score': rs,
+                'Sortino_3M': s3m,
+                'Sortino_6M': s6m,
+                'Is_Apex_Leader': is_apex
             })
             
     if not industry_data:
@@ -41,8 +69,14 @@ def calculate_industry_leadership(history_df: pd.DataFrame, tickers: list, indus
         Constituent_Count=('Ticker', 'count'),
         Avg_RS=('RS_Score', 'mean'),
         Max_RS=('RS_Score', 'max'),
-        Leaders_80_Plus=('RS_Score', lambda x: (x >= 80).sum())
+        Leaders_80_Plus=('RS_Score', lambda x: (x >= 80).sum()),
+        Avg_Sortino_3M=('Sortino_3M', 'mean'),
+        Avg_Sortino_6M=('Sortino_6M', 'mean'),
+        Apex_Leaders=('Is_Apex_Leader', 'sum')
     ).reset_index()
+    
+    group_stats['Avg_Sortino_3M'] = group_stats['Avg_Sortino_3M'].round(2)
+    group_stats['Avg_Sortino_6M'] = group_stats['Avg_Sortino_6M'].round(2)
     
     # Filter out statistically insignificant groups (e.g. groups with only 1-2 stocks)
     group_stats = group_stats[group_stats['Constituent_Count'] >= 3]
@@ -285,7 +319,7 @@ def get_sector_heat_rankings_data(history_df: pd.DataFrame, tickers: list, indus
         return pd.DataFrame()
         
     # 3. Merge them together
-    merged = pd.merge(cycle_df, leadership_df[['Industry', 'Leaders_80_Plus', 'Participation_%', 'Constituent_Count']], on='Industry', how='inner')
+    merged = pd.merge(cycle_df, leadership_df[['Industry', 'Leaders_80_Plus', 'Participation_%', 'Constituent_Count', 'Avg_Sortino_3M', 'Avg_Sortino_6M', 'Apex_Leaders']], on='Industry', how='inner')
     
     # 4. Find Apex Predators (Top 2 stocks by RS per industry)
     apex_map = {}

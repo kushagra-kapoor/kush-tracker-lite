@@ -967,9 +967,9 @@ def get_hat_stocks(market: str) -> set:
     finally:
         conn.close()
 
-def get_top_5_rs_leaders(market: str = 'INDIA') -> list:
+def get_top_rs_leaders(market: str = 'INDIA', limit: int = 5) -> list:
     """
-    Returns the top 5 highest RS stocks from the most recent TML snapshot.
+    Returns the top highest RS stocks from the most recent TML snapshot.
     """
     conn = get_connection()
     try:
@@ -990,16 +990,20 @@ def get_top_5_rs_leaders(market: str = 'INDIA') -> list:
             FROM tml_snapshot
             WHERE market = ? AND date = ? AND rs_score IS NOT NULL
             ORDER BY rs_score DESC
-            LIMIT 5
-        ''', (market, latest_date))
+            LIMIT ?
+        ''', (market, latest_date, limit))
         
         results = cursor.fetchall()
         return [{'ticker': row[0], 'rs_score': row[1], 'industry': row[2], 'tml_score': row[3]} for row in results]
     except Exception as e:
-        print(f"Error getting top 5 RS leaders: {e}")
+        print(f"Error getting top {limit} RS leaders: {e}")
         return []
     finally:
         conn.close()
+
+def get_top_5_rs_leaders(market: str = 'INDIA') -> list:
+    """Legacy alias for get_top_rs_leaders with limit=5."""
+    return get_top_rs_leaders(market=market, limit=5)
 
 def get_tml_persistence(market: str, days: int = 90):
     """

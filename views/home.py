@@ -18,7 +18,7 @@ from signal_engine import calculate_weighted_rs_for_universe
 from price_history_manager import fetch_incremental_history
 from trend_analyzer import determine_trend_state, get_trend_details
 from decision_engine import make_decision, ACTION_EXIT, ACTION_TRIM, ACTION_HOLD, ACTION_ADD
-from database import init_database, save_snapshot, get_signal_change_days, save_sector_leadership, get_sector_leadership_history, get_journal_entry, get_all_fundamentals_cache, get_current_tml_leaders, get_hat_stocks, get_top_5_rs_leaders
+from database import init_database, save_snapshot, get_signal_change_days, save_sector_leadership, get_sector_leadership_history, get_journal_entry, get_all_fundamentals_cache, get_current_tml_leaders, get_hat_stocks, get_top_5_rs_leaders, get_top_rs_leaders
 from climax_exhaustion import detect_climax_exhaustion
 from macro_regime_engine import calculate_distribution_days, get_market_regime_label, detect_change_of_character
 from daily_insights_engine import generate_exposure_guide, get_sector_clusters, generate_macro_health_score
@@ -45,9 +45,13 @@ def start_background_backfill():
         print("[System] Starting background TML history backfill...")
         try:
             # We use python executable from sys to ensure we stay in the same environment
-            script_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "backfill_tml_history.py")
-            subprocess.run([sys.executable, script_path], check=True)
-            print("[System] Background TML backfill completed or verified.")
+            base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+            script_path = os.path.join(base_dir, "backfill_tml_history.py")
+            if os.path.exists(script_path):
+                subprocess.run([sys.executable, script_path], check=True)
+                print("[System] Background TML backfill completed or verified.")
+            else:
+                print(f"[System] Warning: {script_path} not found.")
         except Exception as e:
             print(f"[System] Error in background backfill: {e}")
             
@@ -832,7 +836,8 @@ def main():
     # ---------------------------------------------------------
     # NEW: Top 5 RS Leaders (TraderLion / Deepvue Inspired)
     # ---------------------------------------------------------
-    top_rs_leaders = get_top_5_rs_leaders(market='INDIA')
+    top_rs_leaders = get_top_rs_leaders(market='INDIA', limit=5)
+    top_15_rs_leaders = get_top_rs_leaders(market='INDIA', limit=15)
     if top_rs_leaders:
         st.markdown("### 🏆 Deep Market Leaders (Top 5 RS out of 750)")
         
@@ -923,7 +928,6 @@ def main():
         cols = st.columns(len(top_rs_leaders))
         for idx, leader in enumerate(top_rs_leaders):
             with cols[idx]:
-                # Clean up the ticker extension for better visual appeal
                 clean_ticker = leader['ticker'].replace('.NS', '').replace('.BO', '')
                 tv_url = f"https://in.tradingview.com/chart/?symbol=NSE:{clean_ticker}"
                 
@@ -940,9 +944,258 @@ def main():
                     """,
                     unsafe_allow_html=True
                 )
+        
+        # Expanded Top 15 Table
+        with st.expander("ℹ️ How are the RS & TML Scores Calculated?"):
+            st.markdown("""
+            **1. Tactical 3-Month RS Formula (0 to 99)**
+            This scanner isolates stocks moving the fastest *right now* using a short-term, front-weighted momentum calculation:
+            `Raw RS = (1-Week Return * 20%) + (1-Month Return * 40%) + (3-Month Return * 40%)`
+            
+            This Raw RS is then mathematically percent-ranked across the entire liquid universe of 750 stocks into a final **0 to 99 score**. 
+            An RS of 99 means the stock is mathematically outperforming 99% of the universe right now.
+            
+            **2. TML Composite Score (Out of 120 Points)**
+            The **True Market Leader (TML)** score is a holistic CANSLIM ranking combining both fundamentals and technicals:
+            - **Growth (Max 40 pts):** EPS YoY Growth (20) + Sales YoY Growth (20).
+            - **Momentum (Max 40 pts):** Elite 3M RS Score (25) + Proximity to 52W High (15).
+            - **Institution (Max 40 pts):** Profit Margins (10) + ROE (10) + Liquidity Profiling (20).
+            
+            **3. Dual-Horizon Sortino Ratio (3M & 6M)**
+            - **Sortino 3M (Tactical):** Downside-risk-adjusted alpha over 63 trading days (~3 months).
+            - **Sortino 6M (Structural):** Downside-risk-adjusted alpha over 126 trading days (~6 months).
+            Penalizes only downside volatility below the 6.5% risk-free rate while ignoring explosive upside breakouts.
+            """)
+            
+        top_15_df = pd.DataFrame(top_15_rs_leaders)
+        if not top_15_df.empty:
+            top_15_df['Rank'] = top_15_df.index + 1
+            top_15_df['Ticker'] = top_15_df['ticker'].str.replace('.NS', '').str.replace('.BO', '')
+            top_15_df['TradingView'] = top_15_df['Ticker'].apply(lambda x: f"https://in.tradingview.com/chart/?symbol=NSE:{x}")
+            
+            # Enrich with Sortino 3M & Sortino 6M
+            try:
+                from price_history_manager import fetch_incremental_history
+                from risk_metrics import calculate_sortino_ratio
+                tickers_to_fetch = top_15_df['ticker'].tolist()
+                df_hist = fetch_incremental_history(tickers_to_fetch, days=252)
+                
+                s3m_list = []
+                s6m_list = []
+                for t in tickers_to_fetch:
+                    try:
+                        if isinstance(df_hist.columns, pd.MultiIndex):
+                            if t in df_hist.columns.get_level_values(0):
+                                sc = df_hist.xs(t, axis=1, level=0)['Close'].dropna()
+                            elif t in df_hist.columns.get_level_values(1):
+                                sc = df_hist.xs(t, axis=1, level=1)['Close'].dropna()
+                            else:
+                                sc = pd.Series()
+                        else:
+                            sc = df_hist['Close'].dropna() if 'Close' in df_hist else pd.Series()
+                        
+                        if len(sc) >= 30:
+                            s3m_list.append(calculate_sortino_ratio(sc, window=63, mar_annual=0.065))
+                            s6m_list.append(calculate_sortino_ratio(sc, window=126, mar_annual=0.065))
+                        else:
+                            s3m_list.append(0.0)
+                            s6m_list.append(0.0)
+                    except Exception:
+                        s3m_list.append(0.0)
+                        s6m_list.append(0.0)
+                top_15_df['sortino_3m'] = s3m_list
+                top_15_df['sortino_6m'] = s6m_list
+            except Exception as e:
+                print(f"Error computing Sortino for Top 15 RS: {e}")
+                top_15_df['sortino_3m'] = 0.0
+                top_15_df['sortino_6m'] = 0.0
+            
+            st.dataframe(
+                top_15_df[['Rank', 'Ticker', 'industry', 'TradingView', 'rs_score', 'sortino_3m', 'sortino_6m', 'tml_score']],
+                column_config={
+                    "Rank": st.column_config.NumberColumn("#", format="%d"),
+                    "Ticker": st.column_config.TextColumn("Company"),
+                    "industry": st.column_config.TextColumn("Theme/Industry"),
+                    "TradingView": st.column_config.LinkColumn("Chart", display_text="Open 📈"),
+                    "rs_score": st.column_config.NumberColumn("3M RS Rating", format="%.1f", help="0-99 Cross-sectional ranking."),
+                    "sortino_3m": st.column_config.NumberColumn("Sortino 3M", format="%.2f", help="3-Month downside-risk-adjusted alpha."),
+                    "sortino_6m": st.column_config.NumberColumn("Sortino 6M", format="%.2f", help="6-Month structural downside-risk-adjusted alpha."),
+                    "tml_score": st.column_config.NumberColumn("TML Composite", format="%.0f", help="120-point Fundamental + Technical Score.")
+                },
+                hide_index=True,
+                use_container_width=True
+            )
+            
+            with st.expander("📺 Export Deep Market Leaders to TradingView Watchlist"):
+                tv_tickers_dml = [f"NSE:{t}" for t in top_15_df['Ticker'].tolist()]
+                st.code(",".join(tv_tickers_dml), language="text")
+            
         st.markdown("<br/>", unsafe_allow_html=True)
         
-    top_rs_leaders_us = get_top_5_rs_leaders(market='US')
+        # ---------------------------------------------------------
+        # NEW: RS Line New High (RSNH) Leaders Table (Option A)
+        # ---------------------------------------------------------
+        @st.cache_data(ttl=600, show_spinner=False)
+        def fetch_rsnh_leaders(market='INDIA', limit=15):
+            from database import get_connection
+            import yfinance as yf
+            try:
+                conn = get_connection()
+                c = conn.cursor()
+                c.execute("SELECT MAX(date) FROM tml_snapshot WHERE market = ?", (market,))
+                row = c.fetchone()
+                if not row or not row[0]:
+                    conn.close()
+                    return []
+                latest_date = row[0]
+                
+                query = """
+                    SELECT ticker, rs_score, industry, tml_score 
+                    FROM tml_snapshot 
+                    WHERE market = ? AND date = ? AND rs_score IS NOT NULL
+                    ORDER BY rs_score DESC
+                """
+                df_candidates = pd.read_sql_query(query, conn, params=[market, latest_date])
+                conn.close()
+                
+                if df_candidates.empty:
+                    return []
+                    
+                tickers = df_candidates['ticker'].tolist()
+                bench_ticker = '^CRSLDX' if market == 'INDIA' else '^GSPC'
+                
+                all_tickers = [bench_ticker] + tickers
+                batch = yf.download(all_tickers, period='1y', group_by='ticker', progress=False, threads=True)
+                
+                if batch.empty:
+                    return []
+                    
+                if isinstance(batch.columns, pd.MultiIndex):
+                    if 'Ticker' in batch.columns.names:
+                        bench_close = batch.xs(bench_ticker, axis=1, level='Ticker')['Close'].dropna()
+                    elif bench_ticker in batch.columns.levels[0]:
+                        bench_close = batch[bench_ticker]['Close'].dropna()
+                    else:
+                        bench_close = batch.xs(bench_ticker, axis=1, level=1)['Close'].dropna()
+                else:
+                    bench_close = batch['Close'].dropna()
+                    
+                rsnh_list = []
+                for _, row_c in df_candidates.iterrows():
+                    tckr = row_c['ticker']
+                    try:
+                        if isinstance(batch.columns, pd.MultiIndex):
+                            if 'Ticker' in batch.columns.names:
+                                s_close = batch.xs(tckr, axis=1, level='Ticker')['Close'].dropna()
+                            elif tckr in batch.columns.levels[0]:
+                                s_close = batch[tckr]['Close'].dropna()
+                            else:
+                                s_close = batch.xs(tckr, axis=1, level=1)['Close'].dropna()
+                        else:
+                            s_close = batch['Close'].dropna()
+                            
+                        if len(s_close) < 50:
+                            continue
+                            
+                        aligned = pd.DataFrame({'stock': s_close, 'bench': bench_close}).dropna()
+                        if len(aligned) < 50:
+                            continue
+                            
+                        rs_line = aligned['stock'] / aligned['bench']
+                        cur_rs = rs_line.iloc[-1]
+                        max_rs_52w = rs_line.tail(252).max()
+                        
+                        cur_price = aligned['stock'].iloc[-1]
+                        max_price_52w = aligned['stock'].tail(252).max()
+                        
+                        if max_price_52w <= 0 or max_rs_52w <= 0:
+                            continue
+                            
+                        dist_from_high_pct = ((max_price_52w - cur_price) / max_price_52w) * 100.0
+                        
+                        # Option A (True Divergence): RS Line at 52W High (within 2%), Price strictly COILING in base (1% to 15% below high)
+                        if cur_rs >= (0.980 * max_rs_52w) and (1.0 <= dist_from_high_pct <= 15.0):
+                            # Stage 2 check: price above 50 SMA
+                            if len(s_close) >= 50 and cur_price < s_close.tail(50).mean():
+                                continue
+                                
+                            status = "🎯 In Buy Zone" if dist_from_high_pct <= 5.0 else "⏳ Forming Base"
+                            clean_tckr = tckr.replace('.NS', '').replace('.BO', '')
+                            tv_url = f"https://in.tradingview.com/chart/?symbol=NSE:{clean_tckr}" if market == 'INDIA' else f"https://www.tradingview.com/chart/?symbol={clean_tckr}"
+                            
+                            from risk_metrics import calculate_sortino_ratio
+                            s3m = calculate_sortino_ratio(s_close, window=63, mar_annual=0.065)
+                            s6m = calculate_sortino_ratio(s_close, window=126, mar_annual=0.065)
+                            
+                            rsnh_list.append({
+                                'Ticker': clean_tckr,
+                                'industry': row_c['industry'],
+                                'TradingView': tv_url,
+                                'rs_score': float(row_c['rs_score']),
+                                'sortino_3m': s3m,
+                                'sortino_6m': s6m,
+                                'dist_52w': f"-{dist_from_high_pct:.1f}%",
+                                'status': status,
+                                'tml_score': float(row_c['tml_score']) if pd.notna(row_c['tml_score']) else 0.0
+                            })
+                    except Exception:
+                        continue
+                        
+                if not rsnh_list:
+                    return []
+                    
+                df_rsnh = pd.DataFrame(rsnh_list).sort_values('rs_score', ascending=False).head(limit).reset_index(drop=True)
+                df_rsnh['Rank'] = df_rsnh.index + 1
+                return df_rsnh.to_dict(orient='records')
+            except Exception as e:
+                print(f"RSNH Fetch Error: {e}")
+                return []
+                
+        rsnh_leaders = fetch_rsnh_leaders(market='INDIA', limit=15)
+        if rsnh_leaders:
+            st.markdown("### 🔵 RS Line New High (RSNH) — Pre-Breakout Coils")
+            with st.expander("ℹ️ What is RS Line New High (RSNH) Divergence & How to Trade It?"):
+                st.markdown("""
+                **O'Neil Blue Dot Setup (RS Line at 52W High AHEAD of Price)**
+                - **The Core Edge (True Divergence):** The stock's Relative Strength line (Price vs Nifty 500) has reached a **52-week High**, but the stock's price has **NOT broken out yet** (it is coiling strictly **1% to 15% below its 52W price high**).
+                - **Why It's Different from the Table Above:**
+                  - The table above shows runaway momentum leaders that have already broken out to price highs (`At High 🚀`).
+                  - **This table isolates pre-breakout setups** where institutions are quietly absorbing supply inside a base *before* the price breaks out.
+                - **Setup Status:**
+                  - `🎯 In Buy Zone`: Price is within 1% to 5% of its 52W high pivot (ready to ignite).
+                  - `⏳ Forming Base`: Price is 5% to 15% below high (building right side of handle/base).
+                - **Sortino (3M & 6M):** Measures downside-risk-adjusted alpha. High Sortino confirms the base is absorbing selloffs tightly without heavy distribution drag.
+                """)
+            
+            rsnh_df = pd.DataFrame(rsnh_leaders)
+            st.dataframe(
+                rsnh_df[['Rank', 'Ticker', 'industry', 'TradingView', 'rs_score', 'sortino_3m', 'sortino_6m', 'dist_52w', 'status', 'tml_score']],
+                column_config={
+                    "Rank": st.column_config.NumberColumn("#", format="%d"),
+                    "Ticker": st.column_config.TextColumn("Company"),
+                    "industry": st.column_config.TextColumn("Theme/Industry"),
+                    "TradingView": st.column_config.LinkColumn("Chart", display_text="Open 📈"),
+                    "rs_score": st.column_config.NumberColumn("3M RS Rating", format="%.1f", help="0-99 Cross-sectional momentum ranking."),
+                    "sortino_3m": st.column_config.NumberColumn("Sortino 3M", format="%.2f", help="3-Month downside-risk-adjusted alpha."),
+                    "sortino_6m": st.column_config.NumberColumn("Sortino 6M", format="%.2f", help="6-Month structural downside-risk-adjusted alpha."),
+                    "dist_52w": st.column_config.TextColumn("52W High Dist", help="Distance from 52-week price high (1% to 15% below pivot)."),
+                    "status": st.column_config.TextColumn("Setup Status", help="🎯 In Buy Zone (1-5% below high) | ⏳ Forming Base (5-15% below high)"),
+                    "tml_score": st.column_config.NumberColumn("TML Composite", format="%.0f", help="120-point Fundamental + Technical Score.")
+                },
+                hide_index=True,
+                use_container_width=True
+            )
+            
+            with st.expander("📺 Export RS Line New High (RSNH) to TradingView Watchlist"):
+                tv_tickers_rsnh = [f"NSE:{t}" for t in rsnh_df['Ticker'].tolist()]
+                st.code(",".join(tv_tickers_rsnh), language="text")
+            
+            st.markdown("<br/>", unsafe_allow_html=True)
+        else:
+            st.info("ℹ️ No stocks currently exhibit RS Line New High divergence (all current momentum leaders have already broken out to price highs or are pulling back >15%).")
+            st.markdown("<br/>", unsafe_allow_html=True)
+            
+    top_rs_leaders_us = get_top_rs_leaders(market='US', limit=5)
     if top_rs_leaders_us:
         st.markdown("### 🦅 US Market Leaders (Top 5 RS)")
         cols_us = st.columns(len(top_rs_leaders_us))

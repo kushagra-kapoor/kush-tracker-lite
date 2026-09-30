@@ -38,9 +38,16 @@ def determine_trend_state(df: pd.DataFrame) -> str:
     ema_21 = last_row.get('ema_21')
     sma_50 = last_row.get('sma_50')
     
-    # Handle missing values
+    # Handle missing values (e.g., fresh IPOs, SMEs, or short history)
     if any(pd.isna([close, ema_8, ema_21, sma_50])):
-        return TREND_BROKEN
+        if not pd.isna(close) and not pd.isna(ema_8) and not pd.isna(ema_21):
+            if close > ema_8 and close > ema_21:
+                return TREND_STRONG
+            elif close > ema_21:
+                return TREND_PULLBACK
+            else:
+                return TREND_WARNING
+        return TREND_WARNING
     
     # Determine state
     if close > ema_8 and close > ema_21:

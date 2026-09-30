@@ -112,6 +112,75 @@ def calculate_returns(series: pd.Series, periods: int) -> float:
     return (current_price / past_price) - 1
 
 
+def detect_and_adjust_split_cliffs(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Detects unadjusted stock split, bonus issue, or demerger cliffs in historical price data
+    and retroactively normalizes pre-split bars.
+    
+    This ensures 52W High, Moving Averages (50/200 SMA), Drawdowns, and RS percentiles
+    match verified TradingView / Bloomberg adjusted series and prevents false 80%+ drawdown
+    signals caused by unadjusted data (e.g. V-Marc India 5:1 bonus, HEG, Oriana splits).
+    """
+    if df.empty or len(df) < 15:
+        return df
+
+    close_col = 'close' if 'close' in df.columns else 'Close' if 'Close' in df.columns else None
+    if not close_col:
+        return df
+
+    close = df[close_col]
+    
+    # Overnight percentage change
+    pct_change = close.pct_change()
+    
+    # Detect sudden cliffs > 40% (e.g., 1:2 split = -50%, 1:5 bonus = -80%, 1:10 split = -90%)
+    split_indices = pct_change[pct_change < -0.40].index.tolist()
+    if not split_indices:
+        return df
+
+    df = df.copy()
+    
+    for split_date in split_indices:
+        try:
+            idx_loc = df.index.get_loc(split_date)
+            if isinstance(idx_loc, slice) or isinstance(idx_loc, np.ndarray):
+                continue
+            if idx_loc < 1:
+                continue
+
+            pre_close = float(close.iloc[idx_loc - 1])
+            post_close = float(close.iloc[idx_loc])
+
+            if pre_close <= 0 or post_close <= 0:
+                continue
+
+            # Verify that prices stayed down (not an intraday flash crash or single-day bad tick)
+            subsequent_window = close.iloc[idx_loc: min(len(close), idx_loc + 30)]
+            if float(subsequent_window.max()) < pre_close * 0.70:
+                factor = pre_close / post_close
+
+                # Snap factor to common corporate action ratios if within 12%
+                # 2:1 (2.0), 3:1 (3.0), 4:1 (4.0), 5:1 (5.0), 6:1 (6.0), 10:1 (10.0)
+                nearest_int = round(factor)
+                if nearest_int >= 2 and abs(factor - nearest_int) / nearest_int < 0.12:
+                    clean_factor = float(nearest_int)
+                else:
+                    clean_factor = factor
+
+                # Adjust OHLC bars prior to split date
+                price_cols = [c for c in ['open', 'high', 'low', 'close', 'Open', 'High', 'Low', 'Close'] if c in df.columns]
+                pre_slice = df.index[:idx_loc]
+                df.loc[pre_slice, price_cols] = df.loc[pre_slice, price_cols] / clean_factor
+
+                # Adjust volume so turnover stays consistent
+                vol_cols = [c for c in ['volume', 'Volume'] if c in df.columns]
+                df.loc[pre_slice, vol_cols] = df.loc[pre_slice, vol_cols] * clean_factor
+        except Exception:
+            continue
+
+    return df
+
+
 def add_technical_indicators(df: pd.DataFrame, benchmark_df: pd.DataFrame = None) -> pd.DataFrame:
     """
     Add all technical indicators to a stock DataFrame.
@@ -127,6 +196,7 @@ def add_technical_indicators(df: pd.DataFrame, benchmark_df: pd.DataFrame = None
         return df
     
     df = df.copy()
+    df = detect_and_adjust_split_cliffs(df)
     
     # EMAs
     df['ema_8'] = calculate_ema(df['close'], EMA_PERIODS['FAST'])

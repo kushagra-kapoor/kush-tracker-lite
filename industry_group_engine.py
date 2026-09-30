@@ -13,6 +13,7 @@ import sqlite3
 import numpy as np
 import pandas as pd
 import streamlit as st
+from risk_metrics import calculate_sortino_ratio
 
 DB_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "kush_tracker.db")
 MATRIX_PKL_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "historical_prices_matrix.pkl")
@@ -276,11 +277,20 @@ def compute_industry_group_matrix(taxonomy: str = "canonical", universe_scope: s
     dist_pivot_s = ((c0 - pivot_25) / pivot_25) * 100
     dist_ema_s = ((c0 - ema_21) / ema_21) * 100
     
+    all_mapped_tickers = set(t for tickers in group_map.values() for t in tickers if t in close_df.columns)
+    stock_sortino_map = {}
+    for t in all_mapped_tickers:
+        c_s = close_df[t].dropna()
+        s3 = calculate_sortino_ratio(c_s, window=63, mar_annual=0.065) if len(c_s) >= 63 else 0.0
+        s6 = calculate_sortino_ratio(c_s, window=126, mar_annual=0.065) if len(c_s) >= 126 else 0.0
+        stock_sortino_map[t] = (s3, s6)
+
     stock_status_dict = {}
     for t in close_df.columns:
         p_dist = dist_pivot_s.get(t, np.nan)
         e_dist = dist_ema_s.get(t, np.nan)
         lbl, b_style, prio = classify_stock_action_state(p_dist, e_dist)
+        s3, s6 = stock_sortino_map.get(t, (0.0, 0.0))
         stock_status_dict[t] = {
             'status': lbl,
             'style': b_style,
@@ -288,7 +298,9 @@ def compute_industry_group_matrix(taxonomy: str = "canonical", universe_scope: s
             'cmp': round(float(c0.get(t, 0)), 2),
             'dist_pivot': round(float(p_dist), 1) if not np.isnan(p_dist) else 0.0,
             'dist_ema': round(float(e_dist), 1) if not np.isnan(e_dist) else 0.0,
-            'rs': int(rs_percentile.get(t, 0))
+            'rs': int(rs_percentile.get(t, 0)),
+            'sortino_3m': round(s3, 2),
+            'sortino_6m': round(s6, 2)
         }
 
     curves = {}
@@ -332,13 +344,17 @@ def compute_industry_group_matrix(taxonomy: str = "canonical", universe_scope: s
 
     score_today = get_score_series(curves_df, 0).fillna(-999.0)
     score_1w = get_score_series(curves_df, 5).fillna(-999.0)
+    score_3w = get_score_series(curves_df, 15).fillna(-999.0)
     score_1m = get_score_series(curves_df, 21).fillna(-999.0)
+    score_6w = get_score_series(curves_df, 30).fillna(-999.0)
     score_3m = get_score_series(curves_df, 63).fillna(-999.0)
     score_6m = get_score_series(curves_df, 126).fillna(-999.0)
     
     ranks_today = score_today.rank(ascending=False, method='min').fillna(99).astype(int)
     ranks_1w = score_1w.rank(ascending=False, method='min').fillna(99).astype(int)
+    ranks_3w = score_3w.rank(ascending=False, method='min').fillna(99).astype(int)
     ranks_1m = score_1m.rank(ascending=False, method='min').fillna(99).astype(int)
+    ranks_6w = score_6w.rank(ascending=False, method='min').fillna(99).astype(int)
     ranks_3m = score_3m.rank(ascending=False, method='min').fillna(99).astype(int)
     ranks_6m = score_6m.rank(ascending=False, method='min').fillna(99).astype(int)
     
@@ -346,6 +362,9 @@ def compute_industry_group_matrix(taxonomy: str = "canonical", universe_scope: s
 
     rows = []
     end_idx = len(curves_df) - 1
+    
+    cur_year = curves_df.index[-1].year
+    ytd_bars = curves_df[curves_df.index.year == cur_year]
     
     for grp in curves_df.columns:
         c_series = curves_df[grp]
@@ -357,19 +376,33 @@ def compute_industry_group_matrix(taxonomy: str = "canonical", universe_scope: s
         r_3m = round(float((c_now / c_series.iloc[-64] - 1) * 100), 2) if len(c_series) > 63 else 0.0
         r_6m = round(float((c_now / c_series.iloc[-127] - 1) * 100), 2) if len(c_series) > 126 else 0.0
         
+        if not ytd_bars.empty and len(ytd_bars) > 0 and ytd_bars[grp].iloc[0] > 0:
+            r_ytd = round(float((c_now / ytd_bars[grp].iloc[0] - 1) * 100), 1)
+        else:
+            r_ytd = r_6m
+            
         rank_td = int(ranks_today[grp])
         rank_w1 = int(ranks_1w[grp])
+        rank_w3 = int(ranks_3w[grp])
         rank_m1 = int(ranks_1m[grp])
+        rank_w6 = int(ranks_6w[grp])
         rank_m3 = int(ranks_3m[grp])
         rank_m6 = int(ranks_6m[grp])
         
         delta_1w = rank_w1 - rank_td
+        delta_3w = rank_w3 - rank_td
         delta_1m = rank_m1 - rank_td
+        delta_6w = rank_w6 - rank_td
         
         rot_status, rot_style = classify_rotation_status(rank_td, delta_1m)
         
         constits = group_clean_constituents.get(grp, [])
         pack_count = sum(1 for t in constits if stock_status_dict.get(t, {}).get('rs', 0) >= 80)
+        
+        # Theme Synthetic Sortino & Apex Leaders
+        grp_s3m = calculate_sortino_ratio(c_series, window=63, mar_annual=0.065)
+        grp_s6m = calculate_sortino_ratio(c_series, window=126, mar_annual=0.065)
+        apex_count = sum(1 for t in constits if stock_status_dict.get(t, {}).get('rs', 0) >= 80 and stock_status_dict.get(t, {}).get('sortino_3m', 0.0) >= 3.0)
         
         sorted_constits = sorted(
             constits,
@@ -388,6 +421,8 @@ def compute_industry_group_matrix(taxonomy: str = "canonical", universe_scope: s
                 'ticker': clean_t,
                 'raw_ticker': t,
                 'rs': st_info.get('rs', 0),
+                'sortino_3m': st_info.get('sortino_3m', 0.0),
+                'sortino_6m': st_info.get('sortino_6m', 0.0),
                 'cmp': st_info.get('cmp', 0.0),
                 'dist_pivot': dist_p,
                 'dist_pivot_str': dist_str,
@@ -425,21 +460,29 @@ def compute_industry_group_matrix(taxonomy: str = "canonical", universe_scope: s
             'Industry_Group': grp,
             'Rank_Today': rank_td,
             'Rank_1W': rank_w1,
+            'Rank_3W': rank_w3,
             'Rank_1M': rank_m1,
+            'Rank_6W': rank_w6,
             'Rank_3M': rank_m3,
             'Rank_6M': rank_m6,
             'Delta_1W': delta_1w,
+            'Delta_3W': delta_3w,
             'Delta_1M': delta_1m,
+            'Delta_6W': delta_6w,
             'Rotation_Status': rot_status,
             'Rotation_Style': rot_style,
             'Comp_RS': int(composite_rs_pct[grp]),
             'Pack_Hunting_Count': pack_count,
             'Stock_Count': len(constits),
+            'Sortino_3M': round(grp_s3m, 2),
+            'Sortino_6M': round(grp_s6m, 2),
+            'Apex_Leaders': apex_count,
             'Return_1D': r_1d,
             'Return_1W': r_1w,
             'Return_1M': r_1m,
             'Return_3M': r_3m,
             'Return_6M': r_6m,
+            'Return_YTD': r_ytd,
             'Top_Leaders_Display': leader_display,
             'Top_3_Leaders': top_3,
             'Sparkline_1M': spark_norm,
@@ -448,6 +491,24 @@ def compute_industry_group_matrix(taxonomy: str = "canonical", universe_scope: s
         
     df_result = pd.DataFrame(rows).sort_values('Rank_Today', ascending=True).reset_index(drop=True)
     return df_result, benchmark_curve
+
+def get_top_and_worst_40_groups(df_matrix: pd.DataFrame) -> tuple:
+    """
+    Extracts the canonical IBD Top 40 Leading Industry Groups and Worst 40 Lagging Groups (6-Month Momentum Trajectory).
+    Matches the exact layout from Investor's Business Daily General Market Indicators (Daily GMI).
+    
+    Returns:
+        (top_40_df, worst_40_df)
+    """
+    if df_matrix is None or df_matrix.empty:
+        return pd.DataFrame(), pd.DataFrame()
+        
+    df_sorted = df_matrix.sort_values('Rank_Today', ascending=True).copy()
+    
+    top_40 = df_sorted.head(min(40, len(df_sorted))).copy()
+    worst_40 = df_sorted.tail(min(40, len(df_sorted))).sort_values('Rank_Today', ascending=True).copy()
+    
+    return top_40, worst_40
 
 def get_group_deep_dive_data(group_name: str, taxonomy: str = "canonical", universe_scope: str = "India (NSE/BSE)"):
     """
@@ -519,6 +580,10 @@ def get_group_deep_dive_data(group_name: str, taxonomy: str = "canonical", unive
         e_dist = float(dist_ema.get(t, 0.0))
         status_lbl, badge_style, prio = classify_stock_action_state(p_dist, e_dist)
         
+        c_series_t = sub_close[t].dropna()
+        s3_t = calculate_sortino_ratio(c_series_t, window=63, mar_annual=0.065) if len(c_series_t) >= 63 else 0.0
+        s6_t = calculate_sortino_ratio(c_series_t, window=126, mar_annual=0.065) if len(c_series_t) >= 126 else 0.0
+        
         constit_rows.append({
             'Symbol': clean_t,
             'Raw_Ticker': t,
@@ -529,6 +594,8 @@ def get_group_deep_dive_data(group_name: str, taxonomy: str = "canonical", unive
             '3M %': float(r3m.get(t, 0.0)),
             '1Y %': float(r1y.get(t, 0.0)),
             'RS Rating': int(rs_percentile_all.get(t, 0)),
+            'Sortino 3M': round(s3_t, 2),
+            'Sortino 6M': round(s6_t, 2),
             'Pivot Price': round(float(pivot_25.get(t, 0.0)), 2),
             'Dist Pivot %': p_dist,
             'Dist 21 EMA %': e_dist,
