@@ -56,6 +56,7 @@ EMA_PERIODS = {
 
 ATR_PERIODS = {
     'SHORT': 14,
+    'CHANDELIER': 21,
     'LONG': 30,
 }
 

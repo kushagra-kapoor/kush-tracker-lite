@@ -207,6 +207,7 @@ def add_technical_indicators(df: pd.DataFrame, benchmark_df: pd.DataFrame = None
     
     # ATRs
     df['atr_14'] = calculate_atr(df, ATR_PERIODS['SHORT'])
+    df['atr_21'] = calculate_atr(df, ATR_PERIODS.get('CHANDELIER', 21))
     df['atr_30'] = calculate_atr(df, ATR_PERIODS['LONG'])
     
     # ATR ratio for volatility contraction detection
@@ -887,16 +888,17 @@ def calculate_webster_sell_signals(df: pd.DataFrame, index_df: pd.DataFrame) -> 
     }
 
 
-def calculate_atr_chandelier_stop(df: pd.DataFrame, atr_multiplier: float = 2.5, high_window: int = 20) -> float:
+def calculate_atr_chandelier_stop(df: pd.DataFrame, atr_multiplier: float = 3.5, high_window: int = 20, atr_period: int = 21) -> float:
     """
     Calculate the ATR Chandelier trailing stop value.
     Anchors to the highest close over the last `high_window` days,
-    and subtracts `atr_multiplier` * 14-day ATR.
+    and subtracts `atr_multiplier` * `atr_period`-day ATR.
     
     Args:
-        df: DataFrame with OHLCV data, must have 'close' and 'atr_14' columns.
-        atr_multiplier: The multiplier for ATR (default 2.5).
+        df: DataFrame with OHLCV data, must have 'close' and ATR column.
+        atr_multiplier: The multiplier for ATR (default 3.5).
         high_window: Number of days to look back for the highest close (default 20).
+        atr_period: Period for ATR calculation (default 21).
         
     Returns:
         The stop price as a float, or 0.0 if unable to calculate.
@@ -907,8 +909,13 @@ def calculate_atr_chandelier_stop(df: pd.DataFrame, atr_multiplier: float = 2.5,
     # Get the highest close in the lookback window
     highest_close = df['close'].tail(high_window).max()
     
-    # Get the latest 14-day ATR
-    latest_atr = df['atr_14'].iloc[-1]
+    # Get the latest ATR for the specified period
+    atr_col = f'atr_{atr_period}'
+    if atr_col in df.columns:
+        latest_atr = df[atr_col].iloc[-1]
+    else:
+        atr_series = calculate_atr(df, atr_period)
+        latest_atr = atr_series.iloc[-1] if not atr_series.empty else None
     
     if pd.isna(latest_atr) or pd.isna(highest_close):
         return 0.0

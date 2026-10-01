@@ -96,16 +96,16 @@ def check_layer1_5_volatility_stop(df: pd.DataFrame) -> tuple:
     Layer 1.5: Volatility / Chandelier Stop (HIGH PRIORITY).
     
     Rules:
-    - Price < 2.5x ATR below 20-day high → EXIT
+    - Price < 3.5x ATR(21) below 20-day high → EXIT
     """
     if df.empty:
         return (None, None)
         
     current_price = df.iloc[-1]['close']
-    stop_price = calculate_atr_chandelier_stop(df, atr_multiplier=2.5, high_window=20)
+    stop_price = calculate_atr_chandelier_stop(df, atr_multiplier=3.5, high_window=20, atr_period=21)
     
     if stop_price > 0 and current_price < stop_price:
-        return (ACTION_EXIT, f"Volatility Stop: Price dropped below {stop_price:.2f} (2.5x ATR)")
+        return (ACTION_EXIT, f"Volatility Stop: Price dropped below {stop_price:.2f} (3.5x ATR)")
         
     return (None, None)
 
