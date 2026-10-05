@@ -47,112 +47,290 @@ def clean_html(html_str: str) -> str:
 # =============================================================================
 st.markdown(clean_html("""
 <style>
-/* Where Is The Strength? — Participation Barometer */
+/* Where Is The Strength? — World-Class Participation Barometer */
 .participation-barometer {
-    background: linear-gradient(135deg, rgba(15, 23, 42, 0.92) 0%, rgba(2, 6, 23, 0.98) 100%);
-    border: 1px solid rgba(255, 255, 255, 0.10);
+    background: linear-gradient(145deg, rgba(15, 23, 42, 0.95) 0%, rgba(2, 6, 23, 0.98) 100%);
+    border: 1px solid rgba(255, 255, 255, 0.12);
     border-radius: 14px;
-    padding: 16px 22px;
-    margin-bottom: 20px;
-    box-shadow: 0 12px 30px -6px rgba(0, 0, 0, 0.6);
+    padding: 20px 24px;
+    margin-bottom: 22px;
+    box-shadow: 0 16px 36px -8px rgba(0, 0, 0, 0.65), 0 0 0 1px rgba(255, 255, 255, 0.04);
     position: relative;
     overflow: hidden;
-    backdrop-filter: blur(16px);
+    backdrop-filter: blur(20px);
 }
 .participation-barometer.broad::before {
     content: ''; position: absolute; top: 0; left: 0; right: 0; height: 3px;
-    background: linear-gradient(90deg, #10b981, #06b6d4);
+    background: linear-gradient(90deg, #10b981 0%, #06b6d4 50%, #3b82f6 100%);
 }
 .participation-barometer.selective::before {
     content: ''; position: absolute; top: 0; left: 0; right: 0; height: 3px;
-    background: linear-gradient(90deg, #f59e0b, #38bdf8);
+    background: linear-gradient(90deg, #f59e0b 0%, #fbbf24 50%, #38bdf8 100%);
 }
 .participation-barometer.narrow::before {
     content: ''; position: absolute; top: 0; left: 0; right: 0; height: 3px;
-    background: linear-gradient(90deg, #ef4444, #f97316);
+    background: linear-gradient(90deg, #ef4444 0%, #f97316 50%, #fbbf24 100%);
 }
-.part-container {
+
+.part-top-strip {
     display: flex;
     justify-content: space-between;
     align-items: center;
-    gap: 20px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+    padding-bottom: 14px;
+    margin-bottom: 16px;
     flex-wrap: wrap;
+    gap: 12px;
 }
-.part-main {
-    flex: 1 1 360px;
-}
-.part-header {
+.part-title-group {
     display: flex;
     align-items: center;
     gap: 10px;
-    margin-bottom: 8px;
     flex-wrap: wrap;
 }
-.part-title {
-    font-size: 0.74rem;
+.part-title-badge {
+    font-size: 0.82rem;
     font-weight: 800;
-    text-transform: uppercase;
     letter-spacing: 0.08em;
-    color: #94a3b8;
-}
-.part-stat {
-    display: flex;
-    align-items: baseline;
-    gap: 12px;
-    flex-wrap: wrap;
-}
-.part-num {
-    font-size: 1.70rem;
-    font-weight: 900;
+    text-transform: uppercase;
     color: #f8fafc;
-    letter-spacing: -0.03em;
-    font-family: 'JetBrains Mono', monospace;
-}
-.part-desc {
-    font-size: 0.88rem;
-    color: #cbd5e1;
-}
-.part-pct {
-    font-size: 1.15rem;
-    font-weight: 800;
-    color: #38bdf8;
-    background: rgba(56, 189, 248, 0.12);
-    padding: 2px 10px;
-    border-radius: 8px;
-    border: 1px solid rgba(56, 189, 248, 0.3);
-}
-.part-horizons {
     display: flex;
+    align-items: center;
+    gap: 6px;
+}
+.part-methodology-hint {
+    font-size: 0.76rem;
+    color: #94a3b8;
+    font-weight: 500;
+}
+.part-badges-group {
+    display: flex;
+    align-items: center;
     gap: 10px;
     flex-wrap: wrap;
-    align-items: stretch;
 }
-.part-horizon-item {
-    background: rgba(255, 255, 255, 0.03);
-    border: 1px solid rgba(255, 255, 255, 0.07);
-    border-radius: 10px;
-    padding: 8px 14px;
-    display: flex;
-    flex-direction: column;
-    min-width: 110px;
-}
-.ph-lbl {
-    font-size: 0.68rem;
-    color: #94a3b8;
-    text-transform: uppercase;
-    font-weight: 700;
+
+.regime-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 5px 14px;
+    border-radius: 9999px;
+    font-size: 0.78rem;
+    font-weight: 800;
+    font-family: 'JetBrains Mono', monospace;
     letter-spacing: 0.04em;
 }
-.ph-val {
-    font-size: 1.15rem;
-    font-weight: 800;
-    color: #f1f5f9;
+.regime-badge.broad {
+    background: rgba(16, 185, 129, 0.20);
+    color: #34d399;
+    border: 1px solid rgba(16, 185, 129, 0.55);
+    box-shadow: 0 0 14px rgba(16, 185, 129, 0.25);
+}
+.regime-badge.selective {
+    background: rgba(245, 158, 11, 0.20);
+    color: #fbbf24;
+    border: 1px solid rgba(245, 158, 11, 0.55);
+    box-shadow: 0 0 14px rgba(245, 158, 11, 0.25);
+}
+.regime-badge.narrow {
+    background: rgba(239, 68, 68, 0.20);
+    color: #f87171;
+    border: 1px solid rgba(239, 68, 68, 0.55);
+    box-shadow: 0 0 14px rgba(239, 68, 68, 0.25);
+}
+
+.drift-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 5px 14px;
+    border-radius: 9999px;
+    font-size: 0.78rem;
+    font-weight: 700;
     font-family: 'JetBrains Mono', monospace;
+    background: rgba(6, 182, 212, 0.16);
+    color: #38bdf8;
+    border: 1px solid rgba(6, 182, 212, 0.45);
+}
+
+.part-body-grid {
+    display: grid;
+    grid-template-columns: 1.15fr 1.85fr;
+    gap: 24px;
+    align-items: center;
+}
+@media (max-width: 1024px) {
+    .part-body-grid {
+        grid-template-columns: 1fr;
+        gap: 18px;
+    }
+}
+
+.part-macro-col {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+.part-stat-hero {
+    display: flex;
+    align-items: baseline;
+    gap: 14px;
+    flex-wrap: wrap;
+}
+.part-big-num {
+    font-size: 2.3rem;
+    font-weight: 900;
+    color: #ffffff;
+    font-family: 'JetBrains Mono', monospace;
+    letter-spacing: -0.03em;
+    line-height: 1;
+}
+.part-big-sub {
+    font-size: 1.15rem;
+    font-weight: 600;
+    color: #64748b;
+}
+.part-hero-pct {
+    font-size: 1.30rem;
+    font-weight: 900;
+    font-family: 'JetBrains Mono', monospace;
+    padding: 3px 12px;
+    border-radius: 8px;
+    line-height: 1.2;
+}
+.part-hero-pct.broad {
+    background: rgba(16, 185, 129, 0.16);
+    color: #34d399;
+    border: 1px solid rgba(16, 185, 129, 0.45);
+}
+.part-hero-pct.selective {
+    background: rgba(245, 158, 11, 0.16);
+    color: #fbbf24;
+    border: 1px solid rgba(245, 158, 11, 0.45);
+}
+.part-hero-pct.narrow {
+    background: rgba(239, 68, 68, 0.16);
+    color: #f87171;
+    border: 1px solid rgba(239, 68, 68, 0.45);
+}
+
+.part-sub-explainer {
+    font-size: 0.88rem;
+    font-weight: 500;
+    color: #cbd5e1;
+    line-height: 1.4;
+}
+.part-sub-explainer b {
+    color: #f8fafc;
+    font-weight: 700;
+}
+
+.breadth-gauge-wrap {
+    margin-top: 4px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+.breadth-track {
+    position: relative;
+    width: 100%;
+    height: 10px;
+    background: rgba(255, 255, 255, 0.08);
+    border-radius: 9999px;
+    overflow: hidden;
+}
+.breadth-fill {
+    height: 100%;
+    border-radius: 9999px;
+    transition: width 0.4s ease;
+}
+.breadth-fill.broad {
+    background: linear-gradient(90deg, #10b981 0%, #34d399 100%);
+    box-shadow: 0 0 12px rgba(16, 185, 129, 0.55);
+}
+.breadth-fill.selective {
+    background: linear-gradient(90deg, #f59e0b 0%, #fbbf24 100%);
+    box-shadow: 0 0 12px rgba(245, 158, 11, 0.55);
+}
+.breadth-fill.narrow {
+    background: linear-gradient(90deg, #ef4444 0%, #f87171 100%);
+    box-shadow: 0 0 12px rgba(239, 68, 68, 0.55);
+}
+
+.breadth-ticks {
+    display: flex;
+    justify-content: space-between;
+    font-size: 0.70rem;
+    font-weight: 700;
+    font-family: 'JetBrains Mono', monospace;
+    color: #94a3b8;
+}
+
+.part-cards-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 12px;
+}
+@media (max-width: 768px) {
+    .part-cards-grid {
+        grid-template-columns: repeat(2, 1fr);
+    }
+}
+
+.part-horizon-card {
+    background: rgba(15, 23, 42, 0.7);
+    border: 1px solid rgba(255, 255, 255, 0.10);
+    border-radius: 10px;
+    padding: 12px 14px;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    transition: transform 0.15s ease, border-color 0.15s ease;
+}
+.part-horizon-card:hover {
+    transform: translateY(-2px);
+    border-color: rgba(56, 189, 248, 0.4);
+}
+.phc-label {
+    font-size: 0.68rem;
+    font-weight: 800;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: #94a3b8;
+    margin-bottom: 4px;
+}
+.phc-num {
+    font-size: 1.45rem;
+    font-weight: 900;
+    color: #ffffff;
+    font-family: 'JetBrains Mono', monospace;
+    line-height: 1.1;
+    margin-bottom: 4px;
+}
+.phc-num.pos { color: #34d399; }
+.phc-num.mid { color: #38bdf8; }
+.phc-num.neg { color: #f87171; }
+.phc-sub {
+    font-size: 0.75rem;
+    font-weight: 600;
+    color: #cbd5e1;
+    white-space: nowrap;
+}
+
+.alignment-chips-col {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
     margin-top: 2px;
 }
-.ph-sub {
-    font-size: 0.70rem;
-    color: #64748b;
+.align-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 0.74rem;
+    font-weight: 700;
+    font-family: 'JetBrains Mono', monospace;
 }
 
 /* Executive HUD Layout */
@@ -370,14 +548,13 @@ def main():
     # -------------------------------------------------------------
     # 1. TAXONOMY SELECTION & CONTROLS (UP FRONT)
     # -------------------------------------------------------------
-    c_tax, c_sort, c_rot, c_top, c_search = st.columns([1.5, 1.3, 1.1, 0.9, 1.2])
+    c_tax, c_sort, c_rot, c_top, c_search = st.columns([1.4, 1.4, 1.1, 0.9, 1.2])
     
     with c_tax:
-        taxonomy_choice = st.radio(
+        taxonomy_choice = st.selectbox(
             "Taxonomy Architecture",
             ["🏛️ Canonical 145 Sub-Industries", "⚡ Curated Indian Alpha Themes"],
             index=0,
-            horizontal=True,
             help="Toggle between standard 145 O'Neil granular groups and high-conviction thematic clusters (Power T&D, Defense, Solar, EMS, Railways, Wealth Tech, etc.)"
         )
         
@@ -447,7 +624,6 @@ def main():
     # 3. EXECUTIVE HUD PANELS & PARTICIPATION BAROMETER
     # -------------------------------------------------------------
     tone = part_stats.get("tone", "broad")
-    p_badge_class = "pill-emerald" if tone == "broad" else ("pill-amber" if tone == "selective" else "pill-rose")
     drift_txt = part_stats.get("drift", "Stable")
     drift_pts = part_stats.get("drift_pts", 0.0)
     drift_icon = "↗" if drift_pts >= 5.0 else ("↘" if drift_pts <= -5.0 else "→")
@@ -463,45 +639,73 @@ def main():
     emerg = part_stats.get("emerging", 0)
     fading = part_stats.get("fading", 0)
 
+    gauge_width = min(max(pct_3m, 0.0), 100.0)
+    c1m_cls = "pos" if pct_1m >= 55.0 else ("mid" if pct_1m >= 40.0 else "neg")
+    c3m_cls = "pos" if pct_3m >= 55.0 else ("mid" if pct_3m >= 40.0 else "neg")
+    c6m_cls = "pos" if pct_6m >= 55.0 else ("mid" if pct_6m >= 40.0 else "neg")
+
     part_html = f"""
     <div class='participation-barometer {tone}'>
-        <div class='part-container'>
-            <div class='part-main'>
-                <div class='part-header'>
-                    <span class='part-title'>🌐 WHERE IS THE STRENGTH? · PARTICIPATION RATIO</span>
-                    <span class='badge-pill {p_badge_class}'>{part_stats.get("reading", "Broad").upper()} PARTICIPATION</span>
-                    <span class='badge-pill pill-cyan'>BREADTH DRIFT: {drift_txt.upper()} ({drift_pts:+.1f}%) {drift_icon}</span>
+        <div class='part-top-strip'>
+            <div class='part-title-group'>
+                <span class='part-title-badge'>🌐 WHERE IS THE STRENGTH? · PARTICIPATION RATIO</span>
+                <span class='part-methodology-hint'>| Atul Suri / Marathon Trends Breadth Barometer</span>
+            </div>
+            <div class='part-badges-group'>
+                <span class='regime-badge {tone}'>
+                    {"🟢" if tone == "broad" else ("🟡" if tone == "selective" else "🔴")} {part_stats.get("reading", "Broad").upper()} PARTICIPATION ({pct_3m:.1f}%)
+                </span>
+                <span class='drift-badge'>
+                    BREADTH DRIFT: {drift_txt.upper()} ({drift_pts:+.1f}%) {drift_icon}
+                </span>
+            </div>
+        </div>
+        <div class='part-body-grid'>
+            <div class='part-macro-col'>
+                <div class='part-stat-hero'>
+                    <div class='part-big-num'>{above_3m} <span class='part-big-sub'>/ {total_grps}</span></div>
+                    <div class='part-hero-pct {tone}'>{pct_3m:.1f}%</div>
                 </div>
-                <div class='part-stat'>
-                    <span class='part-num'>{above_3m} / {total_grps}</span>
-                    <span class='part-desc'>Industry Groups Outperforming <b>{bench_name}</b> (3M Medium-Horizon)</span>
-                    <span class='part-pct'>{pct_3m:.1f}%</span>
+                <div class='part-sub-explainer'>
+                    Industry Groups Outperforming <b>{bench_name}</b> on the <b>3M Medium-Horizon</b> anchor.
+                </div>
+                <div class='breadth-gauge-wrap'>
+                    <div class='breadth-track'>
+                        <div class='breadth-fill {tone}' style='width: {gauge_width:.1f}%;'></div>
+                        <div class='gauge-marker-40' title='40% Selective Threshold'></div>
+                        <div class='gauge-marker-55' title='55% Broad Threshold'></div>
+                    </div>
+                    <div class='breadth-ticks'>
+                        <span style='color:#f87171;'>0% Narrow</span>
+                        <span style='color:#fbbf24;'>40% Selective</span>
+                        <span style='color:#34d399;'>55% Broad</span>
+                        <span style='color:#94a3b8;'>100%</span>
+                    </div>
                 </div>
             </div>
-            <div class='part-horizons'>
-                <div class='part-horizon-item'>
-                    <span class='ph-lbl'>Short-Term (1M)</span>
-                    <span class='ph-val'>{pct_1m:.1f}%</span>
-                    <span class='ph-sub'>{above_1m} groups beating</span>
+            <div class='part-cards-grid'>
+                <div class='part-horizon-card'>
+                    <div class='phc-label'>Short-Term (1M)</div>
+                    <div class='phc-num {c1m_cls}'>{pct_1m:.1f}%</div>
+                    <div class='phc-sub'><b style='color:#f8fafc;'>{above_1m}</b> of {total_grps} Beating</div>
                 </div>
-                <div class='part-horizon-item'>
-                    <span class='ph-lbl'>Medium-Term (3M)</span>
-                    <span class='ph-val'>{pct_3m:.1f}%</span>
-                    <span class='ph-sub'>{above_3m} groups beating</span>
+                <div class='part-horizon-card'>
+                    <div class='phc-label'>Medium-Term (3M)</div>
+                    <div class='phc-num {c3m_cls}'>{pct_3m:.1f}%</div>
+                    <div class='phc-sub'><b style='color:#f8fafc;'>{above_3m}</b> of {total_grps} Beating</div>
                 </div>
-                <div class='part-horizon-item'>
-                    <span class='ph-lbl'>Long-Term (6M)</span>
-                    <span class='ph-val'>{pct_6m:.1f}%</span>
-                    <span class='ph-sub'>{above_6m} groups beating</span>
+                <div class='part-horizon-card'>
+                    <div class='phc-label'>Long-Term (6M)</div>
+                    <div class='phc-num {c6m_cls}'>{pct_6m:.1f}%</div>
+                    <div class='phc-sub'><b style='color:#f8fafc;'>{above_6m}</b> of {total_grps} Beating</div>
                 </div>
-                <div class='part-horizon-item'>
-                    <span class='ph-lbl'>3-Horizon Alignment</span>
-                    <span class='ph-val' style='font-size:0.92rem; font-weight:700;'>
-                        <span style='color:#34d399;' title='Full Confluence across 1M, 3M & 6M'>🟢 {confl}</span> &nbsp;
-                        <span style='color:#38bdf8;' title='Emerging Turn (short up, long flat/lag)'>🌱 {emerg}</span> &nbsp;
-                        <span style='color:#fbbf24;' title='Fading Momentum (short lag, long up)'>⚠️ {fading}</span>
-                    </span>
-                    <span class='ph-sub'>Confluence · Emerging · Fading</span>
+                <div class='part-horizon-card'>
+                    <div class='phc-label'>3H Alignment</div>
+                    <div class='alignment-chips-col'>
+                        <span class='align-chip' style='color:#34d399;'>🟢 <b>{confl}</b> Confluence</span>
+                        <span class='align-chip' style='color:#38bdf8;'>🌱 <b>{emerg}</b> Emerging</span>
+                        <span class='align-chip' style='color:#fbbf24;'>⚠️ <b>{fading}</b> Fading</span>
+                    </div>
                 </div>
             </div>
         </div>
@@ -531,7 +735,7 @@ def main():
             <div class='hud-panel-val' title='{fastest_accel["Industry_Group"]}'>{fastest_accel["Industry_Group"]}</div>
             <div class='hud-panel-sub'>
                 <span class='badge-pill pill-cyan'>Δ 1M: {fastest_accel["Delta_1M"]:+d} Spots</span>
-                <span>Now <b>#{fastest_accel["Rank_Today"]}</b> <span style='color:#64748b;'>(was #{fastest_accel["Rank_1M"]})</span></span>
+                <span>Now <b>#{fastest_accel["Rank_Today"]}</b> <span style='color:#94a3b8; font-weight:600;'>(was #{fastest_accel["Rank_1M"]})</span></span>
                 <span style='color:#38bdf8;'>• S(3M): {fastest_accel.get("Sortino_3M", 0.0):.2f}</span>
             </div>
         </div>
