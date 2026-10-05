@@ -1370,6 +1370,9 @@ def main():
                             "pill-amber" if "Consolidating" in g_data['Rotation_Status'] else "pill-rose"
                         )
                     )
+                    dual_pill_cls = "pill-emerald" if g_data.get('Is_Dual_Alpha') else (
+                        "pill-amber" if g_data.get('Is_Relative_Mirage') else "pill-rose"
+                    )
                     
                     chips_html_list = []
                     for ldr in g_data['Top_3_Leaders']:
@@ -1422,6 +1425,7 @@ def main():
                             <div style='text-align:right;'>
                                 <div class='tg-rank-num'>#{g_data["Rank_Today"]}</div>
                                 <div style='display:flex; gap:4px; justify-content:flex-end; margin-top:2px; flex-wrap:wrap;'>
+                                    <span class='badge-pill {dual_pill_cls}' title='Dual Momentum: {g_data.get("Dual_State", "")}'>{g_data.get("Dual_Badge", "")}</span>
                                     <span class='badge-pill' style='background:rgba(255,255,255,0.06); border:1px solid rgba(255,255,255,0.15); font-family:monospace;' title='3-Horizon (1M · 3M · 6M): {g_data.get("Horizon_State", "")}'>{g_data.get("Horizon_Badge", "")}</span>
                                     <span class='badge-pill pill-purple'>🐺 {g_data["Pack_Hunting_Count"]} Pack</span>
                                     <span class='badge-pill {rot_pill}'>{g_data["Rotation_Status"]}</span>
