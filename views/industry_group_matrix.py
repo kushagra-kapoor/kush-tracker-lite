@@ -23,6 +23,7 @@ except ImportError:
     from pages.true_market_leader import get_cached_universe
 from industry_group_engine import (
     compute_industry_group_matrix,
+    compute_participation,
     get_group_deep_dive_data,
     get_top_and_worst_40_groups,
     INDIAN_ALPHA_THEMES
@@ -46,6 +47,114 @@ def clean_html(html_str: str) -> str:
 # =============================================================================
 st.markdown(clean_html("""
 <style>
+/* Where Is The Strength? — Participation Barometer */
+.participation-barometer {
+    background: linear-gradient(135deg, rgba(15, 23, 42, 0.92) 0%, rgba(2, 6, 23, 0.98) 100%);
+    border: 1px solid rgba(255, 255, 255, 0.10);
+    border-radius: 14px;
+    padding: 16px 22px;
+    margin-bottom: 20px;
+    box-shadow: 0 12px 30px -6px rgba(0, 0, 0, 0.6);
+    position: relative;
+    overflow: hidden;
+    backdrop-filter: blur(16px);
+}
+.participation-barometer.broad::before {
+    content: ''; position: absolute; top: 0; left: 0; right: 0; height: 3px;
+    background: linear-gradient(90deg, #10b981, #06b6d4);
+}
+.participation-barometer.selective::before {
+    content: ''; position: absolute; top: 0; left: 0; right: 0; height: 3px;
+    background: linear-gradient(90deg, #f59e0b, #38bdf8);
+}
+.participation-barometer.narrow::before {
+    content: ''; position: absolute; top: 0; left: 0; right: 0; height: 3px;
+    background: linear-gradient(90deg, #ef4444, #f97316);
+}
+.part-container {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 20px;
+    flex-wrap: wrap;
+}
+.part-main {
+    flex: 1 1 360px;
+}
+.part-header {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 8px;
+    flex-wrap: wrap;
+}
+.part-title {
+    font-size: 0.74rem;
+    font-weight: 800;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: #94a3b8;
+}
+.part-stat {
+    display: flex;
+    align-items: baseline;
+    gap: 12px;
+    flex-wrap: wrap;
+}
+.part-num {
+    font-size: 1.70rem;
+    font-weight: 900;
+    color: #f8fafc;
+    letter-spacing: -0.03em;
+    font-family: 'JetBrains Mono', monospace;
+}
+.part-desc {
+    font-size: 0.88rem;
+    color: #cbd5e1;
+}
+.part-pct {
+    font-size: 1.15rem;
+    font-weight: 800;
+    color: #38bdf8;
+    background: rgba(56, 189, 248, 0.12);
+    padding: 2px 10px;
+    border-radius: 8px;
+    border: 1px solid rgba(56, 189, 248, 0.3);
+}
+.part-horizons {
+    display: flex;
+    gap: 10px;
+    flex-wrap: wrap;
+    align-items: stretch;
+}
+.part-horizon-item {
+    background: rgba(255, 255, 255, 0.03);
+    border: 1px solid rgba(255, 255, 255, 0.07);
+    border-radius: 10px;
+    padding: 8px 14px;
+    display: flex;
+    flex-direction: column;
+    min-width: 110px;
+}
+.ph-lbl {
+    font-size: 0.68rem;
+    color: #94a3b8;
+    text-transform: uppercase;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+}
+.ph-val {
+    font-size: 1.15rem;
+    font-weight: 800;
+    color: #f1f5f9;
+    font-family: 'JetBrains Mono', monospace;
+    margin-top: 2px;
+}
+.ph-sub {
+    font-size: 0.70rem;
+    color: #64748b;
+}
+
 /* Executive HUD Layout */
 .hud-grid {
     display: grid;
@@ -279,6 +388,7 @@ def main():
             "Sort Groups By",
             [
                 "🏆 Leadership Rank (1 to N)",
+                "🌐 3M Excess Return vs Index (High to Low)",
                 "🛡️ Sortino 3M (High to Low)",
                 "👑 Apex Leaders Count (High to Low)",
                 "🐺 Wolfpack Breadth (RS ≥ 80 Count)",
@@ -294,7 +404,16 @@ def main():
     with c_rot:
         status_filter = st.selectbox(
             "Rotation Velocity Filter",
-            ["All Groups", "🚀 Surging Only", "🔄 Accumulating Only", "⏸️ Consolidating Only", "🐺 High Pack Hunting (≥3)"],
+            [
+                "All Groups",
+                "🟢 Confluence Only",
+                "🌱 Emerging Turn Only",
+                "⚠️ Fading Only",
+                "🚀 Surging Only",
+                "🔄 Accumulating Only",
+                "⏸️ Consolidating Only",
+                "🐺 High Pack Hunting (≥3)"
+            ],
             index=0
         )
         
@@ -322,9 +441,74 @@ def main():
         st.error("⚠️ No industry group price data available. Please verify historical_prices_matrix.pkl.")
         return
 
+    part_stats = compute_participation(df_matrix)
+
     # -------------------------------------------------------------
-    # 3. EXECUTIVE HUD PANELS (CLEAN GLASSMORPHISM)
+    # 3. EXECUTIVE HUD PANELS & PARTICIPATION BAROMETER
     # -------------------------------------------------------------
+    tone = part_stats.get("tone", "broad")
+    p_badge_class = "pill-emerald" if tone == "broad" else ("pill-amber" if tone == "selective" else "pill-rose")
+    drift_txt = part_stats.get("drift", "Stable")
+    drift_pts = part_stats.get("drift_pts", 0.0)
+    drift_icon = "↗" if drift_pts >= 5.0 else ("↘" if drift_pts <= -5.0 else "→")
+    bench_name = part_stats.get("benchmark", "NIFTY 500")
+    total_grps = part_stats.get("total", len(df_matrix))
+    above_3m = part_stats.get("above_3M", 0)
+    pct_3m = part_stats.get("pct_3M", 0.0)
+    above_1m = part_stats.get("above_1M", 0)
+    pct_1m = part_stats.get("pct_1M", 0.0)
+    above_6m = part_stats.get("above_6M", 0)
+    pct_6m = part_stats.get("pct_6M", 0.0)
+    confl = part_stats.get("confluence", 0)
+    emerg = part_stats.get("emerging", 0)
+    fading = part_stats.get("fading", 0)
+
+    part_html = f"""
+    <div class='participation-barometer {tone}'>
+        <div class='part-container'>
+            <div class='part-main'>
+                <div class='part-header'>
+                    <span class='part-title'>🌐 WHERE IS THE STRENGTH? · PARTICIPATION RATIO</span>
+                    <span class='badge-pill {p_badge_class}'>{part_stats.get("reading", "Broad").upper()} PARTICIPATION</span>
+                    <span class='badge-pill pill-cyan'>BREADTH DRIFT: {drift_txt.upper()} ({drift_pts:+.1f}%) {drift_icon}</span>
+                </div>
+                <div class='part-stat'>
+                    <span class='part-num'>{above_3m} / {total_grps}</span>
+                    <span class='part-desc'>Industry Groups Outperforming <b>{bench_name}</b> (3M Medium-Horizon)</span>
+                    <span class='part-pct'>{pct_3m:.1f}%</span>
+                </div>
+            </div>
+            <div class='part-horizons'>
+                <div class='part-horizon-item'>
+                    <span class='ph-lbl'>Short-Term (1M)</span>
+                    <span class='ph-val'>{pct_1m:.1f}%</span>
+                    <span class='ph-sub'>{above_1m} groups beating</span>
+                </div>
+                <div class='part-horizon-item'>
+                    <span class='ph-lbl'>Medium-Term (3M)</span>
+                    <span class='ph-val'>{pct_3m:.1f}%</span>
+                    <span class='ph-sub'>{above_3m} groups beating</span>
+                </div>
+                <div class='part-horizon-item'>
+                    <span class='ph-lbl'>Long-Term (6M)</span>
+                    <span class='ph-val'>{pct_6m:.1f}%</span>
+                    <span class='ph-sub'>{above_6m} groups beating</span>
+                </div>
+                <div class='part-horizon-item'>
+                    <span class='ph-lbl'>3-Horizon Alignment</span>
+                    <span class='ph-val' style='font-size:0.92rem; font-weight:700;'>
+                        <span style='color:#34d399;' title='Full Confluence across 1M, 3M & 6M'>🟢 {confl}</span> &nbsp;
+                        <span style='color:#38bdf8;' title='Emerging Turn (short up, long flat/lag)'>🌱 {emerg}</span> &nbsp;
+                        <span style='color:#fbbf24;' title='Fading Momentum (short lag, long up)'>⚠️ {fading}</span>
+                    </span>
+                    <span class='ph-sub'>Confluence · Emerging · Fading</span>
+                </div>
+            </div>
+        </div>
+    </div>
+    """
+    st.markdown(clean_html(part_html), unsafe_allow_html=True)
+
     top_leader = df_matrix.iloc[0]
     fastest_accel = df_matrix.sort_values("Delta_1M", ascending=False).iloc[0]
     top_pack = df_matrix.sort_values("Pack_Hunting_Count", ascending=False).iloc[0]
@@ -378,7 +562,13 @@ def main():
     # -------------------------------------------------------------
     filtered_df = df_matrix.copy()
 
-    if status_filter == "🚀 Surging Only":
+    if status_filter == "🟢 Confluence Only":
+        filtered_df = filtered_df[filtered_df["Horizon_State"].str.contains("Confluence", na=False)]
+    elif status_filter == "🌱 Emerging Turn Only":
+        filtered_df = filtered_df[filtered_df["Horizon_State"].str.contains("Emerging", na=False)]
+    elif status_filter == "⚠️ Fading Only":
+        filtered_df = filtered_df[filtered_df["Horizon_State"].str.contains("Fading", na=False)]
+    elif status_filter == "🚀 Surging Only":
         filtered_df = filtered_df[filtered_df["Rotation_Status"].str.contains("Surging")]
     elif status_filter == "🔄 Accumulating Only":
         filtered_df = filtered_df[filtered_df["Rotation_Status"].str.contains("Accumulating")]
@@ -428,7 +618,9 @@ def main():
         st.info(f"🔍 **Quality Filter Active**: Showing **{len(filtered_df)} of {len(df_matrix)}** groups matching Min Sortino 3M ≥ {igm_min_s3m:.1f} and Min Apex Leaders ≥ {igm_min_apex}")
 
     # Apply Selected Sort Hierarchy
-    if "Sortino 3M" in sort_choice:
+    if "Excess Return" in sort_choice:
+        filtered_df = filtered_df.sort_values(["Excess_3M", "Rank_Today"], ascending=[False, True])
+    elif "Sortino 3M" in sort_choice:
         filtered_df = filtered_df.sort_values(["Sortino_3M", "Rank_Today"], ascending=[False, True])
     elif "Apex Leaders" in sort_choice:
         filtered_df = filtered_df.sort_values(["Apex_Leaders", "Rank_Today"], ascending=[False, True])
@@ -495,26 +687,27 @@ def main():
 
         if "Executive" in tv_mode:
             disp_cols = [
-                "Rank_Today", "Industry_Group", "Rotation_Status",
+                "Rank_Today", "Industry_Group", "Horizon_Badge", "Rotation_Status",
                 "Sortino_3M", "Apex_Leaders", "Pack_Hunting_Count",
                 "Return_1M", "Top_Leaders_Display", "Sparkline_1M"
             ]
         elif "Risk" in tv_mode:
             disp_cols = [
-                "Rank_Today", "Industry_Group", "Rotation_Status",
-                "Sortino_3M", "Sortino_6M", "Apex_Leaders",
+                "Rank_Today", "Industry_Group", "Horizon_Badge", "Horizon_State",
+                "Excess_3M", "Sortino_3M", "Sortino_6M", "Apex_Leaders",
                 "Pack_Hunting_Count", "Stock_Count", "Return_3M", "Return_6M",
                 "Top_Leaders_Display"
             ]
         elif "Velocity" in tv_mode:
             disp_cols = [
-                "Rank_Today", "Industry_Group", "Rotation_Status",
+                "Rank_Today", "Industry_Group", "Horizon_Badge", "Horizon_State", "Rotation_Status",
                 "Rank_1W", "Delta_1W", "Rank_1M", "Delta_1M", "Rank_3M", "Rank_6M",
                 "Pack_Hunting_Count", "Sparkline_1M"
             ]
         else:
             disp_cols = [
-                "Rank_Today", "Industry_Group", "Rotation_Status",
+                "Rank_Today", "Industry_Group", "Horizon_Badge", "Horizon_State", "Rotation_Status",
+                "Excess_1M", "Excess_3M", "Excess_6M",
                 "Sortino_3M", "Sortino_6M", "Apex_Leaders",
                 "Rank_1W", "Delta_1W", "Rank_1M", "Delta_1M", "Rank_3M", "Rank_6M",
                 "Pack_Hunting_Count", "Return_1M", "Return_3M", "Return_6M",
@@ -526,6 +719,11 @@ def main():
         master_col_cfg = {
             "Rank_Today": st.column_config.NumberColumn("Rank", format="%d", width=70, help="Current Relative Strength Rank (1 = Market Leader)"),
             "Industry_Group": st.column_config.TextColumn("Industry Sub-Group", width=250),
+            "Horizon_Badge": st.column_config.TextColumn("3H Alignment", width=95, help="3-Horizon relative strength agreement: 1M (Short) · 3M (Med) · 6M (Long) vs Benchmark (🟢 Outperform · 🟡 In-Line · 🔴 Lag)"),
+            "Horizon_State": st.column_config.TextColumn("Alignment State", width=140, help="Classified horizon state: 🟢 Confluence (all 3 leading), 🌱 Emerging Turn (short-term turning up), ⚠️ Fading (short-term losing momentum), 🔴 Chronic Laggard"),
+            "Excess_1M": st.column_config.NumberColumn("Excess 1M", format="%+.1f%%", width=90, help="Group 1M return minus benchmark return (% pts)"),
+            "Excess_3M": st.column_config.NumberColumn("Excess 3M", format="%+.1f%%", width=90, help="Group 3M return minus benchmark return (% pts)"),
+            "Excess_6M": st.column_config.NumberColumn("Excess 6M", format="%+.1f%%", width=90, help="Group 6M return minus benchmark return (% pts)"),
             "Rotation_Status": st.column_config.TextColumn("Rotation State", width=120),
             "Sortino_3M": st.column_config.NumberColumn("Sortino 3M", format="%.2f", width=95, help="3-Month Downside-adjusted Sortino ratio (MAR=6.5%)"),
             "Sortino_6M": st.column_config.NumberColumn("Sortino 6M", format="%.2f", width=95, help="6-Month Downside-adjusted Sortino ratio (MAR=6.5%)"),
@@ -616,6 +814,7 @@ def main():
         # Columns configuration for IBD tables
         col_cfg_ibd = {
             "Rank_Today": st.column_config.NumberColumn("Rank", format="%d", width=65, help="Current Group RS Rank"),
+            "Horizon_Badge": st.column_config.TextColumn("3H", width=75, help="3-Horizon Alignment (1M·3M·6M)"),
             "Rank_3W": st.column_config.NumberColumn("3W", format="%d", width=65, help="Rank 3 Weeks Ago"),
             "Rank_6W": st.column_config.NumberColumn("6W", format="%d", width=65, help="Rank 6 Weeks Ago"),
             "Delta_6W": st.column_config.NumberColumn("Δ 6W", format="%+d", width=65, help="6-Week Rank Velocity (positive = climbing ranks)"),
@@ -633,7 +832,7 @@ def main():
             st.markdown("#### 🏆 Top 40 Leading Industry Groups")
             st.caption("Click any group to inspect its constituents and pivot chart below.")
             
-            t40_disp_cols = [c for c in ["Rank_Today", "Rank_3W", "Rank_6W", "Delta_6W", "Industry_Group", "Comp_RS", "Return_1D", "Return_YTD", "Apex_Leaders", "Top_Leaders_Display"] if c in top_40_df.columns]
+            t40_disp_cols = [c for c in ["Rank_Today", "Horizon_Badge", "Rank_3W", "Rank_6W", "Delta_6W", "Industry_Group", "Comp_RS", "Return_1D", "Return_YTD", "Apex_Leaders", "Top_Leaders_Display"] if c in top_40_df.columns]
             t40_disp = top_40_df[t40_disp_cols].copy()
             
             event_top = st.dataframe(
@@ -657,7 +856,7 @@ def main():
             st.markdown("#### ⚠️ Bottom 40 Lagging Industry Groups")
             st.caption("Groups suffering persistent institutional selling and rank decay.")
             
-            w40_disp_cols = [c for c in ["Rank_Today", "Rank_3W", "Rank_6W", "Delta_6W", "Industry_Group", "Comp_RS", "Return_1D", "Return_YTD", "Apex_Leaders", "Top_Leaders_Display"] if c in worst_40_df.columns]
+            w40_disp_cols = [c for c in ["Rank_Today", "Horizon_Badge", "Rank_3W", "Rank_6W", "Delta_6W", "Industry_Group", "Comp_RS", "Return_1D", "Return_YTD", "Apex_Leaders", "Top_Leaders_Display"] if c in worst_40_df.columns]
             w40_disp = worst_40_df[w40_disp_cols].copy()
             
             event_worst = st.dataframe(
@@ -808,7 +1007,8 @@ def main():
                             </div>
                             <div style='text-align:right;'>
                                 <div class='tg-rank-num'>#{g_data["Rank_Today"]}</div>
-                                <div style='display:flex; gap:4px; justify-content:flex-end; margin-top:2px;'>
+                                <div style='display:flex; gap:4px; justify-content:flex-end; margin-top:2px; flex-wrap:wrap;'>
+                                    <span class='badge-pill' style='background:rgba(255,255,255,0.06); border:1px solid rgba(255,255,255,0.15); font-family:monospace;' title='3-Horizon (1M · 3M · 6M): {g_data.get("Horizon_State", "")}'>{g_data.get("Horizon_Badge", "")}</span>
                                     <span class='badge-pill pill-purple'>🐺 {g_data["Pack_Hunting_Count"]} Pack</span>
                                     <span class='badge-pill {rot_pill}'>{g_data["Rotation_Status"]}</span>
                                 </div>
@@ -1038,6 +1238,36 @@ def main():
         An **Apex Leader** is an elite constituent meeting both strict institutional criteria:
         $$\text{RS Rating} \ge 80 \quad \text{AND} \quad \text{Sortino 3M} \ge 3.0$$
         Groups with high Apex Leader density represent the highest-quality compounder sectors in the entire market.
+
+        ---
+
+        ### 🌐 Where Is The Strength? — Participation Ratio & 3-Horizon Alignment
+        *Inspired by the institutional frameworks of Atul Suri (Marathon Trends) and long-horizon relative-momentum studies.*
+
+        #### 1. The Participation Ratio (Market Breadth Barometer)
+        Rather than looking solely at broad index levels, institutional trend-followers measure what percentage of industry groups are outperforming the broad benchmark (e.g. NIFTY 500 / S&P 500):
+        - **Broad ($\ge 55\%$)**: Broad market participation. Multiple engines of growth are firing simultaneously. Heavy institutional risk-on environment.
+        - **Selective ($40\%\text{--}54\%$)**: Divergence is occurring. Capital is rotating into a subset of leading themes while broader equities stall.
+        - **Narrow ($< 40\%$)**: Warning regime. Only a handful of defensive or high-conviction clusters are holding up. In this regime, alpha requires strict concentration in Top Groups with strong confluence.
+        - **Breadth Drift**: Compares Short-Term (1M) vs Medium-Term (3M) participation. A positive drift ($\ge +5\%$) signals an expanding rally (*Broadening*), while a negative drift ($\le -5\%$) signals deteriorating underlying breadth (*Narrowing*).
+
+        #### 2. The 3-Horizon Alignment Badge (`Short · Medium · Long`)
+        Every industry group is scored across three core institutional allocation windows:
+        - **1M (21 Trading Days)**: Short-term swing momentum & early rotation detection.
+        - **3M (63 Trading Days)**: Medium-term quarterly earnings & institutional positioning cycle.
+        - **6M (126 Trading Days)**: Long-term structural trend anchor.
+
+        Each horizon displays:
+        - 🟢 = Outperforming Benchmark
+        - 🟡 = In-Line with Benchmark (within flat band)
+        - 🔴 = Lagging Benchmark
+
+        **Classified Alignment States**:
+        - **🟢 Confluence (`🟢🟢🟢`)**: Trend fully intact across all three time horizons. Prime hunting ground for Stage-2 base breakouts.
+        - **🌱 Emerging Turn (`🟢🟡🔴` or `🟢🔴🔴`)**: Short-term turning up while intermediate/long-term are still lagging. Signals early rotation / bottoming theme.
+        - **⚠️ Fading (`🔴🟢🟢` or `🔴🟡🟢`)**: Short-term rolling over while long-term was strong. Signals momentum exhaustion or healthy pullback.
+        - **🔴 Chronic Laggard (`🔴🔴🔴`)**: Underperforming across all horizons. Strict avoid.
+        - **🔀 Mixed**: Transitional divergence.
         """)
 
     # -------------------------------------------------------------
@@ -1117,8 +1347,11 @@ def main():
                 </div>
             </div>
             <div class='hud-panel {rot_panel_class}'>
-                <div class='hud-panel-title'>🌪️ Rotation State</div>
-                <div class='hud-panel-val' style='font-size:1.15rem;'>{grp_row['Rotation_Status']}</div>
+                <div class='hud-panel-title'>🌪️ Rotation & 3H Alignment</div>
+                <div class='hud-panel-val' style='font-size:1.15rem; display:flex; align-items:center; gap:8px;'>
+                    <span>{grp_row['Rotation_Status']}</span>
+                    <span class='badge-pill' style='background:rgba(255,255,255,0.06); border:1px solid rgba(255,255,255,0.18); font-size:0.75rem;'>{grp_row.get('Horizon_Badge', '')} {grp_row.get('Horizon_State', '')}</span>
+                </div>
                 <div class='hud-panel-sub'>
                     <span class='badge-pill pill-cyan'>Velocity: {grp_row['Delta_1M']:+d} spots</span>
                     <span style='color:#94a3b8;'>Composite RS: <b>{grp_row['Comp_RS']}</b></span>
@@ -1134,12 +1367,12 @@ def main():
                 </div>
             </div>
             <div class='hud-panel'>
-                <div class='hud-panel-title'>📈 Momentum & Downside Quality</div>
-                <div class='hud-panel-val'>{grp_row['Return_6M']:+.1f}% <span style='font-size:0.80rem; color:#64748b;'>6M</span></div>
+                <div class='hud-panel-title'>📈 Excess vs {grp_row.get('Benchmark_Name', 'Index')} & Quality</div>
+                <div class='hud-panel-val'>{grp_row.get('Excess_3M', 0.0):+.1f}% <span style='font-size:0.80rem; color:#64748b;'>3M Excess</span></div>
                 <div class='hud-panel-sub'>
-                    <span class='badge-pill {c6m_class}'>3M: {grp_row['Return_3M']:+.1f}%</span>
+                    <span class='badge-pill {c6m_class}'>6M: {grp_row.get('Excess_6M', 0.0):+.1f}%</span>
+                    <span class='badge-pill pill-cyan'>1M: {grp_row.get('Excess_1M', 0.0):+.1f}%</span>
                     <span style='color:#38bdf8; font-weight:700;'>🛡️ S(3M) {grp_row.get('Sortino_3M', 0.0):.2f}</span>
-                    <span style='color:#64748b;'>• S(6M) {grp_row.get('Sortino_6M', 0.0):.2f}</span>
                 </div>
             </div>
         </div>

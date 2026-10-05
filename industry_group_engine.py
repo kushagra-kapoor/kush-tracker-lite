@@ -232,6 +232,117 @@ def classify_rotation_status(cur_rank: int, delta_1m: int) -> tuple[str, str]:
     else:
         return "⚪ Neutral", "neutral"
 
+# 3-Horizon alignment: (label, bars) per horizon, and the excess-return band (in % points)
+# inside which a horizon reads as "flat" (🟡) rather than out/under-performing.
+HORIZON_WINDOWS = (("1M", 21), ("3M", 63), ("6M", 126))
+HORIZON_FLAT_BAND = {"1M": 1.0, "3M": 2.0, "6M": 3.0}
+
+
+@st.cache_data(ttl=3600, show_spinner=False)
+def load_benchmark_close(universe_scope: str = "India (NSE/BSE)") -> tuple:
+    """
+    Returns (close_series, benchmark_name) for the broad-market benchmark.
+    The local price cache holds constituents only, so the index is fetched separately.
+    Returns (empty Series, name) if the download fails; callers fall back to the
+    equal-weighted universe curve.
+    """
+    ticker, name = ("^CRSLDX", "NIFTY 500") if universe_scope.startswith("India") else ("^GSPC", "S&P 500")
+    try:
+        import yfinance as yf
+        raw = yf.download(ticker, period="2y", progress=False, auto_adjust=True, threads=False)
+        if raw is None or raw.empty:
+            return pd.Series(dtype=float), name
+        close = raw["Close"]
+        if isinstance(close, pd.DataFrame):
+            close = close.iloc[:, 0]
+        close = close.dropna()
+        close.index = pd.to_datetime(close.index).tz_localize(None).normalize()
+        return close, name
+    except Exception as e:
+        print(f"[IndustryGroupEngine] Benchmark fetch failed for {ticker}: {e}")
+        return pd.Series(dtype=float), name
+
+
+def classify_horizon_alignment(excess: dict) -> tuple:
+    """
+    Classifies an industry's relative-strength agreement across 1M / 3M / 6M.
+    excess: {'1M': x, '3M': y, '6M': z} = group return minus benchmark return (% points).
+    Returns (badge, state) e.g. ("🟢🟡🔴", "🌱 Emerging Turn").
+
+    - All three outperforming          -> 🟢 Confluence  (trend intact)
+    - All three underperforming        -> 🔴 Chronic Laggard
+    - Short-term up, long-term not up  -> 🌱 Emerging Turn (leadership turning up)
+    - Short-term down, long-term up    -> ⚠️ Fading (leadership turning down)
+    - Anything else                    -> 🔀 Mixed
+    """
+    marks = []
+    for lbl, _ in HORIZON_WINDOWS:
+        val = excess.get(lbl, np.nan)
+        band = HORIZON_FLAT_BAND[lbl]
+        if val is None or np.isnan(val):
+            marks.append("⚪")
+        elif val > band:
+            marks.append("🟢")
+        elif val < -band:
+            marks.append("🔴")
+        else:
+            marks.append("🟡")
+    badge = "".join(marks)
+    short, _, long_ = marks
+
+    if marks == ["🟢"] * 3:
+        state = "🟢 Confluence"
+    elif marks == ["🔴"] * 3:
+        state = "🔴 Chronic Laggard"
+    elif short == "🟢" and long_ in ("🔴", "🟡"):
+        state = "🌱 Emerging Turn"
+    elif short == "🔴" and long_ == "🟢":
+        state = "⚠️ Fading"
+    else:
+        state = "🔀 Mixed"
+    return badge, state
+
+
+def compute_participation(df_matrix: pd.DataFrame) -> dict:
+    """
+    Participation ratio: share of ranked industries outperforming the benchmark per horizon.
+    Headline uses 3M (medium term); 1M vs 3M shows whether breadth is broadening or narrowing.
+    """
+    out = {"total": 0, "benchmark": "Benchmark"}
+    if df_matrix is None or df_matrix.empty or "Excess_3M" not in df_matrix.columns:
+        return out
+    out["total"] = len(df_matrix)
+    out["benchmark"] = str(df_matrix["Benchmark_Name"].iloc[0]) if "Benchmark_Name" in df_matrix.columns else "Benchmark"
+    for lbl, _ in HORIZON_WINDOWS:
+        col = f"Excess_{lbl}"
+        valid = df_matrix[col].dropna()
+        above = int((valid > 0).sum())
+        out[f"above_{lbl}"] = above
+        out[f"pct_{lbl}"] = (above / len(valid) * 100.0) if len(valid) else 0.0
+
+    pct = out["pct_3M"]
+    if pct >= 55.0:
+        out["reading"], out["tone"] = "Broad", "broad"
+    elif pct >= 40.0:
+        out["reading"], out["tone"] = "Selective", "selective"
+    else:
+        out["reading"], out["tone"] = "Narrow", "narrow"
+
+    drift = out["pct_1M"] - out["pct_3M"]
+    if drift >= 5.0:
+        out["drift"] = "Broadening"
+    elif drift <= -5.0:
+        out["drift"] = "Narrowing"
+    else:
+        out["drift"] = "Stable"
+    out["drift_pts"] = drift
+    states = df_matrix["Horizon_State"] if "Horizon_State" in df_matrix.columns else pd.Series(dtype=str)
+    out["confluence"] = int((states == "🟢 Confluence").sum())
+    out["emerging"] = int((states == "🌱 Emerging Turn").sum())
+    out["fading"] = int((states == "⚠️ Fading").sum())
+    return out
+
+
 @st.cache_data(ttl=600, show_spinner=False)
 def compute_industry_group_matrix(taxonomy: str = "canonical", universe_scope: str = "India (NSE/BSE)"):
     """
@@ -247,8 +358,12 @@ def compute_industry_group_matrix(taxonomy: str = "canonical", universe_scope: s
         
     if universe_scope.startswith("India"):
         valid_cols = [c for c in close_df.columns if c.endswith(".NS") or c.endswith(".BO")]
-        close_df = close_df[valid_cols]
-        high_df = high_df[[c for c in valid_cols if c in high_df.columns]]
+        close_df = close_df[valid_cols].dropna(how='all')
+        high_df = high_df[[c for c in valid_cols if c in high_df.columns]].reindex(close_df.index)
+    elif universe_scope.startswith("US"):
+        valid_cols = [c for c in close_df.columns if not c.endswith(".NS") and not c.endswith(".BO")]
+        close_df = close_df[valid_cols].dropna(how='all')
+        high_df = high_df[[c for c in valid_cols if c in high_df.columns]].reindex(close_df.index)
         
     group_map = get_group_constituents_map(taxonomy=taxonomy)
     if not group_map:
@@ -319,11 +434,31 @@ def compute_industry_group_matrix(taxonomy: str = "canonical", universe_scope: s
             curves[grp] = mean_s
             group_clean_constituents[grp] = avail
 
-    curves_df = pd.DataFrame(curves).dropna(how='all')
+    curves_df = pd.DataFrame(curves).dropna(how='all').ffill().bfill()
     if curves_df.empty or len(curves_df) < 130:
         return pd.DataFrame(), pd.Series()
         
     benchmark_curve = curves_df.mean(axis=1)
+
+    # Broad-market benchmark for 3-Horizon alignment & participation.
+    # Prefer the real index, aligned to the group curves' trading days; fall back to the
+    # equal-weighted universe curve if the index is unavailable or doesn't cover the window.
+    bench_name = "Equal-Wt Universe"
+    bench_series = benchmark_curve
+    idx_close, idx_name = load_benchmark_close(universe_scope)
+    if not idx_close.empty:
+        aligned_idx = idx_close.reindex(curves_df.index, method="ffill").bfill()
+        covers_6m = len(aligned_idx) > 126 and aligned_idx.iloc[-127:].notna().all()
+        if covers_6m:
+            bench_series = aligned_idx
+            bench_name = idx_name
+
+    bench_ret = {}
+    for lbl, bars in HORIZON_WINDOWS:
+        if len(bench_series) > bars and bench_series.iloc[-(bars + 1)] > 0:
+            bench_ret[lbl] = float((bench_series.iloc[-1] / bench_series.iloc[-(bars + 1)] - 1) * 100)
+        else:
+            bench_ret[lbl] = np.nan
     
     def get_score_series(df, offset=0):
         end_idx = len(df) - 1 - offset
@@ -395,6 +530,12 @@ def compute_industry_group_matrix(taxonomy: str = "canonical", universe_scope: s
         delta_6w = rank_w6 - rank_td
         
         rot_status, rot_style = classify_rotation_status(rank_td, delta_1m)
+
+        grp_ret = {"1M": r_1m if len(c_series) > 21 else np.nan,
+                   "3M": r_3m if len(c_series) > 63 else np.nan,
+                   "6M": r_6m if len(c_series) > 126 else np.nan}
+        excess = {lbl: grp_ret[lbl] - bench_ret[lbl] for lbl, _ in HORIZON_WINDOWS}
+        horizon_badge, horizon_state = classify_horizon_alignment(excess)
         
         constits = group_clean_constituents.get(grp, [])
         pack_count = sum(1 for t in constits if stock_status_dict.get(t, {}).get('rs', 0) >= 80)
@@ -471,6 +612,12 @@ def compute_industry_group_matrix(taxonomy: str = "canonical", universe_scope: s
             'Delta_6W': delta_6w,
             'Rotation_Status': rot_status,
             'Rotation_Style': rot_style,
+            'Horizon_Badge': horizon_badge,
+            'Horizon_State': horizon_state,
+            'Excess_1M': round(excess["1M"], 2) if not np.isnan(excess["1M"]) else np.nan,
+            'Excess_3M': round(excess["3M"], 2) if not np.isnan(excess["3M"]) else np.nan,
+            'Excess_6M': round(excess["6M"], 2) if not np.isnan(excess["6M"]) else np.nan,
+            'Benchmark_Name': bench_name,
             'Comp_RS': int(composite_rs_pct[grp]),
             'Pack_Hunting_Count': pack_count,
             'Stock_Count': len(constits),
