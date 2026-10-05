@@ -24,6 +24,7 @@ except ImportError:
 from industry_group_engine import (
     compute_industry_group_matrix,
     compute_participation,
+    compute_dual_momentum_summary,
     get_group_deep_dive_data,
     get_top_and_worst_40_groups,
     INDIAN_ALPHA_THEMES
@@ -333,6 +334,103 @@ st.markdown(clean_html("""
     font-family: 'JetBrains Mono', monospace;
 }
 
+/* Gary Antonacci Dual Momentum Regime Radar */
+.dual-momentum-barometer {
+    background: linear-gradient(145deg, rgba(15, 23, 42, 0.95) 0%, rgba(2, 6, 23, 0.98) 100%);
+    border: 1px solid rgba(139, 92, 246, 0.28);
+    border-radius: 14px;
+    padding: 20px 24px;
+    margin-bottom: 22px;
+    box-shadow: 0 16px 36px -8px rgba(0, 0, 0, 0.65), 0 0 0 1px rgba(139, 92, 246, 0.08);
+    position: relative;
+    overflow: hidden;
+    backdrop-filter: blur(20px);
+}
+.dual-momentum-barometer::before {
+    content: ''; position: absolute; top: 0; left: 0; right: 0; height: 3px;
+    background: linear-gradient(90deg, #8b5cf6 0%, #06b6d4 50%, #10b981 100%);
+}
+
+.dual-mirage-warning-box {
+    margin-top: 10px;
+    padding: 8px 12px;
+    border-radius: 8px;
+    background: rgba(245, 158, 11, 0.12);
+    border: 1px solid rgba(245, 158, 11, 0.35);
+    font-size: 0.76rem;
+    color: #fde68a;
+    line-height: 1.45;
+}
+
+.dual-mirage-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 5px 14px;
+    border-radius: 9999px;
+    font-size: 0.78rem;
+    font-weight: 700;
+    font-family: 'JetBrains Mono', monospace;
+    background: rgba(245, 158, 11, 0.16);
+    color: #fbbf24;
+    border: 1px solid rgba(245, 158, 11, 0.45);
+}
+
+.dual-quad-card {
+    background: rgba(15, 23, 42, 0.75);
+    border: 1px solid rgba(148, 163, 184, 0.15);
+    border-radius: 10px;
+    padding: 12px 14px;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    transition: transform 0.15s ease, border-color 0.15s ease;
+}
+.dual-quad-card:hover {
+    border-color: rgba(255, 255, 255, 0.25);
+    transform: translateY(-2px);
+}
+.dual-quad-card.alpha { border-left: 3px solid #10b981; }
+.dual-quad-card.mirage { border-left: 3px solid #f59e0b; }
+.dual-quad-card.bleed { border-left: 3px solid #ef4444; }
+.dual-quad-card.abs { border-left: 3px solid #38bdf8; }
+
+.dqc-label {
+    font-size: 0.68rem;
+    font-weight: 800;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: #94a3b8;
+    margin-bottom: 2px;
+}
+.dqc-val {
+    font-size: 1.35rem;
+    font-weight: 900;
+    font-family: 'JetBrains Mono', monospace;
+    line-height: 1.1;
+    margin-bottom: 3px;
+}
+.dqc-val.alpha { color: #34d399; }
+.dqc-val.mirage { color: #fbbf24; }
+.dqc-val.bleed { color: #f87171; }
+.dqc-val.abs { color: #38bdf8; }
+
+.dqc-sub {
+    font-size: 0.73rem;
+    font-weight: 600;
+    color: #cbd5e1;
+    line-height: 1.3;
+}
+.dqc-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 0.68rem;
+    font-weight: 700;
+    margin-top: 4px;
+    font-family: 'JetBrains Mono', monospace;
+}
+
 /* Executive HUD Layout */
 .hud-grid {
     display: grid;
@@ -583,6 +681,8 @@ def main():
             "Rotation Velocity Filter",
             [
                 "All Groups",
+                "🚀 Dual Alpha Only (RS>0 & Abs>0)",
+                "🛡️ Relative Mirage Only (RS>0 & Abs≤0)",
                 "🟢 Confluence Only",
                 "🌱 Emerging Turn Only",
                 "⚠️ Fading Only",
@@ -713,6 +813,111 @@ def main():
     """
     st.markdown(clean_html(part_html), unsafe_allow_html=True)
 
+    dual_stats = compute_dual_momentum_summary(df_matrix)
+    d_tone = dual_stats.get("tone", "selective")
+    d_reading = dual_stats.get("reading", "Selective Dual Momentum")
+    d_alpha_cnt = dual_stats.get("dual_alpha_count", 0)
+    d_alpha_pct = dual_stats.get("dual_alpha_pct", 0.0)
+    d_mirage_cnt = dual_stats.get("mirage_count", 0)
+    d_mirage_pct = dual_stats.get("mirage_pct", 0.0)
+    d_bleed_cnt = dual_stats.get("bleed_count", 0)
+    d_bleed_pct = dual_stats.get("bleed_pct", 0.0)
+    d_bench_ret = dual_stats.get("bench_ret_3m", 0.0)
+    d_spread = dual_stats.get("mirage_spread", 0.0)
+    
+    d_abs_1m = dual_stats.get("abs_1m_pct", 0.0)
+    d_abs_3m = dual_stats.get("abs_3m_pct", 0.0)
+    d_abs_6m = dual_stats.get("abs_6m_pct", 0.0)
+    
+    d_gauge_width = min(max(d_alpha_pct, 0.0), 100.0)
+    
+    mirage_warning_html = ""
+    if d_mirage_cnt > 0:
+        mirage_warning_html = f"""
+        <div class='dual-mirage-warning-box'>
+            ⚠️ <b>Relative Mirage Alert ({d_mirage_cnt} Groups · {d_mirage_pct:.1f}%):</b> Outperforming <b>{bench_name}</b> ({d_bench_ret:+.1f}%), but in <i>negative</i> absolute territory. Naive RS flags them green; Dual Momentum filters them out.
+        </div>
+        """
+        
+    dual_html = f"""
+    <div class='dual-momentum-barometer'>
+        <div class='part-top-strip'>
+            <div class='part-title-group'>
+                <span class='part-title-badge'>⚔️ DUAL MOMENTUM REGIME RADAR</span>
+                <span class='part-methodology-hint'>| Gary Antonacci Absolute Gate + Relative Alpha</span>
+            </div>
+            <div class='part-badges-group'>
+                <span class='regime-badge {d_tone}'>
+                    {"🚀" if d_tone == "broad" else ("🟡" if d_tone == "selective" else "⚠️")} {d_reading.upper()} ({d_alpha_pct:.1f}%)
+                </span>
+                <span class='dual-mirage-pill'>
+                    MIRAGE SPREAD: {d_mirage_cnt} GROUPS ({d_spread:.1f}% GAP)
+                </span>
+            </div>
+        </div>
+        <div class='part-body-grid'>
+            <div class='part-macro-col'>
+                <div class='part-stat-hero'>
+                    <div class='part-big-num'>{d_alpha_cnt} <span class='part-big-sub'>/ {total_grps}</span></div>
+                    <div class='part-hero-pct {d_tone}'>{d_alpha_pct:.1f}%</div>
+                </div>
+                <div class='part-sub-explainer'>
+                    Industry Groups passing <b>BOTH</b> Relative Strength (> {bench_name}) <b>AND</b> Absolute Trend (3M Return > 0%).
+                </div>
+                <div class='breadth-gauge-wrap'>
+                    <div class='breadth-track'>
+                        <div class='breadth-fill {d_tone}' style='width: {d_gauge_width:.1f}%;'></div>
+                        <div class='gauge-marker-40' title='40% Selective Dual Threshold'></div>
+                        <div class='gauge-marker-55' title='55% Broad Dual Threshold'></div>
+                    </div>
+                    <div class='breadth-ticks'>
+                        <span style='color:#f87171;'>0% Narrow</span>
+                        <span style='color:#fbbf24;'>40% Selective</span>
+                        <span style='color:#34d399;'>55% Broad Alpha</span>
+                        <span style='color:#94a3b8;'>100%</span>
+                    </div>
+                </div>
+                {mirage_warning_html}
+            </div>
+            <div class='part-cards-grid'>
+                <div class='dual-quad-card alpha'>
+                    <div>
+                        <div class='dqc-label'>Quad I · True Alpha</div>
+                        <div class='dqc-val alpha'>{d_alpha_cnt} <span style='font-size:0.8rem; color:#94a3b8;'>({d_alpha_pct:.1f}%)</span></div>
+                        <div class='dqc-sub'>RS > 0 & Return > 0%</div>
+                    </div>
+                    <span class='dqc-chip' style='color:#34d399;'>🟢 Full Approval</span>
+                </div>
+                <div class='dual-quad-card mirage'>
+                    <div>
+                        <div class='dqc-label'>Quad II · Mirage Trap</div>
+                        <div class='dqc-val mirage'>{d_mirage_cnt} <span style='font-size:0.8rem; color:#94a3b8;'>({d_mirage_pct:.1f}%)</span></div>
+                        <div class='dqc-sub'>RS > 0 BUT Return ≤ 0%</div>
+                    </div>
+                    <span class='dqc-chip' style='color:#fbbf24;'>⚠️ Capital at Risk</span>
+                </div>
+                <div class='dual-quad-card bleed'>
+                    <div>
+                        <div class='dqc-label'>Quad III · Dual Bleed</div>
+                        <div class='dqc-val bleed'>{d_bleed_cnt} <span style='font-size:0.8rem; color:#94a3b8;'>({d_bleed_pct:.1f}%)</span></div>
+                        <div class='dqc-sub'>RS ≤ 0 & Return ≤ 0%</div>
+                    </div>
+                    <span class='dqc-chip' style='color:#f87171;'>🔴 Chronic Drag</span>
+                </div>
+                <div class='dual-quad-card abs'>
+                    <div>
+                        <div class='dqc-label'>Absolute Breadth</div>
+                        <div class='dqc-val abs'>{d_abs_3m:.1f}% <span style='font-size:0.8rem; color:#94a3b8;'>(3M)</span></div>
+                        <div class='dqc-sub'>1M: <b style='color:#f8fafc;'>{d_abs_1m:.0f}%</b> · 6M: <b style='color:#f8fafc;'>{d_abs_6m:.0f}%</b></div>
+                    </div>
+                    <span class='dqc-chip' style='color:#38bdf8;'>📈 Nominal Positive</span>
+                </div>
+            </div>
+        </div>
+    </div>
+    """
+    st.markdown(clean_html(dual_html), unsafe_allow_html=True)
+
     top_leader = df_matrix.iloc[0]
     fastest_accel = df_matrix.sort_values("Delta_1M", ascending=False).iloc[0]
     top_pack = df_matrix.sort_values("Pack_Hunting_Count", ascending=False).iloc[0]
@@ -766,7 +971,11 @@ def main():
     # -------------------------------------------------------------
     filtered_df = df_matrix.copy()
 
-    if status_filter == "🟢 Confluence Only":
+    if status_filter == "🚀 Dual Alpha Only (RS>0 & Abs>0)":
+        filtered_df = filtered_df[filtered_df["Is_Dual_Alpha"] == True]
+    elif status_filter == "🛡️ Relative Mirage Only (RS>0 & Abs≤0)":
+        filtered_df = filtered_df[filtered_df["Is_Relative_Mirage"] == True]
+    elif status_filter == "🟢 Confluence Only":
         filtered_df = filtered_df[filtered_df["Horizon_State"].str.contains("Confluence", na=False)]
     elif status_filter == "🌱 Emerging Turn Only":
         filtered_df = filtered_df[filtered_df["Horizon_State"].str.contains("Emerging", na=False)]
@@ -891,26 +1100,26 @@ def main():
 
         if "Executive" in tv_mode:
             disp_cols = [
-                "Rank_Today", "Industry_Group", "Horizon_Badge", "Rotation_Status",
+                "Rank_Today", "Industry_Group", "Dual_Badge", "Horizon_Badge", "Rotation_Status",
                 "Sortino_3M", "Apex_Leaders", "Pack_Hunting_Count",
                 "Return_1M", "Top_Leaders_Display", "Sparkline_1M"
             ]
         elif "Risk" in tv_mode:
             disp_cols = [
-                "Rank_Today", "Industry_Group", "Horizon_Badge", "Horizon_State",
+                "Rank_Today", "Industry_Group", "Dual_Badge", "Horizon_Badge", "Horizon_State",
                 "Excess_3M", "Sortino_3M", "Sortino_6M", "Apex_Leaders",
                 "Pack_Hunting_Count", "Stock_Count", "Return_3M", "Return_6M",
                 "Top_Leaders_Display"
             ]
         elif "Velocity" in tv_mode:
             disp_cols = [
-                "Rank_Today", "Industry_Group", "Horizon_Badge", "Horizon_State", "Rotation_Status",
+                "Rank_Today", "Industry_Group", "Dual_Badge", "Horizon_Badge", "Horizon_State", "Rotation_Status",
                 "Rank_1W", "Delta_1W", "Rank_1M", "Delta_1M", "Rank_3M", "Rank_6M",
                 "Pack_Hunting_Count", "Sparkline_1M"
             ]
         else:
             disp_cols = [
-                "Rank_Today", "Industry_Group", "Horizon_Badge", "Horizon_State", "Rotation_Status",
+                "Rank_Today", "Industry_Group", "Dual_Badge", "Horizon_Badge", "Horizon_State", "Rotation_Status",
                 "Excess_1M", "Excess_3M", "Excess_6M",
                 "Sortino_3M", "Sortino_6M", "Apex_Leaders",
                 "Rank_1W", "Delta_1W", "Rank_1M", "Delta_1M", "Rank_3M", "Rank_6M",
@@ -923,6 +1132,7 @@ def main():
         master_col_cfg = {
             "Rank_Today": st.column_config.NumberColumn("Rank", format="%d", width=70, help="Current Relative Strength Rank (1 = Market Leader)"),
             "Industry_Group": st.column_config.TextColumn("Industry Sub-Group", width=250),
+            "Dual_Badge": st.column_config.TextColumn("Dual Gate", width=95, help="Gary Antonacci Dual Momentum Gate: 🚀 Alpha (Excess>0 & Return>0), 🛡️ Mirage (Excess>0 but Return<=0), 📉 Bleed (Excess<=0 & Return<=0)"),
             "Horizon_Badge": st.column_config.TextColumn("3H Alignment", width=95, help="3-Horizon relative strength agreement: 1M (Short) · 3M (Med) · 6M (Long) vs Benchmark (🟢 Outperform · 🟡 In-Line · 🔴 Lag)"),
             "Horizon_State": st.column_config.TextColumn("Alignment State", width=140, help="Classified horizon state: 🟢 Confluence (all 3 leading), 🌱 Emerging Turn (short-term turning up), ⚠️ Fading (short-term losing momentum), 🔴 Chronic Laggard"),
             "Excess_1M": st.column_config.NumberColumn("Excess 1M", format="%+.1f%%", width=90, help="Group 1M return minus benchmark return (% pts)"),

@@ -343,6 +343,96 @@ def compute_participation(df_matrix: pd.DataFrame) -> dict:
     return out
 
 
+def compute_dual_momentum_summary(df_matrix: pd.DataFrame) -> dict:
+    """
+    Computes Gary Antonacci Dual Momentum Regime metrics across the industry universe:
+    Combines Relative Strength (Excess_3M vs Benchmark) with Absolute Momentum (Return_3M > 0).
+    Separates True Alpha Compounders from Bear Market 'Relative Mirages'.
+    """
+    out = {
+        "total": 0,
+        "benchmark": "Benchmark",
+        "bench_ret_3m": 0.0,
+        "dual_alpha_count": 0,
+        "dual_alpha_pct": 0.0,
+        "mirage_count": 0,
+        "mirage_pct": 0.0,
+        "bleed_count": 0,
+        "bleed_pct": 0.0,
+        "beta_count": 0,
+        "beta_pct": 0.0,
+        "abs_1m_above": 0,
+        "abs_1m_pct": 0.0,
+        "abs_3m_above": 0,
+        "abs_3m_pct": 0.0,
+        "abs_6m_above": 0,
+        "abs_6m_pct": 0.0,
+        "mirage_spread": 0.0,
+        "reading": "Selective Dual Momentum",
+        "tone": "selective"
+    }
+    if df_matrix is None or df_matrix.empty or "Excess_3M" not in df_matrix.columns or "Return_3M" not in df_matrix.columns:
+        return out
+        
+    n = len(df_matrix)
+    out["total"] = n
+    out["benchmark"] = str(df_matrix["Benchmark_Name"].iloc[0]) if "Benchmark_Name" in df_matrix.columns else "Benchmark"
+    
+    # Calculate implied benchmark 3M return
+    diff = df_matrix["Return_3M"] - df_matrix["Excess_3M"]
+    valid_diff = diff.dropna()
+    if not valid_diff.empty:
+        out["bench_ret_3m"] = float(valid_diff.iloc[0])
+            
+    # 4 Quadrants
+    rel_pos = df_matrix["Excess_3M"] > 0
+    abs_pos = df_matrix["Return_3M"] > 0
+    
+    alpha = int((rel_pos & abs_pos).sum())
+    mirage = int((rel_pos & (~abs_pos)).sum())
+    beta = int(((~rel_pos) & abs_pos).sum())
+    bleed = int(((~rel_pos) & (~abs_pos)).sum())
+    
+    out["dual_alpha_count"] = alpha
+    out["dual_alpha_pct"] = (alpha / n * 100.0) if n else 0.0
+    out["mirage_count"] = mirage
+    out["mirage_pct"] = (mirage / n * 100.0) if n else 0.0
+    out["beta_count"] = beta
+    out["beta_pct"] = (beta / n * 100.0) if n else 0.0
+    out["bleed_count"] = bleed
+    out["bleed_pct"] = (bleed / n * 100.0) if n else 0.0
+    
+    # Absolute returns across 1M, 3M, 6M
+    if "Return_1M" in df_matrix.columns:
+        a1 = int((df_matrix["Return_1M"] > 0).sum())
+        out["abs_1m_above"] = a1
+        out["abs_1m_pct"] = (a1 / n * 100.0) if n else 0.0
+    if "Return_3M" in df_matrix.columns:
+        a3 = int((df_matrix["Return_3M"] > 0).sum())
+        out["abs_3m_above"] = a3
+        out["abs_3m_pct"] = (a3 / n * 100.0) if n else 0.0
+    if "Return_6M" in df_matrix.columns:
+        a6 = int((df_matrix["Return_6M"] > 0).sum())
+        out["abs_6m_above"] = a6
+        out["abs_6m_pct"] = (a6 / n * 100.0) if n else 0.0
+        
+    # Mirage spread (Relative % - Dual %): how many groups are fake relative winners
+    rel_above = int(rel_pos.sum())
+    rel_pct = (rel_above / n * 100.0) if n else 0.0
+    out["mirage_spread"] = rel_pct - out["dual_alpha_pct"]
+    
+    # Regime classification
+    pct = out["dual_alpha_pct"]
+    if pct >= 55.0 and out["mirage_count"] <= 10:
+        out["reading"], out["tone"] = "Broad Dual Expansion", "broad"
+    elif pct >= 40.0:
+        out["reading"], out["tone"] = "Selective Dual Momentum", "selective"
+    else:
+        out["reading"], out["tone"] = "Defensive / Mirage Trap Risk", "narrow"
+        
+    return out
+
+
 @st.cache_data(ttl=600, show_spinner=False)
 def compute_industry_group_matrix(taxonomy: str = "canonical", universe_scope: str = "India (NSE/BSE)"):
     """
@@ -597,9 +687,35 @@ def compute_industry_group_matrix(taxonomy: str = "canonical", universe_scope: s
             
         leader_display = "  •  ".join(leader_badges)
         
+        # Dual Momentum Classification (Gary Antonacci Relative + Absolute Gate)
+        is_rel_3m = bool(excess["3M"] > 0) if not np.isnan(excess["3M"]) else False
+        is_abs_3m = bool(r_3m > 0) if not np.isnan(r_3m) else False
+        
+        if is_rel_3m and is_abs_3m:
+            dual_state = "🚀 True Dual Alpha"
+            dual_badge = "🚀 Alpha"
+            dual_style = "alpha"
+        elif is_rel_3m and not is_abs_3m:
+            dual_state = "🛡️ Relative Mirage"
+            dual_badge = "🛡️ Mirage"
+            dual_style = "mirage"
+        elif not is_rel_3m and is_abs_3m:
+            dual_state = "🔄 Beta Ride"
+            dual_badge = "🔄 Beta"
+            dual_style = "beta"
+        else:
+            dual_state = "📉 Dual Bleed"
+            dual_badge = "📉 Bleed"
+            dual_style = "bleed"
+        
         rows.append({
             'Industry_Group': grp,
             'Rank_Today': rank_td,
+            'Dual_State': dual_state,
+            'Dual_Badge': dual_badge,
+            'Dual_Style': dual_style,
+            'Is_Dual_Alpha': bool(is_rel_3m and is_abs_3m),
+            'Is_Relative_Mirage': bool(is_rel_3m and not is_abs_3m),
             'Rank_1W': rank_w1,
             'Rank_3W': rank_w3,
             'Rank_1M': rank_m1,
