@@ -18,6 +18,12 @@ try:
 except Exception:
     pass
 
+try:
+    import industry_group_engine
+    importlib.reload(industry_group_engine)
+except Exception:
+    pass
+
 from database import init_database
 from styles import load_css
 

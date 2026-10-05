@@ -14,13 +14,29 @@ import plotly.graph_objects as go
 import streamlit as st
 
 # Path configuration
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+app_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if app_dir not in sys.path:
+    sys.path.insert(0, app_dir)
 
 from components import render_header, render_metric_card, render_disk_cache_sidebar
+
 try:
     from views.true_market_leader import get_cached_universe
-except ImportError:
-    from pages.true_market_leader import get_cached_universe
+except Exception:
+    try:
+        from pages.true_market_leader import get_cached_universe
+    except Exception:
+        def get_cached_universe(*args, **kwargs):
+            return []
+
+import importlib
+try:
+    import industry_group_engine
+    if not hasattr(industry_group_engine, 'compute_dual_momentum_summary'):
+        importlib.reload(industry_group_engine)
+except Exception:
+    pass
+
 from industry_group_engine import (
     compute_industry_group_matrix,
     compute_participation,
