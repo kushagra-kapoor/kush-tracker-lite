@@ -351,10 +351,19 @@ def init_database():
             return_1m REAL,
             return_3m REAL,
             return_6m REAL,
+            close REAL DEFAULT 0.0,
+            high_52w REAL DEFAULT 0.0,
+            dist_52w_high REAL DEFAULT 0.0,
             created_at TEXT DEFAULT CURRENT_TIMESTAMP,
             UNIQUE(date, ticker)
         )
     ''')
+
+    for col_name, col_type in [('close', 'REAL DEFAULT 0.0'), ('high_52w', 'REAL DEFAULT 0.0'), ('dist_52w_high', 'REAL DEFAULT 0.0')]:
+        try:
+            safe_execute(cursor, f"ALTER TABLE global_etf_momentum ADD COLUMN {col_name} {col_type}")
+        except Exception:
+            pass
 
     # Persistent Web & Mobile Sessions Table
     safe_execute(cursor, '''
@@ -1510,10 +1519,11 @@ def save_global_etf_momentum(etf_data: list):
     for e in etf_data:
         cursor.execute('''
             INSERT OR REPLACE INTO global_etf_momentum
-            (date, ticker, name, return_1m, return_3m, return_6m)
-            VALUES (?, ?, ?, ?, ?, ?)
+            (date, ticker, name, return_1m, return_3m, return_6m, close, high_52w, dist_52w_high)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
         ''', (
-            e['date'], e['ticker'], e.get('name', ''), e['return_1m'], e['return_3m'], e['return_6m']
+            e['date'], e['ticker'], e.get('name', ''), e['return_1m'], e['return_3m'], e['return_6m'],
+            e.get('close', 0.0), e.get('high_52w', 0.0), e.get('dist_52w_high', 0.0)
         ))
     conn.commit()
     conn.close()

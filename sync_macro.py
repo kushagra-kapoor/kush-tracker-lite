@@ -101,16 +101,20 @@ def sync_all_data():
     all_etfs = list(set(us_etfs + in_etfs))
     if all_etfs:
         try:
-            data = yf.download(all_etfs, period="7mo", progress=False)
+            data = yf.download(all_etfs, period="1y", progress=False)
             close_prices = data['Close'] if isinstance(data.columns, pd.MultiIndex) else data
             etf_results = []
             for etf in all_etfs:
                 if etf in close_prices.columns:
                     series = close_prices[etf].dropna()
                     if len(series) >= 20:
-                        r1 = (series.iloc[-1] / series.iloc[-21]) - 1 if len(series) > 21 else 0
-                        r3 = (series.iloc[-1] / series.iloc[-63]) - 1 if len(series) > 63 else 0
-                        r6 = (series.iloc[-1] / series.iloc[-126]) - 1 if len(series) > 126 else 0
+                        curr_close = float(series.iloc[-1])
+                        high_52w = float(series.max())
+                        dist_52w_high = float(((curr_close / high_52w) - 1.0) * 100.0) if high_52w > 0 else 0.0
+
+                        r1 = (curr_close / series.iloc[-21]) - 1 if len(series) > 21 else 0
+                        r3 = (curr_close / series.iloc[-63]) - 1 if len(series) > 63 else 0
+                        r6 = (curr_close / series.iloc[-126]) - 1 if len(series) > 126 else 0
                         
                         etf_results.append({
                             'date': series.index[-1].strftime('%Y-%m-%d'),
@@ -118,7 +122,10 @@ def sync_all_data():
                             'name': etf.replace('.NS', ''),
                             'return_1m': float(r1) * 100,
                             'return_3m': float(r3) * 100,
-                            'return_6m': float(r6) * 100
+                            'return_6m': float(r6) * 100,
+                            'close': curr_close,
+                            'high_52w': high_52w,
+                            'dist_52w_high': dist_52w_high
                         })
             if etf_results:
                 save_global_etf_momentum(etf_results)

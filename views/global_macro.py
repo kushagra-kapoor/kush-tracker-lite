@@ -435,27 +435,52 @@ def render_market_column(market_code, market_name):
     color = "#10b981" if is_up else "#ef4444" if is_corr else "#f59e0b"
     bg_color = "rgba(16, 185, 129, 0.1)" if is_up else "rgba(239, 68, 68, 0.1)" if is_corr else "rgba(245, 158, 11, 0.1)"
     
+    sma200 = float(reg.get('sma200', reg['close']))
+    vs_50 = ((reg['close'] / reg['sma50']) - 1.0) * 100.0
+    vs_200 = ((reg['close'] / sma200) - 1.0) * 100.0 if sma200 > 0 else 0.0
+
+    vs_50_color = "#10b981" if vs_50 > 0 else "#ef4444"
+    vs_200_color = "#10b981" if vs_200 > 0 else "#ef4444"
+
+    ftd_val = reg.get('ftd_detected', False)
+    ftd_badge = '<span style="color: #10b981; font-weight: 700;">🟢 Confirmed</span>' if ftd_val else '<span style="color: #94a3b8;">Awaiting Day 4+</span>'
+    
     render_html(f"""
     <div style="background: {bg_color}; border: 1px solid {color}40; border-left: 5px solid {color};
                 padding: 14px 18px; border-radius: 10px; margin-bottom: 18px;">
         <div style="display: flex; justify-content: space-between; align-items: center;">
-            <span style="font-weight: 800; color: {color}; font-size: 1.1rem;">{reg['regime_label']}</span>
+            <div>
+                <span style="font-weight: 800; color: {color}; font-size: 1.12rem;">{reg['regime_label']}</span>
+                <span style="font-size: 0.74rem; margin-left: 8px; padding: 2px 7px; border-radius: 4px; background: rgba(255,255,255,0.06); color: #cbd5e1;">
+                    FTD: {ftd_badge}
+                </span>
+            </div>
             <span style="font-size: 0.75rem; color: #94a3b8;">As of {reg['date']}</span>
         </div>
-        <div style="font-size: 0.85rem; color: #cbd5e1; margin-top: 4px;">
+        <div style="font-size: 0.85rem; color: #cbd5e1; margin-top: 6px;">
             {reg['benchmark_ticker']} Close: <strong>{reg['close']:,.2f}</strong> | 
             Dist Days: <strong style="color: {'#ef4444' if reg['dd_count'] >= 5 else '#10b981'};">{reg['dd_count']}</strong> | 
-            vs 50SMA: <strong>{'+' if reg['close'] > reg['sma50'] else ''}{((reg['close']/reg['sma50'])-1)*100:.1f}%</strong>
+            vs 50SMA: <strong style="color: {vs_50_color};">{vs_50:+.1f}%</strong> | 
+            vs 200SMA: <strong style="color: {vs_200_color};">{vs_200:+.1f}%</strong>
         </div>
     </div>
     """)
     
-    # 2. Breadth
+    # 2. Breadth Telemetry
     breadth_df = fetch_latest_breadth(market_code)
     if not breadth_df.empty:
         latest_b = breadth_df.iloc[0]
         nnh = int(latest_b.get('net_new_highs', 0))
+        nh_count = int(latest_b.get('new_highs_count', 0))
+        nl_count = int(latest_b.get('new_lows_count', 0))
+
         above_50 = float(latest_b.get('above_50_pct', 0.0))
+        above_200 = float(latest_b.get('above_200_pct', 0.0))
+
+        adv = int(latest_b.get('advances', 0))
+        dec = int(latest_b.get('declines', 0))
+        ad_ratio = (adv / max(1, dec))
+        up_vol_ratio = float(latest_b.get('up_down_volume_ratio', 1.0))
         
         nnh_color = "#10b981" if nnh > 0 else "#ef4444"
         nnh_bg = "rgba(16,185,129,0.15)" if nnh > 0 else "rgba(239,68,68,0.15)"
@@ -463,27 +488,63 @@ def render_market_column(market_code, market_name):
         
         a50_color = "#10b981" if above_50 >= 60 else "#f59e0b" if above_50 >= 40 else "#ef4444"
         a50_bg = "rgba(16,185,129,0.15)" if above_50 >= 60 else "rgba(245,158,11,0.15)" if above_50 >= 40 else "rgba(239,68,68,0.15)"
-        a50_label = "Bullish Breadth" if above_50 >= 60 else "Divergent" if above_50 >= 40 else "Severely Washed Out"
+        a50_label = "Bullish" if above_50 >= 60 else "Divergent" if above_50 >= 40 else "Washed Out"
+
+        a200_color = "#10b981" if above_200 >= 60 else "#f59e0b" if above_200 >= 45 else "#ef4444"
+        a200_bg = "rgba(16,185,129,0.15)" if above_200 >= 60 else "rgba(245,158,11,0.15)" if above_200 >= 45 else "rgba(239,68,68,0.15)"
+        a200_label = "Secular Bull" if above_200 >= 60 else "Neutral Base" if above_200 >= 45 else "Secular Bear"
+
+        ad_color = "#10b981" if ad_ratio >= 1.5 else "#f59e0b" if ad_ratio >= 0.8 else "#ef4444"
+        ad_bg = "rgba(16,185,129,0.15)" if ad_ratio >= 1.5 else "rgba(245,158,11,0.15)" if ad_ratio >= 0.8 else "rgba(239,68,68,0.15)"
+        ad_badge = "Strong Inflow" if ad_ratio >= 1.5 else "Balanced" if ad_ratio >= 0.8 else "Distribution"
         
+        # Row 1: Net New Highs & Stocks > 50 SMA
         col1, col2 = st.columns(2)
         with col1:
             render_html(f"""
-            <div style="background: rgba(15, 23, 42, 0.6); padding: 12px 16px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.06); margin-bottom: 12px;">
-                <div style="font-size: 0.72rem; color: #94a3b8; text-transform: uppercase;">Net New Highs</div>
-                <div style="font-size: 1.4rem; font-weight: 800; color: {nnh_color}; margin: 2px 0;">
+            <div style="background: rgba(15, 23, 42, 0.6); padding: 12px 14px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.06); margin-bottom: 8px;">
+                <div style="font-size: 0.70rem; color: #94a3b8; text-transform: uppercase;">Net New Highs</div>
+                <div style="font-size: 1.35rem; font-weight: 800; color: {nnh_color}; margin: 2px 0;">
                     {nnh:+d} 
-                    <span style="font-size: 0.70rem; font-weight: 700; padding: 2px 7px; border-radius: 4px; background: {nnh_bg}; vertical-align: middle;">{nnh_label}</span>
+                    <span style="font-size: 0.68rem; font-weight: 700; padding: 2px 6px; border-radius: 4px; background: {nnh_bg}; vertical-align: middle;">{nnh_label}</span>
                 </div>
+                <div style="font-size: 0.70rem; color: #64748b;">Highs: {nh_count} | Lows: {nl_count}</div>
             </div>
             """)
         with col2:
             render_html(f"""
-            <div style="background: rgba(15, 23, 42, 0.6); padding: 12px 16px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.06); margin-bottom: 12px;">
-                <div style="font-size: 0.72rem; color: #94a3b8; text-transform: uppercase;">Stocks > 50 SMA</div>
-                <div style="font-size: 1.4rem; font-weight: 800; color: {a50_color}; margin: 2px 0;">
+            <div style="background: rgba(15, 23, 42, 0.6); padding: 12px 14px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.06); margin-bottom: 8px;">
+                <div style="font-size: 0.70rem; color: #94a3b8; text-transform: uppercase;">Stocks > 50 SMA</div>
+                <div style="font-size: 1.35rem; font-weight: 800; color: {a50_color}; margin: 2px 0;">
                     {above_50:.1f}% 
-                    <span style="font-size: 0.70rem; font-weight: 700; padding: 2px 7px; border-radius: 4px; background: {a50_bg}; vertical-align: middle;">{a50_label}</span>
+                    <span style="font-size: 0.68rem; font-weight: 700; padding: 2px 6px; border-radius: 4px; background: {a50_bg}; vertical-align: middle;">{a50_label}</span>
                 </div>
+                <div style="font-size: 0.70rem; color: #64748b;">Intermediate Tactical Breadth</div>
+            </div>
+            """)
+
+        # Row 2: Stocks > 200 SMA & Advance / Decline Volume Ratio
+        col3, col4 = st.columns(2)
+        with col3:
+            render_html(f"""
+            <div style="background: rgba(15, 23, 42, 0.6); padding: 12px 14px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.06); margin-bottom: 12px;">
+                <div style="font-size: 0.70rem; color: #94a3b8; text-transform: uppercase;">Stocks > 200 SMA</div>
+                <div style="font-size: 1.35rem; font-weight: 800; color: {a200_color}; margin: 2px 0;">
+                    {above_200:.1f}% 
+                    <span style="font-size: 0.68rem; font-weight: 700; padding: 2px 6px; border-radius: 4px; background: {a200_bg}; vertical-align: middle;">{a200_label}</span>
+                </div>
+                <div style="font-size: 0.70rem; color: #64748b;">Secular Multi-Year Health</div>
+            </div>
+            """)
+        with col4:
+            render_html(f"""
+            <div style="background: rgba(15, 23, 42, 0.6); padding: 12px 14px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.06); margin-bottom: 12px;">
+                <div style="font-size: 0.70rem; color: #94a3b8; text-transform: uppercase;">A/D & Up/Down Volume</div>
+                <div style="font-size: 1.35rem; font-weight: 800; color: {ad_color}; margin: 2px 0;">
+                    {ad_ratio:.2f}x 
+                    <span style="font-size: 0.68rem; font-weight: 700; padding: 2px 6px; border-radius: 4px; background: {ad_bg}; vertical-align: middle;">{ad_badge}</span>
+                </div>
+                <div style="font-size: 0.70rem; color: #64748b;">Adv: {adv} | Dec: {dec} | Vol: {up_vol_ratio:.1f}x</div>
             </div>
             """)
         
@@ -545,7 +606,12 @@ def render_asset_rotation_radar(etf_data, benchmarks):
 
     df = pd.DataFrame(etf_data)
     
-    # Enrich with Dual Momentum Status
+    # Ensure numeric columns for price telemetry
+    df['dist_52w_high'] = pd.to_numeric(df.get('dist_52w_high', 0.0), errors='coerce').fillna(0.0)
+    df['close'] = pd.to_numeric(df.get('close', 0.0), errors='coerce').fillna(0.0)
+    df['high_52w'] = pd.to_numeric(df.get('high_52w', 0.0), errors='coerce').fillna(0.0)
+
+    # Enrich with Dual Momentum Status & RS Alpha Spread
     in_bm_1m = benchmarks.get('^CRSLDX', {}).get('return_1m', -3.91)
     in_bm_3m = benchmarks.get('^CRSLDX', {}).get('return_3m', -4.91)
     in_bm_6m = benchmarks.get('^CRSLDX', {}).get('return_6m', 0.11)
@@ -554,7 +620,7 @@ def render_asset_rotation_radar(etf_data, benchmarks):
     us_bm_3m = benchmarks.get('^GSPC', {}).get('return_3m', 2.62)
     us_bm_6m = benchmarks.get('^GSPC', {}).get('return_6m', 11.58)
 
-    def assign_dual_mom(row):
+    def assign_dual_mom_and_alpha(row):
         ctry = row.get('country', 'US')
         bm_1m = in_bm_1m if ctry == 'IN' else us_bm_1m
         bm_3m = in_bm_3m if ctry == 'IN' else us_bm_3m
@@ -563,10 +629,35 @@ def render_asset_rotation_radar(etf_data, benchmarks):
         s1, c1, bg1, _ = compute_dual_momentum_status(row['return_1m'], bm_1m)
         s3, c3, bg3, _ = compute_dual_momentum_status(row['return_3m'], bm_3m)
         s6, c6, bg6, _ = compute_dual_momentum_status(row['return_6m'], bm_6m)
-        return pd.Series([s1, s3, s6, c1, c3, c6, bg1, bg3, bg6], 
-                         index=['status_1m', 'status_3m', 'status_6m', 'color_1m', 'color_3m', 'color_6m', 'bg_1m', 'bg_3m', 'bg_6m'])
+        
+        a1 = row['return_1m'] - bm_1m
+        a3 = row['return_3m'] - bm_3m
+        a6 = row['return_6m'] - bm_6m
+        
+        return pd.Series([s1, s3, s6, c1, c3, c6, bg1, bg3, bg6, a1, a3, a6], 
+                         index=['status_1m', 'status_3m', 'status_6m', 
+                                'color_1m', 'color_3m', 'color_6m', 
+                                'bg_1m', 'bg_3m', 'bg_6m',
+                                'alpha_1m', 'alpha_3m', 'alpha_6m'])
 
-    df[['status_1m', 'status_3m', 'status_6m', 'color_1m', 'color_3m', 'color_6m', 'bg_1m', 'bg_3m', 'bg_6m']] = df.apply(assign_dual_mom, axis=1)
+    df[['status_1m', 'status_3m', 'status_6m', 
+        'color_1m', 'color_3m', 'color_6m', 
+        'bg_1m', 'bg_3m', 'bg_6m',
+        'alpha_1m', 'alpha_3m', 'alpha_6m']] = df.apply(assign_dual_mom_and_alpha, axis=1)
+
+    # CANSLIM 52-Week High Proximity Classifier
+    def classify_52w_proximity(dist_val):
+        if dist_val >= -5.0:
+            return "🔥 Coiling (<5%)", "#10b981", "rgba(16,185,129,0.15)"
+        elif dist_val >= -15.0:
+            return "🛡️ Base Depth (5-15%)", "#38bdf8", "rgba(56,189,248,0.15)"
+        elif dist_val >= -25.0:
+            return "⚠️ Deep Pullback", "#f59e0b", "rgba(245,158,11,0.15)"
+        else:
+            return "📉 Severe Downtrend", "#ef4444", "rgba(239,68,68,0.15)"
+
+    prox_series = df['dist_52w_high'].apply(lambda d: pd.Series(classify_52w_proximity(d), index=['prox_label', 'prox_color', 'prox_bg']))
+    df[['prox_label', 'prox_color', 'prox_bg']] = prox_series
 
     # 4 Category Tabs + Master Table
     tab1, tab2, tab3, tab4, tab5 = st.tabs([
@@ -596,6 +687,7 @@ def render_asset_rotation_radar(etf_data, benchmarks):
             )
         
         h_col = "return_1m" if "1-Month" in horizon else "return_3m" if "3-Month" in horizon else "return_6m"
+        a_col = "alpha_1m" if "1-Month" in horizon else "alpha_3m" if "3-Month" in horizon else "alpha_6m"
         s_col = "status_1m" if "1-Month" in horizon else "status_3m" if "3-Month" in horizon else "status_6m"
         c_col = "color_1m" if "1-Month" in horizon else "color_3m" if "3-Month" in horizon else "color_6m"
         bg_col = "bg_1m" if "1-Month" in horizon else "bg_3m" if "3-Month" in horizon else "bg_6m"
@@ -621,6 +713,16 @@ def render_asset_rotation_radar(etf_data, benchmarks):
                 stat_badge = r[s_col]
                 badge_bg = r[bg_col]
                 clean_t, clean_n = format_display_label(r['ticker'], r['display_name'])
+                
+                alpha_val = r[a_col]
+                alpha_color = "#10b981" if alpha_val > 0 else "#ef4444"
+                alpha_bg = "rgba(16,185,129,0.15)" if alpha_val > 0 else "rgba(239,68,68,0.15)"
+                
+                dist_val = r['dist_52w_high']
+                prox_lbl = r['prox_label']
+                prox_col = r['prox_color']
+                prox_bg = r['prox_bg']
+
                 render_html(f"""
                 <div style="background: rgba(15, 23, 42, 0.7); border: 1px solid rgba(255,255,255,0.08); 
                             border-top: 3px solid {ret_color};
@@ -639,8 +741,19 @@ def render_asset_rotation_radar(etf_data, benchmarks):
                     <div style="font-size: 0.78rem; color: #94a3b8; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
                         {clean_n}
                     </div>
-                    <div style="font-size: 1.45rem; font-weight: 800; color: {ret_color}; margin-top: 6px;">
-                        {ret:+.2f}%
+                    <div style="display: flex; justify-content: space-between; align-items: baseline; margin-top: 8px;">
+                        <span style="font-size: 1.45rem; font-weight: 800; color: {ret_color};">
+                            {ret:+.2f}%
+                        </span>
+                        <span style="font-size: 0.78rem; font-weight: 700; color: {alpha_color}; background: {alpha_bg}; padding: 3px 8px; border-radius: 5px; border: 1px solid {alpha_color}40;">
+                            {alpha_val:+.2f}% α vs BM
+                        </span>
+                    </div>
+                    <div style="margin-top: 10px; padding-top: 8px; border-top: 1px solid rgba(255,255,255,0.06); display: flex; justify-content: space-between; align-items: center; font-size: 0.76rem;">
+                        <span style="color: #94a3b8;">52W Proximity:</span>
+                        <span style="font-weight: 800; color: {prox_col};">
+                            {dist_val:+.1f}% <span style="font-size: 0.68rem; font-weight: 700; padding: 1px 6px; border-radius: 4px; background: {prox_bg};">{prox_lbl}</span>
+                        </span>
                     </div>
                 </div>
                 """)
@@ -661,17 +774,21 @@ def render_asset_rotation_radar(etf_data, benchmarks):
                 color=cat_df[c_col], 
                 line=dict(color='rgba(255,255,255,0.1)', width=0.5)
             ),
-            text=[f"{v:+.1f}%" for v in cat_df[h_col]],
+            text=[f"{v:+.1f}% (α {a:+.1f}%)" for v, a in zip(cat_df[h_col], cat_df[a_col])],
             textposition='auto',
             hovertext=[
                 f"<b>{t}</b> — {n}<br>"
                 f"<b>{horizon} Return:</b> {v:+.2f}%<br>"
-                f"<b>vs Benchmark:</b> {v - bm_val:+.2f}%<br>"
+                f"<b>RS Alpha vs Benchmark ({bm_label}):</b> {a:+.2f}%<br>"
+                f"<b>Distance from 52-Week High:</b> {d:+.2f}% ({pl})<br>"
                 f"<b>Dual Momentum:</b> {s}<br>"
-                f"<span style='color:#94a3b8;'>1M: {r1:+.1f}% | 3M: {r3:+.1f}% | 6M: {r6:+.1f}%</span>"
-                for t, n, v, r1, r3, r6, s in zip(
-                    cat_df['ticker'], cat_df['display_name'], cat_df[h_col], 
-                    cat_df['return_1m'], cat_df['return_3m'], cat_df['return_6m'], cat_df[s_col]
+                f"<span style='color:#94a3b8;'>1M: {r1:+.1f}% (α {a1:+.1f}%) | 3M: {r3:+.1f}% (α {a3:+.1f}%) | 6M: {r6:+.1f}% (α {a6:+.1f}%)</span>"
+                for t, n, v, a, d, pl, s, r1, a1, r3, a3, r6, a6 in zip(
+                    cat_df['ticker'], cat_df['display_name'], cat_df[h_col], cat_df[a_col],
+                    cat_df['dist_52w_high'], cat_df['prox_label'], cat_df[s_col],
+                    cat_df['return_1m'], cat_df['alpha_1m'],
+                    cat_df['return_3m'], cat_df['alpha_3m'],
+                    cat_df['return_6m'], cat_df['alpha_6m']
                 )
             ],
             hoverinfo='text'
@@ -708,31 +825,38 @@ def render_asset_rotation_radar(etf_data, benchmarks):
         )
         st.plotly_chart(fig, use_container_width=True, config={'displayModeBar': False})
 
-        # Dynamic Institutional Insight Callout
+        # Dynamic CANSLIM Institutional Insight Callout
         top_lead = cat_df.iloc[0]
         defenders = cat_df[cat_df[h_col] >= bm_val]
+        coiling = cat_df[cat_df['dist_52w_high'] >= -10.0]
         ct_lead, cn_lead = format_display_label(top_lead['ticker'], top_lead['display_name'])
         
         render_html(f"""
         <div style="background: rgba(30, 41, 59, 0.5); border-left: 4px solid #38bdf8; 
                     padding: 10px 16px; border-radius: 6px; font-size: 0.82rem; color: #cbd5e1; margin-bottom: 15px;">
-            💡 <strong>Institutional Rotation Insight:</strong> 
-            <strong>{len(defenders)} of {len(cat_df)}</strong> assets in this class are outperforming the {bm_label} benchmark.
-            Top momentum is concentrated in <strong>{ct_lead} ({cn_lead}: {top_lead[h_col]:+.2f}%)</strong> displaying <strong>{top_lead[s_col]}</strong>.
+            💡 <strong>CANSLIM Leadership Insight:</strong> 
+            <strong>{len(defenders)} of {len(cat_df)}</strong> assets are outperforming the {bm_label} benchmark.
+            <strong>{len(coiling)} assets</strong> are coiling within 10% of their 52-Week High.
+            Top alpha leader is <strong>{ct_lead} ({cn_lead}: {top_lead[h_col]:+.2f}%, {top_lead[a_col]:+.2f}% α)</strong> holding <strong>{top_lead['dist_52w_high']:+.1f}% from 52W High ({top_lead['prox_label']})</strong>.
         </div>
         """)
 
         # Data Table
         with st.expander(f"📋 View Full {cat_name} Table ({len(cat_df)} Assets)"):
-            disp_df = cat_df[['ticker', 'display_name', 'return_1m', 'return_3m', 'return_6m', s_col, 'country']].copy()
+            disp_df = cat_df[['ticker', 'display_name', 'return_1m', 'alpha_1m', 'return_3m', 'alpha_3m', 'return_6m', 'alpha_6m', 'dist_52w_high', 'prox_label', s_col, 'country']].copy()
             st.dataframe(
                 disp_df,
                 column_config={
                     "ticker": "Ticker",
                     "display_name": "Asset Name",
-                    "return_1m": st.column_config.NumberColumn("1M Return (%)", format="%.2f"),
-                    "return_3m": st.column_config.NumberColumn("3M Return (%)", format="%.2f"),
-                    "return_6m": st.column_config.NumberColumn("6M Return (%)", format="%.2f"),
+                    "return_1m": st.column_config.NumberColumn("1M Ret (%)", format="%.2f"),
+                    "alpha_1m": st.column_config.NumberColumn("1M Alpha (%)", format="%+.2f"),
+                    "return_3m": st.column_config.NumberColumn("3M Ret (%)", format="%.2f"),
+                    "alpha_3m": st.column_config.NumberColumn("3M Alpha (%)", format="%+.2f"),
+                    "return_6m": st.column_config.NumberColumn("6M Ret (%)", format="%.2f"),
+                    "alpha_6m": st.column_config.NumberColumn("6M Alpha (%)", format="%+.2f"),
+                    "dist_52w_high": st.column_config.NumberColumn("% Off 52W High", format="%.2f%%"),
+                    "prox_label": "52W Base Proximity",
                     s_col: "Dual Momentum Status",
                     "country": "Region"
                 },
@@ -774,17 +898,22 @@ def render_asset_rotation_radar(etf_data, benchmarks):
 
     # 5. Master Cross-Asset Matrix
     with tab5:
-        st.markdown("**Complete Global Cross-Asset Matrix (70+ Global Instruments)**")
+        st.markdown("**Complete Global Cross-Asset Matrix (80+ Global Instruments)**")
         
-        col_f1, col_f2, col_f3 = st.columns([2, 2, 2])
+        col_f1, col_f2, col_f3, col_f4 = st.columns([2, 2, 2, 2])
         with col_f1:
             search_q = st.text_input("🔍 Search Asset or Ticker", placeholder="e.g. Gold, Silver, SOXX, Bank...")
         with col_f2:
             sel_cats = st.multiselect("Filter Asset Classes", options=sorted(df['category'].unique()), default=sorted(df['category'].unique()))
         with col_f3:
             sel_stats = st.multiselect("Filter Dual Momentum", options=sorted(df['status_1m'].unique()), default=sorted(df['status_1m'].unique()))
+        with col_f4:
+            st.markdown("<div style='height: 28px;'></div>", unsafe_allow_html=True)
+            only_leaders = st.checkbox("🎯 Leading Bases Only (≤ 15% off High)", value=False)
             
         filtered_df = df[df['category'].isin(sel_cats) & df['status_1m'].isin(sel_stats)].copy()
+        if only_leaders:
+            filtered_df = filtered_df[filtered_df['dist_52w_high'] >= -15.0]
         if search_q:
             filtered_df = filtered_df[
                 filtered_df['ticker'].str.contains(search_q, case=False, na=False) |
@@ -792,14 +921,19 @@ def render_asset_rotation_radar(etf_data, benchmarks):
             ]
             
         st.dataframe(
-            filtered_df[['ticker', 'display_name', 'category', 'return_1m', 'return_3m', 'return_6m', 'status_1m', 'country']].sort_values('return_1m', ascending=False),
+            filtered_df[['ticker', 'display_name', 'category', 'return_1m', 'alpha_1m', 'return_3m', 'alpha_3m', 'return_6m', 'alpha_6m', 'dist_52w_high', 'prox_label', 'status_1m', 'country']].sort_values('return_1m', ascending=False),
             column_config={
                 "ticker": "Ticker",
                 "display_name": "Asset Name",
                 "category": "Asset Class",
-                "return_1m": st.column_config.NumberColumn("1M Return (%)", format="%.2f"),
-                "return_3m": st.column_config.NumberColumn("3M Return (%)", format="%.2f"),
-                "return_6m": st.column_config.NumberColumn("6M Return (%)", format="%.2f"),
+                "return_1m": st.column_config.NumberColumn("1M Ret (%)", format="%.2f"),
+                "alpha_1m": st.column_config.NumberColumn("1M Alpha (%)", format="%+.2f"),
+                "return_3m": st.column_config.NumberColumn("3M Ret (%)", format="%.2f"),
+                "alpha_3m": st.column_config.NumberColumn("3M Alpha (%)", format="%+.2f"),
+                "return_6m": st.column_config.NumberColumn("6M Ret (%)", format="%.2f"),
+                "alpha_6m": st.column_config.NumberColumn("6M Alpha (%)", format="%+.2f"),
+                "dist_52w_high": st.column_config.NumberColumn("% Off 52W High", format="%.2f%%"),
+                "prox_label": "52W Base Proximity",
                 "status_1m": "1M Dual Momentum",
                 "country": "Region"
             },
