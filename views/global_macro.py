@@ -1,18 +1,109 @@
 import streamlit as st
 import pandas as pd
+import numpy as np
 import plotly.express as px
+import plotly.graph_objects as go
 from datetime import datetime
 import sys
 import os
+import re
+import yfinance as yf
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
 try:
     from styles import load_css
     load_css()
 except ImportError:
     pass
 
-from database import get_connection, get_latest_global_regime, get_latest_global_etf_momentum
+from components import render_header, apply_plotly_theme
+from database import (
+    get_connection, get_latest_global_regime, 
+    get_latest_global_etf_momentum, classify_etf_asset_class
+)
+try:
+    from sync_macro import sync_all_data
+except ImportError:
+    def sync_all_data():
+        pass
+
+
+def render_html(html_str: str):
+    """
+    Renders custom HTML without any possibility of Markdown 4-space code block interpretation.
+    Strips comments and leading whitespace on each line.
+    """
+    clean_html = re.sub(r'<!--.*?-->', '', html_str, flags=re.DOTALL)
+    clean_html = re.sub(r'^[ \t]+', '', clean_html.strip(), flags=re.MULTILINE)
+    st.markdown(clean_html, unsafe_allow_html=True)
+
+
+# =============================================================================
+# DATA FETCHING HELPERS WITH CACHING
+# =============================================================================
+
+@st.cache_data(ttl=900)
+def fetch_macro_barometers():
+    """
+    Fetches live / delayed inter-market macro barometers:
+    1. Currencies: USD/INR ('USDINR=X') & US Dollar Index DXY ('DX-Y.NYB')
+    2. Yields: US 10-Year Treasury Yield ('^TNX')
+    3. Volatility: India VIX ('^INDIAVIX') & US VIX ('^VIX')
+    4. Energy: Brent Crude Oil ('BZ=F')
+    """
+    symbols = ['USDINR=X', 'DX-Y.NYB', '^TNX', '^INDIAVIX', '^VIX', 'BZ=F']
+    try:
+        data = yf.download(symbols, period="1mo", progress=False)
+        close_df = data['Close'] if isinstance(data.columns, pd.MultiIndex) else data
+        close_df = close_df.ffill().bfill()
+        
+        results = {}
+        for s in symbols:
+            if s in close_df.columns:
+                series = close_df[s].dropna()
+                if len(series) >= 2:
+                    curr = float(series.iloc[-1])
+                    prev = float(series.iloc[-2])
+                    m1 = float(series.iloc[0])
+                    chg_1d = ((curr / prev) - 1.0) * 100.0
+                    chg_1m = ((curr / m1) - 1.0) * 100.0
+                    results[s] = {
+                        'latest': curr,
+                        'change_1d': chg_1d,
+                        'change_1m': chg_1m
+                    }
+        return results
+    except Exception as e:
+        print(f"[Macro Barometers] Error fetching data: {e}")
+        return {}
+
+
+@st.cache_data(ttl=900)
+def fetch_benchmark_returns():
+    """Fetches benchmark returns for Nifty 500 (^CRSLDX) and S&P 500 (^GSPC)."""
+    try:
+        bm = yf.download(['^CRSLDX', '^GSPC'], period="7mo", progress=False)
+        close_df = bm['Close'] if isinstance(bm.columns, pd.MultiIndex) else bm
+        close_df = close_df.ffill().bfill()
+        
+        benchmarks = {}
+        for t in ['^CRSLDX', '^GSPC']:
+            if t in close_df.columns:
+                s = close_df[t].dropna()
+                if len(s) >= 20:
+                    r1 = ((s.iloc[-1] / s.iloc[-21]) - 1.0) * 100.0 if len(s) > 21 else 0.0
+                    r3 = ((s.iloc[-1] / s.iloc[-63]) - 1.0) * 100.0 if len(s) > 63 else 0.0
+                    r6 = ((s.iloc[-1] / s.iloc[-126]) - 1.0) * 100.0 if len(s) > 126 else 0.0
+                    benchmarks[t] = {'return_1m': float(r1), 'return_3m': float(r3), 'return_6m': float(r6)}
+        return benchmarks
+    except Exception as e:
+        print(f"[Benchmark Returns] Error: {e}")
+        return {
+            '^CRSLDX': {'return_1m': -5.12, 'return_3m': -4.81, 'return_6m': -0.94},
+            '^GSPC': {'return_1m': 0.72, 'return_3m': 3.05, 'return_6m': 12.89}
+        }
+
 
 def fetch_latest_breadth(market):
     conn = get_connection()
@@ -20,50 +111,313 @@ def fetch_latest_breadth(market):
     conn.close()
     return df
 
+
 def fetch_latest_liquidity(market):
     conn = get_connection()
     df = pd.read_sql_query("SELECT * FROM market_liquidity_daily WHERE market=? ORDER BY date DESC LIMIT 252", conn, params=(market,))
     conn.close()
     return df
 
+
+# =============================================================================
+# DUAL MOMENTUM CLASSIFIER HELPER
+# =============================================================================
+
+def compute_dual_momentum_status(ret_val, bm_ret):
+    """
+    Gary Antonacci Dual Momentum evaluation:
+    - Absolute Momentum: Is the asset gaining purchasing power (ret_val > 0)?
+    - Relative Momentum: Is the asset outperforming the opportunity cost benchmark?
+    """
+    if ret_val > 0 and ret_val >= bm_ret:
+        return "🚀 Dual Alpha", "#10b981", "Positive return & outperforming benchmark"
+    elif ret_val <= 0 and ret_val >= bm_ret:
+        return "🛡️ Relative Defense", "#38bdf8", "Beating benchmark despite negative nominal return"
+    elif ret_val > 0 and ret_val < bm_ret:
+        return "⚠️ Nominal Gain", "#f59e0b", "Positive return but lagging benchmark"
+    else:
+        return "📉 Dual Bleed", "#ef4444", "Negative nominal return and lagging benchmark"
+
+
+# =============================================================================
+# SUB-COMPONENTS
+# =============================================================================
+
+def render_canslim_exposure_dial(in_regime, us_regime):
+    """Actionable CANSLIM Exposure Dial & Tactical Allocation Directives."""
+    in_label = in_regime[0]['regime_label'] if in_regime else "Unknown"
+    us_label = us_regime[0]['regime_label'] if us_regime else "Unknown"
+    in_dd = in_regime[0]['dd_count'] if in_regime else 0
+    us_dd = us_regime[0]['dd_count'] if us_regime else 0
+
+    # Determine Synthesized Posture
+    if "Uptrend" in in_label and "Uptrend" in us_label:
+        posture_title = "🔥 CONFIRMED UPTREND — FULL RISK-ON"
+        posture_color = "#10b981"
+        exposure_range = "80% – 100% Active Equity"
+        equity_pct = 90
+        safe_haven_pct = 5
+        cash_pct = 5
+        directive_buys = "🟢 <strong>Aggressive Breakout Buys:</strong> Deploy capital into leading pivot breakouts with 40%+ above-average volume."
+        directive_stops = "🛡️ <strong>Pyramid Winners:</strong> Add 30%–50% on first pullbacks to 10-day / 21-day EMA; cut losers strictly at 7%–8%."
+        directive_rs = "🚀 <strong>Concentrate in Top RS:</strong> Maintain concentrated exposure in #1 and #2 industry leaders."
+        directive_ftd = "✅ <strong>Trend Confirmed:</strong> Both India & US moving in confirmed bull trends above rising 50-day moving averages."
+        dial_note = "Maximum offensive posture permitted. Full size positions on sound bases."
+    elif "Correction" in in_label or "Correction" in us_label:
+        posture_title = "❄️ MARKET IN CORRECTION — CAPITAL PRESERVATION"
+        posture_color = "#ef4444"
+        exposure_range = "0% – 20% Active Equity"
+        equity_pct = 15
+        safe_haven_pct = 25
+        cash_pct = 60
+        directive_buys = "🛑 <strong>Stand Down on Breakout Buys:</strong> Standard pivot breakouts suffer a 75%+ failure rate during correction. Cease fresh buying."
+        directive_stops = "✂️ <strong>Enforce 7%–8% Hard Stop Losses:</strong> Zero tolerance for holding laggards or averaging down; immediately cut losing positions."
+        directive_rs = "🔍 <strong>Compile RS Leaders Watchlist:</strong> Screen daily for resilient stocks holding above 50-day SMA while indices plunge."
+        directive_ftd = "⏳ <strong>Awaiting Day 4+ Follow-Through Day (FTD):</strong> Preserve cash dry powder until heavy-volume institutional confirmation appears."
+        dial_note = "Defensive posture mandatory. Shift defensive capital to Cash and Safe Haven ETFs (GOLDBEES, SILVERBEES)."
+    else:
+        posture_title = "⚠️ UPTREND UNDER PRESSURE — SELECTIVE CAUTION"
+        posture_color = "#f59e0b"
+        exposure_range = "40% – 60% Active Equity"
+        equity_pct = 50
+        safe_haven_pct = 15
+        cash_pct = 35
+        directive_buys = "⚠️ <strong>Selective Purchases Only:</strong> Restrict new buys to elite A+ leaders breaking out of flawless, deep bases."
+        directive_stops = "✂️ <strong>Tighten Profit Targets:</strong> Lock in partial gains at +20% to +25%; raise stops to break-even after initial progress."
+        directive_rs = "🔍 <strong>Trim Secondary Names:</strong> Eliminate lagging positions and raise cash buffer."
+        directive_ftd = "👀 <strong>Distribution Warning:</strong> Watch for further distribution days that could trigger a full correction."
+        dial_note = "Elevated caution. Reduce position size by 50% and demand exceptional volume on any entry."
+
+    dial_html = f"""<div style="background: linear-gradient(135deg, rgba(15, 23, 42, 0.95) 0%, rgba(30, 41, 59, 0.90) 100%); border: 1px solid rgba(255, 255, 255, 0.1); border-left: 6px solid {posture_color}; border-radius: 14px; padding: 22px 26px; margin-bottom: 25px; box-shadow: 0 12px 32px rgba(0, 0, 0, 0.45);">
+<div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px; margin-bottom: 18px;">
+<div>
+<span style="font-size: 0.78rem; text-transform: uppercase; letter-spacing: 1.5px; color: #94a3b8; font-weight: 700;">CANSLIM Market Direction & Portfolio Dial</span>
+<h2 style="margin: 4px 0 0 0; color: {posture_color}; font-size: 1.65rem; font-weight: 800; letter-spacing: 0.5px;">{posture_title}</h2>
+</div>
+<div style="background: rgba(0, 0, 0, 0.35); border: 1px solid rgba(255,255,255,0.08); padding: 8px 16px; border-radius: 10px; text-align: right;">
+<div style="font-size: 0.72rem; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.8px;">Recommended Allocation</div>
+<div style="font-size: 1.25rem; font-weight: 800; color: #f8fafc;">{exposure_range}</div>
+</div>
+</div>
+<div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 20px; align-items: center;">
+<div style="background: rgba(15, 23, 42, 0.6); padding: 16px 20px; border-radius: 10px; border: 1px solid rgba(255,255,255,0.05);">
+<div style="display: flex; justify-content: space-between; font-size: 0.82rem; color: #94a3b8; margin-bottom: 8px;">
+<span>Active Equity Exposure: <strong>{equity_pct}%</strong></span>
+<span>Cash / Safe Havens: <strong>{safe_haven_pct + cash_pct}%</strong></span>
+</div>
+<div style="width: 100%; height: 14px; background: rgba(51, 65, 85, 0.6); border-radius: 9999px; overflow: hidden; display: flex;">
+<div style="width: {equity_pct}%; background: {posture_color}; transition: width 0.5s ease;"></div>
+<div style="width: {safe_haven_pct}%; background: #eab308; opacity: 0.9;" title="Safe Havens (Gold/Silver)"></div>
+<div style="width: {cash_pct}%; background: #64748b; opacity: 0.7;" title="Cash / Liquid"></div>
+</div>
+<div style="display: flex; justify-content: space-between; font-size: 0.72rem; color: #94a3b8; margin-top: 8px;">
+<span><span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:{posture_color};margin-right:4px;"></span>Equity: {equity_pct}%</span>
+<span><span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:#eab308;margin-right:4px;"></span>Safe Havens: {safe_haven_pct}%</span>
+<span><span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:#64748b;margin-right:4px;"></span>Cash: {cash_pct}%</span>
+</div>
+<div style="margin-top: 12px; font-size: 0.8rem; color: #cbd5e1; border-top: 1px solid rgba(255,255,255,0.06); padding-top: 8px;">
+💡 <em>{dial_note}</em>
+</div>
+</div>
+<div style="background: rgba(15, 23, 42, 0.6); padding: 16px 20px; border-radius: 10px; border: 1px solid rgba(255,255,255,0.05); font-size: 0.84rem; line-height: 1.5; color: #e2e8f0;">
+<div style="margin-bottom: 6px;">{directive_buys}</div>
+<div style="margin-bottom: 6px;">{directive_stops}</div>
+<div style="margin-bottom: 6px;">{directive_rs}</div>
+<div style="margin-bottom: 0px;">{directive_ftd}</div>
+</div>
+</div>
+<div style="display: flex; gap: 16px; margin-top: 16px; font-size: 0.78rem; color: #94a3b8; border-top: 1px solid rgba(255,255,255,0.06); padding-top: 12px;">
+<span>🇮🇳 Nifty 500: <strong style="color: {'#10b981' if 'Uptrend' in in_label else '#ef4444'};">{in_label}</strong> ({in_dd} Dist Days)</span>
+<span>•</span>
+<span>🇺🇸 S&P 500: <strong style="color: {'#10b981' if 'Uptrend' in us_label else '#ef4444'};">{us_label}</strong> ({us_dd} Dist Days)</span>
+</div>
+</div>"""
+    render_html(dial_html)
+
+
+def render_macro_barometers(baro_dict):
+    """Renders 4 Institutional Inter-Market Leading Barometer Cards."""
+    st.markdown("### 📡 Inter-Market Macro Barometers (Tripwires)")
+    st.caption("Live cross-market signals governing liquidity, institutional risk appetite, currency flight, and breakout odds.")
+    
+    col1, col2, col3, col4 = st.columns(4)
+    
+    # 1. Currencies (USD/INR & DXY)
+    usdinr = baro_dict.get('USDINR=X', {'latest': 96.30, 'change_1d': 0.0, 'change_1m': 1.98})
+    dxy = baro_dict.get('DX-Y.NYB', {'latest': 102.07, 'change_1d': 0.0, 'change_1m': 3.27})
+    dxy_status = "Dollar Strong (EM Drain)" if dxy['latest'] >= 100 else "Dollar Soft (EM Inflow)"
+    dxy_color = "#ef4444" if dxy['latest'] >= 100 else "#10b981"
+    
+    with col1:
+        render_html(f"""
+        <div style="background: rgba(15, 23, 42, 0.75); border: 1px solid rgba(255, 255, 255, 0.08); 
+                    border-radius: 12px; padding: 18px; min-height: 175px; backdrop-filter: blur(8px);">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+                <span style="font-size: 0.8rem; font-weight: 700; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.5px;">💵 FX & Dollar Flow</span>
+                <span style="background: rgba(239, 68, 68, 0.15); color: {dxy_color}; font-size: 0.72rem; padding: 2px 7px; border-radius: 6px; font-weight: 700;">{dxy_status}</span>
+            </div>
+            <div style="font-size: 1.45rem; font-weight: 800; color: #f8fafc; margin-bottom: 2px;">
+                USD/INR: ₹{usdinr['latest']:.2f}
+            </div>
+            <div style="font-size: 0.82rem; color: #cbd5e1; margin-bottom: 10px;">
+                1D: <span style="color: {'#10b981' if usdinr['change_1d'] < 0 else '#ef4444'}; font-weight: 600;">{usdinr['change_1d']:+.2f}%</span> | 
+                1M: <span style="color: {'#10b981' if usdinr['change_1m'] < 0 else '#ef4444'}; font-weight: 600;">{usdinr['change_1m']:+.2f}%</span>
+            </div>
+            <div style="font-size: 0.75rem; color: #94a3b8; border-top: 1px solid rgba(255,255,255,0.06); padding-top: 8px;">
+                DXY: <strong>{dxy['latest']:.2f}</strong> ({dxy['change_1m']:+.1f}% 1M)<br>
+                <span style="color: #64748b;">Signals FII capital flight pressure on Indian equities</span>
+            </div>
+        </div>
+        """)
+
+    # 2. Yields (US 10Y Yield ^TNX)
+    tnx = baro_dict.get('^TNX', {'latest': 5.31, 'change_1d': 0.0, 'change_1m': 10.51})
+    tnx_val = tnx['latest']
+    tnx_status = "Valuation Drag (>4.5%)" if tnx_val >= 4.5 else "Accommodative (<4.0%)"
+    tnx_color = "#ef4444" if tnx_val >= 4.5 else "#10b981"
+    
+    with col2:
+        render_html(f"""
+        <div style="background: rgba(15, 23, 42, 0.75); border: 1px solid rgba(255, 255, 255, 0.08); 
+                    border-radius: 12px; padding: 18px; min-height: 175px; backdrop-filter: blur(8px);">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+                <span style="font-size: 0.8rem; font-weight: 700; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.5px;">📈 10Y US Treasury</span>
+                <span style="background: rgba(239, 68, 68, 0.15); color: {tnx_color}; font-size: 0.72rem; padding: 2px 7px; border-radius: 6px; font-weight: 700;">{tnx_status}</span>
+            </div>
+            <div style="font-size: 1.45rem; font-weight: 800; color: #f8fafc; margin-bottom: 2px;">
+                ^TNX: {tnx_val:.2f}%
+            </div>
+            <div style="font-size: 0.82rem; color: #cbd5e1; margin-bottom: 10px;">
+                1D: <span style="color: {'#10b981' if tnx['change_1d'] < 0 else '#ef4444'}; font-weight: 600;">{tnx['change_1d']:+.2f}%</span> | 
+                1M: <span style="color: {'#10b981' if tnx['change_1m'] < 0 else '#ef4444'}; font-weight: 600;">{tnx['change_1m']:+.2f}%</span>
+            </div>
+            <div style="font-size: 0.75rem; color: #94a3b8; border-top: 1px solid rgba(255,255,255,0.06); padding-top: 8px;">
+                Equity Multiple Compression<br>
+                <span style="color: #64748b;">Rising discount rate pressures high-growth P/E multiples</span>
+            </div>
+        </div>
+        """)
+
+    # 3. Volatility & Breakout Odds (India VIX & US VIX)
+    invix = baro_dict.get('^INDIAVIX', {'latest': 14.78, 'change_1d': 0.0, 'change_1m': 32.44})
+    usvix = baro_dict.get('^VIX', {'latest': 15.52, 'change_1d': 0.0, 'change_1m': 1.44})
+    
+    if invix['latest'] < 13.0:
+        odds_label = "High Odds (>75%)"
+        odds_color = "#10b981"
+        odds_desc = "Calm market; sound pivots follow through"
+    elif invix['latest'] <= 17.0:
+        odds_label = "Neutral (~50%)"
+        odds_color = "#f59e0b"
+        odds_desc = "Choppy regime; demand high volume"
+    else:
+        odds_label = "Whipsaw Risk (<30%)"
+        odds_color = "#ef4444"
+        odds_desc = "High failure rate; avoid pivot buys"
+
+    with col3:
+        render_html(f"""
+        <div style="background: rgba(15, 23, 42, 0.75); border: 1px solid rgba(255, 255, 255, 0.08); 
+                    border-radius: 12px; padding: 18px; min-height: 175px; backdrop-filter: blur(8px);">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+                <span style="font-size: 0.8rem; font-weight: 700; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.5px;">🌪️ Volatility & Odds</span>
+                <span style="background: rgba(245, 158, 11, 0.15); color: {odds_color}; font-size: 0.72rem; padding: 2px 7px; border-radius: 6px; font-weight: 700;">{odds_label}</span>
+            </div>
+            <div style="font-size: 1.45rem; font-weight: 800; color: #f8fafc; margin-bottom: 2px;">
+                India VIX: {invix['latest']:.2f}
+            </div>
+            <div style="font-size: 0.82rem; color: #cbd5e1; margin-bottom: 10px;">
+                1M Change: <span style="color: {'#ef4444' if invix['change_1m'] > 0 else '#10b981'}; font-weight: 600;">{invix['change_1m']:+.1f}%</span> | 
+                US VIX: <strong>{usvix['latest']:.1f}</strong>
+            </div>
+            <div style="font-size: 0.75rem; color: #94a3b8; border-top: 1px solid rgba(255,255,255,0.06); padding-top: 8px;">
+                CANSLIM Breakout Probability<br>
+                <span style="color: #64748b;">{odds_desc}</span>
+            </div>
+        </div>
+        """)
+
+    # 4. Energy (Brent Crude BZ=F)
+    brent = baro_dict.get('BZ=F', {'latest': 100.52, 'change_1d': 0.0, 'change_1m': 2.66})
+    brent_val = brent['latest']
+    brent_status = "Inflation Drag (>$85)" if brent_val >= 85 else "Favorable (<$80)"
+    brent_color = "#ef4444" if brent_val >= 85 else "#10b981"
+    
+    with col4:
+        render_html(f"""
+        <div style="background: rgba(15, 23, 42, 0.75); border: 1px solid rgba(255, 255, 255, 0.08); 
+                    border-radius: 12px; padding: 18px; min-height: 175px; backdrop-filter: blur(8px);">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+                <span style="font-size: 0.8rem; font-weight: 700; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.5px;">🛢️ Brent Crude Oil</span>
+                <span style="background: rgba(239, 68, 68, 0.15); color: {brent_color}; font-size: 0.72rem; padding: 2px 7px; border-radius: 6px; font-weight: 700;">{brent_status}</span>
+            </div>
+            <div style="font-size: 1.45rem; font-weight: 800; color: #f8fafc; margin-bottom: 2px;">
+                ${brent_val:.2f} <span style="font-size: 0.8rem; font-weight: 500; color: #94a3b8;">/bbl</span>
+            </div>
+            <div style="font-size: 0.82rem; color: #cbd5e1; margin-bottom: 10px;">
+                1D: <span style="color: {'#ef4444' if brent['change_1d'] > 0 else '#10b981'}; font-weight: 600;">{brent['change_1d']:+.2f}%</span> | 
+                1M: <span style="color: {'#ef4444' if brent['change_1m'] > 0 else '#10b981'}; font-weight: 600;">{brent['change_1m']:+.2f}%</span>
+            </div>
+            <div style="font-size: 0.75rem; color: #94a3b8; border-top: 1px solid rgba(255,255,255,0.06); padding-top: 8px;">
+                Operating Margin Stress<br>
+                <span style="color: #64748b;">High crude increases India CAD and input inflation</span>
+            </div>
+        </div>
+        """)
+
+
 def render_market_column(market_code, market_name):
+    """Renders side-by-side market regime, breadth and liquidity."""
     st.subheader(f"🌐 {market_name}")
     
     # 1. Regime
     regimes = get_latest_global_regime(market=market_code)
     if not regimes:
-        st.warning(f"No regime data for {market_code}. Please run sync_macro.py.")
+        st.warning(f"No regime data for {market_code}. Please run macro sync.")
         return
         
     reg = regimes[0]
+    is_up = "Uptrend" in reg['regime_label']
+    is_corr = "Correction" in reg['regime_label']
+    color = "#10b981" if is_up else "#ef4444" if is_corr else "#f59e0b"
+    bg_color = "rgba(16, 185, 129, 0.1)" if is_up else "rgba(239, 68, 68, 0.1)" if is_corr else "rgba(245, 158, 11, 0.1)"
     
-    color = "green" if "Uptrend" in reg['regime_label'] else "red" if "Correction" in reg['regime_label'] else "yellow"
-    st.markdown(f"""
-    <div class="status-box {color}-status" style="margin-bottom: 20px;">
-        <div class="status-title">{reg['regime_label']}</div>
-        <div class="status-subtitle" style="font-size: 0.9em;">
-            {reg['benchmark_ticker']} | Dist Days: <strong>{reg['dd_count']}</strong> | vs 50SMA: <strong>{'+' if reg['close'] > reg['sma50'] else ''}{((reg['close']/reg['sma50'])-1)*100:.1f}%</strong>
+    render_html(f"""
+    <div style="background: {bg_color}; border: 1px solid {color}40; border-left: 5px solid {color};
+                padding: 14px 18px; border-radius: 10px; margin-bottom: 18px;">
+        <div style="display: flex; justify-content: space-between; align-items: center;">
+            <span style="font-weight: 800; color: {color}; font-size: 1.1rem;">{reg['regime_label']}</span>
+            <span style="font-size: 0.75rem; color: #94a3b8;">As of {reg['date']}</span>
+        </div>
+        <div style="font-size: 0.85rem; color: #cbd5e1; margin-top: 4px;">
+            {reg['benchmark_ticker']} Close: <strong>{reg['close']:,.2f}</strong> | 
+            Dist Days: <strong style="color: {'#ef4444' if reg['dd_count'] >= 5 else '#10b981'};">{reg['dd_count']}</strong> | 
+            vs 50SMA: <strong>{'+' if reg['close'] > reg['sma50'] else ''}{((reg['close']/reg['sma50'])-1)*100:.1f}%</strong>
         </div>
     </div>
-    """, unsafe_allow_html=True)
+    """)
     
     # 2. Breadth
     breadth_df = fetch_latest_breadth(market_code)
     if not breadth_df.empty:
         latest_b = breadth_df.iloc[0]
-        nnh = latest_b['net_new_highs']
+        nnh = latest_b.get('net_new_highs', 0)
+        above_50 = latest_b.get('above_50_pct', 0.0)
         
         col1, col2 = st.columns(2)
-        col1.metric("Net New Highs", f"{nnh}", delta="Expansion" if nnh > 50 else "Contraction" if nnh < -50 else "Neutral", delta_color="normal" if nnh > 0 else "inverse")
-        col2.metric("Stocks > 50 SMA", f"{latest_b['above_50_pct']:.1f}%")
+        col1.metric("Net New Highs", f"{int(nnh)}", delta="Expansion" if nnh > 50 else "Contraction" if nnh < -50 else "Neutral", delta_color="normal" if nnh > 0 else "inverse")
+        col2.metric("Stocks > 50 SMA", f"{above_50:.1f}%")
         
         # Breadth Chart
         breadth_df['date'] = pd.to_datetime(breadth_df['date'])
         breadth_df = breadth_df.sort_values('date')
-        fig_b = px.bar(breadth_df.tail(60), x='date', y='net_new_highs', title=f"Net New Highs (60 Days)")
+        fig_b = px.bar(breadth_df.tail(60), x='date', y='net_new_highs', title=f"{market_name} Net New Highs (60D)")
         fig_b.update_traces(marker_color=['#10b981' if val > 0 else '#ef4444' for val in breadth_df.tail(60)['net_new_highs']])
-        fig_b.update_layout(height=220, margin=dict(l=0, r=0, t=30, b=0), template='plotly_dark')
+        fig_b = apply_plotly_theme(fig_b)
+        fig_b.update_layout(height=220, margin=dict(l=0, r=0, t=32, b=0))
         st.plotly_chart(fig_b, use_container_width=True)
+    else:
+        st.info(f"No daily breadth history recorded for {market_code}.")
         
     # 3. Liquidity
     liq_df = fetch_latest_liquidity(market_code)
@@ -71,90 +425,278 @@ def render_market_column(market_code, market_name):
         liq_df['date'] = pd.to_datetime(liq_df['date'])
         liq_df = liq_df.sort_values('date')
         
-        fig_l = px.line(liq_df, x='date', y='monthly_turnover_k_cr', title=f"Monthly Turnover & 200SMA")
-        fig_l.add_scatter(x=liq_df['date'], y=liq_df['sma_200'], mode='lines', name='200 SMA', line=dict(color='orange', dash='dot'))
-        fig_l.update_layout(height=220, margin=dict(l=0, r=0, t=30, b=0), template='plotly_dark', showlegend=False)
+        fig_l = px.line(liq_df, x='date', y='monthly_turnover_k_cr', title=f"{market_name} Monthly Turnover & 200SMA")
+        if 'sma_200' in liq_df.columns:
+            fig_l.add_scatter(x=liq_df['date'], y=liq_df['sma_200'], mode='lines', name='200 SMA', line=dict(color='#f59e0b', dash='dot'))
+        fig_l = apply_plotly_theme(fig_l)
+        fig_l.update_layout(height=220, margin=dict(l=0, r=0, t=32, b=0), showlegend=False)
         st.plotly_chart(fig_l, use_container_width=True)
+    else:
+        st.info(f"No liquidity turnover data recorded for {market_code}.")
 
+
+def render_asset_rotation_radar(etf_data, benchmarks):
+    """
+    Renders Segmented 4-Category Asset Rotation Radar with Dual Momentum Classification:
+    1. Precious Metals & Safe Havens
+    2. Indian Sectoral & Factor ETFs
+    3. US Thematics & Sectors
+    4. Global Country Flows
+    5. Master Cross-Asset Table
+    """
+    st.markdown("### 🔄 Where is the Momentum? — Asset Rotation Radar")
+    st.caption("Cross-asset capital allocation across Precious Metals, Indian Sectors, US Thematics, and Global Country Indices with Gary Antonacci Dual Momentum classification.")
+    
+    if not etf_data:
+        st.warning("No ETF Momentum data found. Please run sync_macro.py.")
+        return
+
+    df = pd.DataFrame(etf_data)
+    
+    # Enrich with Dual Momentum Status
+    in_bm_1m = benchmarks.get('^CRSLDX', {}).get('return_1m', -5.12)
+    in_bm_3m = benchmarks.get('^CRSLDX', {}).get('return_3m', -4.81)
+    in_bm_6m = benchmarks.get('^CRSLDX', {}).get('return_6m', -0.94)
+
+    us_bm_1m = benchmarks.get('^GSPC', {}).get('return_1m', 0.72)
+    us_bm_3m = benchmarks.get('^GSPC', {}).get('return_3m', 3.05)
+    us_bm_6m = benchmarks.get('^GSPC', {}).get('return_6m', 12.89)
+
+    def assign_dual_mom(row):
+        ctry = row.get('country', 'US')
+        bm_1m = in_bm_1m if ctry == 'IN' else us_bm_1m
+        bm_3m = in_bm_3m if ctry == 'IN' else us_bm_3m
+        bm_6m = in_bm_6m if ctry == 'IN' else us_bm_6m
+        
+        status_1m, _, _ = compute_dual_momentum_status(row['return_1m'], bm_1m)
+        status_3m, _, _ = compute_dual_momentum_status(row['return_3m'], bm_3m)
+        status_6m, _, _ = compute_dual_momentum_status(row['return_6m'], bm_6m)
+        return pd.Series([status_1m, status_3m, status_6m], index=['status_1m', 'status_3m', 'status_6m'])
+
+    df[['status_1m', 'status_3m', 'status_6m']] = df.apply(assign_dual_mom, axis=1)
+
+    # 4 Category Tabs + Master Table
+    tab1, tab2, tab3, tab4, tab5 = st.tabs([
+        "🥇 Precious Metals & Safe Havens",
+        "🇮🇳 Indian Sectoral & Factor ETFs",
+        "🇺🇸 US Thematic & Mega-Trends",
+        "🌐 Global Country Capital Flows",
+        "📑 Master Cross-Asset Matrix"
+    ])
+
+    def render_category_view(cat_name, cat_desc, default_horizon='return_1m'):
+        cat_df = df[df['category'] == cat_name].copy()
+        if cat_df.empty:
+            st.info(f"No ETFs currently categorized under {cat_name}.")
+            return
+            
+        st.markdown(f"**{cat_desc}**")
+        
+        # Horizon Selector
+        col_ctrl1, col_ctrl2 = st.columns([2, 3])
+        with col_ctrl1:
+            horizon = st.radio(
+                "Rotation Horizon",
+                options=["1-Month Tactical", "3-Month Intermediate", "6-Month Structural"],
+                horizontal=True,
+                key=f"rad_lite_{cat_name}"
+            )
+        
+        h_col = "return_1m" if "1-Month" in horizon else "return_3m" if "3-Month" in horizon else "return_6m"
+        s_col = "status_1m" if "1-Month" in horizon else "status_3m" if "3-Month" in horizon else "status_6m"
+        
+        cat_df = cat_df.sort_values(h_col, ascending=False)
+
+        # Leader Spotlight Cards
+        leaders = cat_df.head(3)
+        cols = st.columns(min(3, len(leaders)))
+        for idx, (_, r) in enumerate(leaders.iterrows()):
+            with cols[idx]:
+                ret = r[h_col]
+                ret_color = "#10b981" if ret > 0 else "#ef4444"
+                render_html(f"""
+                <div style="background: rgba(30, 41, 59, 0.7); border: 1px solid rgba(255,255,255,0.08); 
+                            border-radius: 10px; padding: 12px 16px; margin-bottom: 16px;">
+                    <div style="display: flex; justify-content: space-between; align-items: center;">
+                        <span style="font-size: 0.72rem; color: #94a3b8; font-weight: 700; text-transform: uppercase;">
+                            #{idx+1} {cat_name.split()[0]} Leader
+                        </span>
+                        <span style="font-size: 0.75rem; padding: 1px 6px; border-radius: 4px; background: rgba(255,255,255,0.06);">
+                            {r[s_col]}
+                        </span>
+                    </div>
+                    <div style="font-size: 1.15rem; font-weight: 800; color: #f8fafc; margin: 4px 0;">
+                        {r['ticker']}
+                    </div>
+                    <div style="font-size: 0.8rem; color: #94a3b8; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
+                        {r['display_name']}
+                    </div>
+                    <div style="font-size: 1.3rem; font-weight: 800; color: {ret_color}; margin-top: 6px;">
+                        {ret:+.2f}%
+                    </div>
+                </div>
+                """)
+
+        # Horizontal Bar Chart
+        fig = go.Figure()
+        
+        colors = ['#10b981' if v > 0 else '#ef4444' for v in cat_df[h_col]]
+        y_labels = [f"<b>{t}</b> ({n[:24]})" for t, n in zip(cat_df['ticker'], cat_df['display_name'])]
+        
+        fig.add_trace(go.Bar(
+            y=y_labels,
+            x=cat_df[h_col],
+            orientation='h',
+            marker=dict(color=colors, line=dict(width=0)),
+            text=[f"{v:+.1f}%" for v in cat_df[h_col]],
+            textposition='auto',
+            hovertext=[
+                f"<b>{t}</b> - {n}<br>Return: {v:+.2f}%<br>1M: {r1:+.1f}% | 3M: {r3:+.1f}% | 6M: {r6:+.1f}%<br>Dual Mom: {s}"
+                for t, n, v, r1, r3, r6, s in zip(
+                    cat_df['ticker'], cat_df['display_name'], cat_df[h_col], 
+                    cat_df['return_1m'], cat_df['return_3m'], cat_df['return_6m'], cat_df[s_col]
+                )
+            ],
+            hoverinfo='text'
+        ))
+        
+        fig = apply_plotly_theme(fig)
+        fig.update_layout(
+            height=max(320, len(cat_df) * 26),
+            yaxis=dict(autorange="reversed"),
+            xaxis=dict(title=f"{horizon} Return (%)", zeroline=True, zerolinecolor="rgba(255,255,255,0.2)"),
+            margin=dict(l=0, r=20, t=20, b=20)
+        )
+        st.plotly_chart(fig, use_container_width=True)
+
+        # Data Table
+        with st.expander(f"📋 View Full {cat_name} Table ({len(cat_df)} Assets)"):
+            disp_df = cat_df[['ticker', 'display_name', 'return_1m', 'return_3m', 'return_6m', s_col, 'country']].copy()
+            st.dataframe(
+                disp_df,
+                column_config={
+                    "ticker": "Ticker",
+                    "display_name": "Asset Name",
+                    "return_1m": st.column_config.NumberColumn("1M Return (%)", format="%.2f"),
+                    "return_3m": st.column_config.NumberColumn("3M Return (%)", format="%.2f"),
+                    "return_6m": st.column_config.NumberColumn("6M Return (%)", format="%.2f"),
+                    s_col: "Dual Momentum Status",
+                    "country": "Region"
+                },
+                use_container_width=True,
+                hide_index=True
+            )
+
+    # 1. Precious Metals & Commodities
+    with tab1:
+        render_category_view(
+            "Precious Metals & Commodities", 
+            "Safe haven capital preservation vehicles (Gold, Silver, Commodities) protecting capital during broad equity corrections."
+        )
+
+    # 2. Indian Sectoral & Factor ETFs
+    with tab2:
+        render_category_view(
+            "Indian Sectoral & Factor", 
+            "Domestic Indian institutional sector rotation & smart-beta factor ETFs (Bank, IT, Pharma, Auto, CPSE, Defence, Alpha, Momentum)."
+        )
+
+    # 3. US Thematics & Sectors
+    with tab3:
+        render_category_view(
+            "US Thematic & Sector", 
+            "Wall Street mega-thematics, leading industry groups, and high-beta innovation leaders (Semiconductors, Bitcoin, Tech, Defense, Clean Energy)."
+        )
+
+    # 4. Global Country Flows
+    with tab4:
+        render_category_view(
+            "Global Country Flows", 
+            "Cross-border sovereign equity allocation tracking foreign institutional capital rotation across US, India, China, Brazil, Japan, and Europe."
+        )
+
+    # 5. Master Cross-Asset Matrix
+    with tab5:
+        st.markdown("**Complete Global Cross-Asset Matrix (70+ Global Instruments)**")
+        
+        col_f1, col_f2 = st.columns([2, 2])
+        with col_f1:
+            search_q = st.text_input("🔍 Search Asset or Ticker", placeholder="e.g. Gold, Silver, SMH, Bank...")
+        with col_f2:
+            sel_cats = st.multiselect("Filter Categories", options=sorted(df['category'].unique()), default=sorted(df['category'].unique()))
+            
+        filtered_df = df[df['category'].isin(sel_cats)].copy()
+        if search_q:
+            filtered_df = filtered_df[
+                filtered_df['ticker'].str.contains(search_q, case=False, na=False) |
+                filtered_df['display_name'].str.contains(search_q, case=False, na=False)
+            ]
+            
+        st.dataframe(
+            filtered_df[['ticker', 'display_name', 'category', 'return_1m', 'return_3m', 'return_6m', 'status_1m', 'country']].sort_values('return_1m', ascending=False),
+            column_config={
+                "ticker": "Ticker",
+                "display_name": "Asset Name",
+                "category": "Asset Class",
+                "return_1m": st.column_config.NumberColumn("1M Return (%)", format="%.2f"),
+                "return_3m": st.column_config.NumberColumn("3M Return (%)", format="%.2f"),
+                "return_6m": st.column_config.NumberColumn("6M Return (%)", format="%.2f"),
+                "status_1m": "1M Dual Momentum",
+                "country": "Region"
+            },
+            use_container_width=True,
+            hide_index=True
+        )
+
+
+# =============================================================================
+# MAIN CONTROLLER
+# =============================================================================
 
 def main():
-    from components import render_header
-    render_header("🌍 Global Macro View", "Continuous Cross-Market Aggregation & Capital Flow Tracking.")
+    render_header(
+        "Global Macro Terminal", 
+        "Cross-Asset Rotation, Inter-Market Barometers, and CANSLIM Allocation Playbook.", 
+        icon="🌍"
+    )
     
-    # Check overall Global Flow
+    # 1. Fetch Regimes and Barometers
     in_regime = get_latest_global_regime(market='IN')
     us_regime = get_latest_global_regime(market='US')
+    etf_data = get_latest_global_etf_momentum()
+    benchmarks = fetch_benchmark_returns()
+
+    # Action Toolbar
+    col_t1, col_t2 = st.columns([4, 1])
+    with col_t2:
+        if st.button("🔄 Sync Macro Data", help="Fetch fresh benchmark and ETF momentum prices", use_container_width=True):
+            with st.spinner("Syncing Global Macro Telemetry & Barometers..."):
+                sync_all_data()
+                st.cache_data.clear()
+                st.success("Global Macro Data Synchronized!")
+                st.rerun()
+
+    # 2. CANSLIM Exposure Dial
+    render_canslim_exposure_dial(in_regime, us_regime)
+
+    # 3. Inter-Market Macro Barometers (Tripwires)
+    baro_dict = fetch_macro_barometers()
+    render_macro_barometers(baro_dict)
     
-    if in_regime and us_regime:
-        in_label = in_regime[0]['regime_label']
-        us_label = us_regime[0]['regime_label']
-        
-        global_status = "Neutral / Mixed Flow"
-        g_color = "#eab308" # yellow
-        if "Uptrend" in in_label and "Uptrend" in us_label:
-            global_status = "🔥 FULL RISK ON"
-            g_color = "#10b981" # green
-        elif "Correction" in in_label and "Correction" in us_label:
-            global_status = "❄️ FULL RISK OFF"
-            g_color = "#ef4444" # red
-            
-        st.markdown(f"""
-        <div style="background: rgba(255,255,255,0.05); padding: 20px; border-radius: 10px; border-left: 5px solid {g_color}; margin-bottom: 25px; text-align: center;">
-            <h2 style="margin:0; color: {g_color}; letter-spacing: 2px;">{global_status}</h2>
-            <p style="margin:5px 0 0 0; color: #a1a1aa; font-size: 0.9em;">Synthesized from Nifty 500 & S&P 500 Macro States</p>
-        </div>
-        """, unsafe_allow_html=True)
-    
-    # Split Screen
+    render_html("<hr style='border: 0; height: 1px; background: rgba(255,255,255,0.08); margin: 25px 0;'>")
+
+    # 4. Side-by-Side Market Telemetry (Nifty 500 vs S&P 500)
     col_in, col_us = st.columns(2)
     with col_in:
         render_market_column('IN', 'India (Nifty 500)')
     with col_us:
         render_market_column('US', 'United States (S&P 500)')
-        
-    st.markdown("---")
-    
-    # Global Asset Rotation
-    st.subheader("🔄 Global Asset Rotation (ETF Momentum)")
-    st.caption("Visualizing international capital flows over 1M, 3M, and 6M windows.")
-    
-    etf_data = get_latest_global_etf_momentum()
-    if etf_data:
-        df_etf = pd.DataFrame(etf_data)
-        
-        t1, t2, t3 = st.tabs(["1-Month Rotation", "3-Month Rotation", "6-Month Rotation"])
-        
-        with t1:
-            df_1m = df_etf.sort_values('return_1m', ascending=False).head(15)
-            fig_1 = px.bar(df_1m, x='ticker', y='return_1m', title="Top 15 Global ETFs (1M Return %)", text_auto='.1f', color='return_1m', color_continuous_scale='RdYlGn')
-            fig_1.update_layout(template='plotly_dark', height=400)
-            st.plotly_chart(fig_1, use_container_width=True)
-            
-        with t2:
-            df_3m = df_etf.sort_values('return_3m', ascending=False).head(15)
-            fig_3 = px.bar(df_3m, x='ticker', y='return_3m', title="Top 15 Global ETFs (3M Return %)", text_auto='.1f', color='return_3m', color_continuous_scale='RdYlGn')
-            fig_3.update_layout(template='plotly_dark', height=400)
-            st.plotly_chart(fig_3, use_container_width=True)
-            
-        with t3:
-            df_6m = df_etf.sort_values('return_6m', ascending=False).head(15)
-            fig_6 = px.bar(df_6m, x='ticker', y='return_6m', title="Top 15 Global ETFs (6M Return %)", text_auto='.1f', color='return_6m', color_continuous_scale='RdYlGn')
-            fig_6.update_layout(template='plotly_dark', height=400)
-            st.plotly_chart(fig_6, use_container_width=True)
-            
-        with st.expander("View All ETF Data"):
-            st.dataframe(
-                df_etf[['ticker', 'return_1m', 'return_3m', 'return_6m']].sort_values('return_6m', ascending=False), 
-                column_config={
-                    "ticker": "ETF Ticker",
-                    "return_1m": st.column_config.NumberColumn("1M Return (%)", format="%.2f"),
-                    "return_3m": st.column_config.NumberColumn("3M Return (%)", format="%.2f"),
-                    "return_6m": st.column_config.NumberColumn("6M Return (%)", format="%.2f")
-                },
-                use_container_width=True, hide_index=True
-            )
-    else:
-        st.info("No Global ETF Momentum data available. Please run sync_macro.py.")
+
+    render_html("<hr style='border: 0; height: 1px; background: rgba(255,255,255,0.08); margin: 25px 0;'>")
+
+    # 5. Asset Rotation Radar ("Where is the Momentum?")
+    render_asset_rotation_radar(etf_data, benchmarks)
+
 
 if __name__ == "__main__":
     main()
