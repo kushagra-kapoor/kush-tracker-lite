@@ -1631,6 +1631,14 @@ def classify_etf_asset_class(ticker: str) -> tuple:
             'MODEFENCE': 'Motilal Oswal India Defence',
             'METALIETF': 'Nifty Metal Sector',
             'ENERGYIETF': 'Nifty Energy Sector',
+            'OILIETF': 'Nifty Oil & Gas / Energy',
+            'FMCGIETF': 'Nifty FMCG / Consumer Staples',
+            'PVTBANIETF': 'Nifty Private Bank',
+            'FINIETF': 'Nifty Financial Services',
+            'ICICIB22': 'Bharat 22 Government ETF',
+            'COMMOIETF': 'Nifty Commodities',
+            'DIVOPPBEES': 'Nifty Dividend Opportunities 50',
+            'HEALTHIETF': 'Nifty Healthcare Services',
         }
         return 'Indian Sectoral & Factor', in_names.get(clean_name, clean_name), 'IN'
 
