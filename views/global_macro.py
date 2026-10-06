@@ -676,7 +676,7 @@ def render_asset_rotation_radar(etf_data, benchmarks):
             
         st.markdown(f"**{cat_desc}**")
         
-        # Horizon Selector
+        # Horizon Selector & 52W Distance Slider
         col_ctrl1, col_ctrl2 = st.columns([2, 3])
         with col_ctrl1:
             horizon = st.radio(
@@ -685,6 +685,23 @@ def render_asset_rotation_radar(etf_data, benchmarks):
                 horizontal=True,
                 key=f"rad_lite_{cat_name}"
             )
+        with col_ctrl2:
+            cat_dist_range = st.slider(
+                "🎯 52W High Distance Range",
+                min_value=-50.0,
+                max_value=0.0,
+                value=(-50.0, 0.0),
+                step=1.0,
+                format="%.0f%%",
+                help="Filter assets by distance from 52-week peak (e.g. [-15%, 0%] for CANSLIM leaders)",
+                key=f"cat_dist_slider_lite_{cat_name}"
+            )
+        
+        # Filter category by 52W High distance range
+        cat_df = cat_df[(cat_df['dist_52w_high'] >= cat_dist_range[0]) & (cat_df['dist_52w_high'] <= cat_dist_range[1])]
+        if cat_df.empty:
+            st.info(f"No assets in {cat_name} within [{cat_dist_range[0]:.0f}%, {cat_dist_range[1]:.0f}%] of 52-week high.")
+            return
         
         h_col = "return_1m" if "1-Month" in horizon else "return_3m" if "3-Month" in horizon else "return_6m"
         a_col = "alpha_1m" if "1-Month" in horizon else "alpha_3m" if "3-Month" in horizon else "alpha_6m"
@@ -900,7 +917,7 @@ def render_asset_rotation_radar(etf_data, benchmarks):
     with tab5:
         st.markdown("**Complete Global Cross-Asset Matrix (80+ Global Instruments)**")
         
-        col_f1, col_f2, col_f3, col_f4 = st.columns([2, 2, 2, 2])
+        col_f1, col_f2, col_f3, col_f4 = st.columns([2, 2.5, 2.5, 3])
         with col_f1:
             search_q = st.text_input("🔍 Search Asset or Ticker", placeholder="e.g. Gold, Silver, SOXX, Bank...")
         with col_f2:
@@ -908,12 +925,19 @@ def render_asset_rotation_radar(etf_data, benchmarks):
         with col_f3:
             sel_stats = st.multiselect("Filter Dual Momentum", options=sorted(df['status_1m'].unique()), default=sorted(df['status_1m'].unique()))
         with col_f4:
-            st.markdown("<div style='height: 28px;'></div>", unsafe_allow_html=True)
-            only_leaders = st.checkbox("🎯 Leading Bases Only (≤ 15% off High)", value=False)
+            dist_range = st.slider(
+                "🎯 52W High Distance Range",
+                min_value=-50.0,
+                max_value=0.0,
+                value=(-50.0, 0.0),
+                step=1.0,
+                format="%.0f%%",
+                help="Filter assets within distance from 52-week peak. Select [-15%, 0%] for CANSLIM leading bases.",
+                key="master_52w_dist_slider_lite"
+            )
             
         filtered_df = df[df['category'].isin(sel_cats) & df['status_1m'].isin(sel_stats)].copy()
-        if only_leaders:
-            filtered_df = filtered_df[filtered_df['dist_52w_high'] >= -15.0]
+        filtered_df = filtered_df[(filtered_df['dist_52w_high'] >= dist_range[0]) & (filtered_df['dist_52w_high'] <= dist_range[1])]
         if search_q:
             filtered_df = filtered_df[
                 filtered_df['ticker'].str.contains(search_q, case=False, na=False) |
