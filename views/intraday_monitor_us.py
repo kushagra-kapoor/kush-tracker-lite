@@ -46,6 +46,26 @@ def fetch_yfinance_batch(tickers, days=252, force_today_refresh=False):
     from price_history_manager import fetch_incremental_history
     return fetch_incremental_history(tickers, days, force_today_refresh=force_today_refresh)
 
+@st.cache_data(ttl=900, show_spinner=False)
+def get_cached_index_history(ticker: str = '^GSPC') -> pd.DataFrame:
+    """Fetch and cache benchmark index to avoid repeated network calls."""
+    try:
+        return yf.download(ticker, period="1y", progress=False)
+    except Exception:
+        return pd.DataFrame()
+
+def is_market_open_et() -> bool:
+    """Check if US stock market (NYSE/NASDAQ) is actively trading right now."""
+    try:
+        now = datetime.now(pytz.timezone('US/Eastern'))
+        if now.weekday() >= 5:
+            return False
+        market_open = now.replace(hour=9, minute=30, second=0, microsecond=0)
+        market_close = now.replace(hour=16, minute=10, second=0, microsecond=0)
+        return market_open <= now <= market_close
+    except Exception:
+        return True
+
 # -----------------------------------------------------------------------------
 # METRIC CALCULATIONS
 # -----------------------------------------------------------------------------
@@ -214,18 +234,26 @@ def process_intraday_data(history_df, tickers, index_data=None, industry_map=Non
     top_sectors = get_latest_top_sectors(5)
 
     for ticker, df in ticker_data.items():
-        # Drop only if Close is missing. Yfinance often returns NaN for volume on Friday evenings
-        df = df.dropna(subset=['Close']).copy()
-        df['Volume'] = df['Volume'].fillna(0)
+        if df.empty or len(df) < 2:
+            continue
+        if df['Close'].isna().any():
+            df = df.dropna(subset=['Close'])
         if len(df) < 2:
             continue
-        current_price = df['Close'].iloc[-1]
-        prev_close = df['Close'].iloc[-2]
-        today_open = df['Open'].iloc[-1]
-        today_high = df['High'].iloc[-1]
-        today_low = df['Low'].iloc[-1]
-        yesterday_high = df['High'].iloc[-2]
-        today_volume = df['Volume'].iloc[-1]
+
+        c_vals = df['Close'].values
+        v_vals = df['Volume'].values if 'Volume' in df.columns else np.zeros(len(c_vals))
+        h_vals = df['High'].values if 'High' in df.columns else c_vals
+        l_vals = df['Low'].values if 'Low' in df.columns else c_vals
+        o_vals = df['Open'].values if 'Open' in df.columns else c_vals
+
+        current_price = float(c_vals[-1])
+        prev_close = float(c_vals[-2])
+        today_open = float(o_vals[-1])
+        today_high = float(h_vals[-1])
+        today_low = float(l_vals[-1])
+        yesterday_high = float(h_vals[-2])
+        today_volume = float(v_vals[-1]) if not np.isnan(v_vals[-1]) else 0.0
         
         if prev_close <= 0 or today_high <= 0:
             continue
@@ -337,19 +365,26 @@ def process_intraday_data(history_df, tickers, index_data=None, industry_map=Non
         htf_thrust = htf_data['thrust_pct']
         htf_drawdown = htf_data['drawdown_pct']
 
-        # --- Ants Momentum (Deepvue) ---
-        is_ants = detect_ants_momentum(df, lookback=15, min_up_days=12)
+        # --- Ants Momentum (Deepvue - Early Exit Guard) ---
+        if ret_1m >= 3.0 and current_price > sma_50:
+            is_ants = detect_ants_momentum(df, lookback=15, min_up_days=12)
+        else:
+            is_ants = False
         
-        # --- HV1 AVWAP Defense ---
-        hv1_avwap = calculate_hv1_avwap(df, lookback=252)
-        is_avwap_defended = (hv1_avwap > 0) and (current_price > hv1_avwap) and (abs(current_price - hv1_avwap)/hv1_avwap < 0.05) # Within 5% of AVWAP
+        # --- HV1 AVWAP Defense (Early Exit Guard) ---
+        if vol_expansion >= 0.8 and current_price > sma_50:
+            hv1_avwap = calculate_hv1_avwap(df, lookback=252)
+            is_avwap_defended = (hv1_avwap > 0) and (current_price > hv1_avwap) and (abs(current_price - hv1_avwap)/hv1_avwap < 0.05)
+        else:
+            hv1_avwap = 0.0
+            is_avwap_defended = False
         
         # --- Oliver Kell Setups ---
         is_ema_crossback = is_stage_2 and detect_ema_crossback(df, ema_period=10, max_days_below=5)
-        is_reversal_ext = detect_reversal_extension(df, ema_period=10, extension_threshold=12.0)
+        is_reversal_ext = detect_reversal_extension(df, ema_period=10, extension_threshold=12.0) if is_extended_10ema else False
         
-        # --- Deepvue Power Trend ---
-        is_power_trend = detect_power_trend(df)
+        # --- Deepvue Power Trend (Early Exit Guard) ---
+        is_power_trend = detect_power_trend(df) if (current_price > sma_50 and is_stage_2) else False
 
         # --- 50 SMA Reclaim (Key Level Recatch) ---
         low_3d = df['Low'].iloc[-3:].min() if len(df) >= 3 else current_price
@@ -563,25 +598,14 @@ def main():
             db_cache = get_all_fundamentals_cache()
             ind_map = {t: db_cache.get(t, {}).get('industry', 'Unknown') for t in tickers}
             
-        with st.spinner(f"Downloading historical & live data for {len(tickers)} US stocks (~30-60s)..."):
-            history_df = fetch_yfinance_batch(tickers, days=252, force_today_refresh=True)
-            # Fetch S&P 500 for benchmark (1y to compute RS Blue Dot 52W breakouts)
-            index_df = yf.download('^GSPC', period="1y", progress=False)
+        with st.spinner(f"Loading data for {len(tickers)} US stocks (~10-20s)..."):
+            force_refresh = is_market_open_et()
+            history_df = fetch_yfinance_batch(tickers, days=252, force_today_refresh=force_refresh)
+            index_df = get_cached_index_history('^GSPC')
             
         with st.spinner("Computing Intraday Metrics..."):
             results_df, market_state = process_intraday_data(history_df, tickers, index_df, ind_map)
             breadth_history_df = process_historical_breadth(history_df, days=60)
-            
-            # --- AUTO-BACKFILL ENGINE ---
-            if len(tickers) == 1 or not isinstance(history_df.columns, pd.MultiIndex):
-                ticker_data = {tickers[0]: history_df} if not history_df.empty else {}
-            else:
-                ticker_data = {t: history_df[t] for t in tickers if t in history_df.columns.get_level_values(0).unique()}
-            
-            from database import auto_backfill_footprints
-            backfilled = auto_backfill_footprints(ticker_data, "USA", lookback_days=30)
-            if backfilled > 0:
-                st.session_state.batched_notifications.append(f"🔄 US Auto-Backfill: Found & restored {backfilled} historical footprints!")
             
             # Extract and save signals
             signals_to_save = []

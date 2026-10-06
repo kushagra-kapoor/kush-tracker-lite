@@ -47,6 +47,26 @@ def fetch_yfinance_batch(tickers, days=252, force_today_refresh=False):
     from price_history_manager import fetch_incremental_history
     return fetch_incremental_history(tickers, days, force_today_refresh=force_today_refresh)
 
+@st.cache_data(ttl=900, show_spinner=False)
+def get_cached_index_history(ticker: str = '^CRSLDX') -> pd.DataFrame:
+    """Fetch and cache benchmark index to avoid repeated network calls."""
+    try:
+        return yf.download(ticker, period="1y", progress=False)
+    except Exception:
+        return pd.DataFrame()
+
+def is_market_open_ist() -> bool:
+    """Check if Indian stock market (NSE) is actively trading right now."""
+    try:
+        now = datetime.now(pytz.timezone('Asia/Kolkata'))
+        if now.weekday() >= 5:  # Saturday or Sunday
+            return False
+        market_open = now.replace(hour=9, minute=15, second=0, microsecond=0)
+        market_close = now.replace(hour=15, minute=35, second=0, microsecond=0)
+        return market_open <= now <= market_close
+    except Exception:
+        return True
+
 # -----------------------------------------------------------------------------
 # METRIC CALCULATIONS
 # -----------------------------------------------------------------------------
@@ -224,18 +244,26 @@ def process_intraday_data(history_df, tickers, index_data=None, industry_map=Non
         super_compounders, rockets = set(), set()
 
     for ticker, df in ticker_data.items():
-        # Drop only if Close is missing. Yfinance often returns NaN for volume on Friday evenings
-        df = df.dropna(subset=['Close']).copy()
-        df['Volume'] = df['Volume'].fillna(0)
+        if df.empty or len(df) < 2:
+            continue
+        if df['Close'].isna().any():
+            df = df.dropna(subset=['Close'])
         if len(df) < 2:
             continue
-        current_price = df['Close'].iloc[-1]
-        prev_close = df['Close'].iloc[-2]
-        today_open = df['Open'].iloc[-1]
-        today_high = df['High'].iloc[-1]
-        today_low = df['Low'].iloc[-1]
-        yesterday_high = df['High'].iloc[-2]
-        today_volume = df['Volume'].iloc[-1]
+
+        c_vals = df['Close'].values
+        v_vals = df['Volume'].values if 'Volume' in df.columns else np.zeros(len(c_vals))
+        h_vals = df['High'].values if 'High' in df.columns else c_vals
+        l_vals = df['Low'].values if 'Low' in df.columns else c_vals
+        o_vals = df['Open'].values if 'Open' in df.columns else c_vals
+
+        current_price = float(c_vals[-1])
+        prev_close = float(c_vals[-2])
+        today_open = float(o_vals[-1])
+        today_high = float(h_vals[-1])
+        today_low = float(l_vals[-1])
+        yesterday_high = float(h_vals[-2])
+        today_volume = float(v_vals[-1]) if not np.isnan(v_vals[-1]) else 0.0
         
         if prev_close <= 0 or today_high <= 0:
             continue
@@ -243,17 +271,20 @@ def process_intraday_data(history_df, tickers, index_data=None, industry_map=Non
         # Today %
         today_pct = ((current_price - prev_close) / prev_close) * 100
         
-        # 20D Avg Vol & Expansion
-        avg_vol_20d = df['Volume'].iloc[-21:-1].mean() if len(df) >= 21 else df['Volume'].iloc[:-1].mean()
-        vol_expansion = (today_volume / avg_vol_20d) if avg_vol_20d > 0 else 0
+        # 20D Avg Vol & Expansion (fast numpy calculation)
+        vol_slice = v_vals[-21:-1] if len(v_vals) >= 21 else v_vals[:-1]
+        avg_vol_20d = float(np.mean(vol_slice)) if len(vol_slice) > 0 and not np.isnan(np.mean(vol_slice)) else 0.0
+        vol_expansion = (today_volume / avg_vol_20d) if avg_vol_20d > 0 else 0.0
         
         # Dollar Volume (Cr)
         dollar_volume_cr = (avg_vol_20d * current_price) / 10000000
         
-        # ADR% (Average Daily Range 20D)
-        if len(df) >= 20:
-            daily_ranges = ((df['High'].iloc[-20:] - df['Low'].iloc[-20:]) / df['Close'].iloc[-20:]) * 100
-            adr_pct = daily_ranges.mean()
+        # ADR% (Average Daily Range 20D via fast numpy)
+        if len(c_vals) >= 20:
+            h20 = h_vals[-20:]
+            l20 = l_vals[-20:]
+            c20 = c_vals[-20:]
+            adr_pct = float(np.mean(((h20 - l20) / c20) * 100))
         else:
             adr_pct = 0.0
         
@@ -262,12 +293,11 @@ def process_intraday_data(history_df, tickers, index_data=None, industry_map=Non
         
         # Max Last 252D High (excluding today)
         lookback_df = df.iloc[-253:-1] if len(df) >= 253 else df.iloc[:-1]
-        max_252d_high = lookback_df['High'].max() if not lookback_df.empty else today_high
+        max_252d_high = float(lookback_df['High'].max()) if not lookback_df.empty else today_high
         is_new_high = current_price >= max_252d_high and not lookback_df.empty
         
         # ---------------------------------------------------------------------
-        # NEW: Green Line Breakout (GLB) Detector
-        # A stock breaking above its 252-day high that was set AT LEAST 90 days ago.
+        # Green Line Breakout (GLB) Detector
         # ---------------------------------------------------------------------
         is_glb = False
         if is_new_high and not lookback_df.empty and len(lookback_df) >= 90:
@@ -276,7 +306,6 @@ def process_intraday_data(history_df, tickers, index_data=None, industry_map=Non
                 max_high_date = pd.to_datetime(max_high_date)
                 today_date = pd.to_datetime(df.index[-1])
                 days_since_high = (today_date - max_high_date).days
-                # GLB triggers if it's been at least 3 months since the peak, and volume is strong
                 if days_since_high >= 90 and vol_expansion >= 1.5:
                     is_glb = True
         
@@ -296,87 +325,99 @@ def process_intraday_data(history_df, tickers, index_data=None, industry_map=Non
         is_squat = (is_breakout or is_new_high) and (close_range_pct < 40.0)
         
         # 1M Return (21D)
-        ret_1m = 0
-        if len(df) >= 22:
-            close_21d = df['Close'].iloc[-22]
+        ret_1m = 0.0
+        if len(c_vals) >= 22:
+            close_21d = float(c_vals[-22])
             if close_21d > 0:
                 ret_1m = ((current_price - close_21d) / close_21d) * 100
                 
-        # --- Stage 2 & Moving Average Clusters ---
-        ema_10 = df['Close'].ewm(span=10, adjust=False, min_periods=5).mean().iloc[-1] if len(df) >= 10 else 0
-        sma_21 = df['Close'].rolling(window=21, min_periods=10).mean().iloc[-1] if len(df) >= 21 else 0
-        sma_50 = df['Close'].rolling(window=50, min_periods=20).mean().iloc[-1] if len(df) >= 50 else 0
-        sma_200 = df['Close'].rolling(window=200, min_periods=50).mean().iloc[-1] if len(df) >= 50 else 0
-        ema_65 = df['Close'].ewm(span=65, adjust=False, min_periods=20).mean().iloc[-1] if len(df) >= 65 else 0
+        # 3M Return (63D)
+        ret_3m = 0.0
+        if len(c_vals) >= 64:
+            close_63d = float(c_vals[-64])
+            if close_63d > 0:
+                ret_3m = ((current_price - close_63d) / close_63d) * 100
+
+        # --- Stage 2 & Moving Average Clusters (Fast Numpy Slicing) ---
+        c_len = len(c_vals)
+        sma_21 = float(np.mean(c_vals[-21:])) if c_len >= 21 else 0.0
+        sma_50 = float(np.mean(c_vals[-50:])) if c_len >= 50 else 0.0
+        sma_200 = float(np.mean(c_vals[-200:])) if c_len >= 200 else 0.0
+        ema_10 = df['Close'].iloc[-10:].ewm(span=10, adjust=False, min_periods=5).mean().iloc[-1] if c_len >= 10 else 0.0
+        ema_65 = df['Close'].iloc[-65:].ewm(span=65, adjust=False, min_periods=20).mean().iloc[-1] if c_len >= 65 else 0.0
         
         dist_ema10 = ((current_price - ema_10) / ema_10 * 100) if ema_10 > 0 else 100
         is_extended_10ema = dist_ema10 > 15.0
         
         dist_52w_high_breakout = ((max_252d_high - current_price) / max_252d_high * 100) if max_252d_high > 0 else 0
         
-        # User defined relaxed conditions for Elite Breakout:
-        # 1. Stage 2 Proxy: Price > 50 SMA > 200 SMA
-        # 2. Within 15% of 52W High
-        # 3. Up > 1% today
-        # 4. Volume > 1.0x 20D Average
         is_stage_2 = (current_price > sma_50) and (sma_50 > sma_200) and (sma_200 > 0)
         is_elite_breakout = (is_stage_2) and (dist_52w_high_breakout <= 15.0) and (today_pct > 1.0) and (vol_expansion > 1.0)
-                
-        # 3M Return (63D)
-        ret_3m = 0
-        if len(df) >= 64:
-            close_63d = df['Close'].iloc[-64]
-            if close_63d > 0:
-                ret_3m = ((current_price - close_63d) / close_63d) * 100
 
         # --- Deepvue Launch Pad (Early Entry Convergence) ---
-        dist_21 = (abs(current_price - sma_21) / sma_21 * 100) if sma_21 > 0 else 100
-        dist_50 = (abs(current_price - sma_50) / sma_50 * 100) if sma_50 > 0 else 100
-        dist_65 = (abs(current_price - ema_65) / ema_65 * 100) if ema_65 > 0 else 100
-        
-        max_compression = max(dist_21, dist_50, dist_65)
-        is_launchpad = (max_compression <= 3.5) and (sma_50 > sma_200) and (sma_200 > 0)
+        if sma_50 > sma_200 and sma_200 > 0:
+            dist_21 = (abs(current_price - sma_21) / sma_21 * 100) if sma_21 > 0 else 100
+            dist_50 = (abs(current_price - sma_50) / sma_50 * 100) if sma_50 > 0 else 100
+            dist_65 = (abs(current_price - ema_65) / ema_65 * 100) if ema_65 > 0 else 100
+            max_compression = max(dist_21, dist_50, dist_65)
+            is_launchpad = (max_compression <= 3.5)
+        else:
+            max_compression = 999.0
+            is_launchpad = False
 
         # --- TraderLion HV1 (Highest Volume in 1 Year) ---
-        max_vol_252d = lookback_df['Volume'].max() if not lookback_df.empty else 0
+        max_vol_252d = float(lookback_df['Volume'].max()) if not lookback_df.empty else 0.0
         vol_vs_1y_max = (today_volume / max_vol_252d) if max_vol_252d > 0 else 0
         is_hv1 = (today_volume > max_vol_252d) and (max_vol_252d > 0) and (close_range_pct >= 50) and (today_pct > 0)
 
-        # --- High Tight Flag (Power Play) ---
-        htf_data = detect_high_tight_flag(df, min_thrust_pct=70.0)
-        is_htf = htf_data['is_htf']
-        htf_thrust = htf_data['thrust_pct']
-        htf_drawdown = htf_data['drawdown_pct']
+        # --- High Tight Flag (Power Play - Early Exit Guard) ---
+        if ret_3m >= 35.0:
+            htf_data = detect_high_tight_flag(df, min_thrust_pct=70.0)
+            is_htf = htf_data['is_htf']
+            htf_thrust = htf_data['thrust_pct']
+            htf_drawdown = htf_data['drawdown_pct']
+        else:
+            is_htf, htf_thrust, htf_drawdown = False, 0.0, 0.0
 
-        # --- Ants Momentum (Deepvue) ---
-        is_ants = detect_ants_momentum(df, lookback=15, min_up_days=12)
+        # --- Ants Momentum (Deepvue - Early Exit Guard) ---
+        if ret_1m >= 3.0 and current_price > sma_50:
+            is_ants = detect_ants_momentum(df, lookback=15, min_up_days=12)
+        else:
+            is_ants = False
         
-        # --- 3-Weeks Tight (David Ryan) ---
-        is_3wt = detect_3_weeks_tight(df, max_variance_pct=2.0)
+        # --- 3-Weeks Tight (David Ryan - Early Exit Guard) ---
+        if is_stage_2 and dist_52w_high_breakout <= 20.0:
+            is_3wt = detect_3_weeks_tight(df, max_variance_pct=2.0)
+        else:
+            is_3wt = False
         
-        # --- HV1 AVWAP Defense ---
-        hv1_avwap = calculate_hv1_avwap(df, lookback=252)
-        is_avwap_defended = (hv1_avwap > 0) and (current_price > hv1_avwap) and (abs(current_price - hv1_avwap)/hv1_avwap < 0.05) # Within 5% of AVWAP
+        # --- HV1 AVWAP Defense (Early Exit Guard) ---
+        if vol_expansion >= 0.8 and current_price > sma_50:
+            hv1_avwap = calculate_hv1_avwap(df, lookback=252)
+            is_avwap_defended = (hv1_avwap > 0) and (current_price > hv1_avwap) and (abs(current_price - hv1_avwap)/hv1_avwap < 0.05)
+        else:
+            hv1_avwap = 0.0
+            is_avwap_defended = False
         
         # --- Oliver Kell Setups ---
         is_ema_crossback = is_stage_2 and detect_ema_crossback(df, ema_period=10, max_days_below=5)
-        is_reversal_ext = detect_reversal_extension(df, ema_period=10, extension_threshold=12.0)
+        is_reversal_ext = detect_reversal_extension(df, ema_period=10, extension_threshold=12.0) if is_extended_10ema else False
         
-        # --- Deepvue Power Trend ---
-        is_power_trend = detect_power_trend(df)
+        # --- Deepvue Power Trend (Early Exit Guard) ---
+        is_power_trend = detect_power_trend(df) if (current_price > sma_50 and is_stage_2) else False
 
         # --- 50 SMA Reclaim (Key Level Recatch) ---
-        low_3d = df['Low'].iloc[-3:].min() if len(df) >= 3 else current_price
-        yest_close = df['Close'].iloc[-2] if len(df) >= 2 else current_price
+        low_3d = float(np.min(l_vals[-3:])) if c_len >= 3 else current_price
+        yest_close = prev_close
         is_50_reclaim = (is_stage_2) and (low_3d < sma_50) and (current_price > sma_50) and (current_price > yest_close)
 
-        # --- RideWinners 12-Day Trending Heatmap (Option A Logic) ---
-        last_13 = df.iloc[-13:] if len(df) >= 13 else df
-        heatmap_array = []
-        for j in range(1, len(last_13)):
-            is_green = (last_13['Close'].iloc[j] > last_13['Open'].iloc[j]) and \
-                       (last_13['Close'].iloc[j] > last_13['Close'].iloc[j-1])
-            heatmap_array.append(1 if is_green else 0)
+        # --- RideWinners 12-Day Trending Heatmap (Fast Vectorized Numpy) ---
+        if c_len >= 13:
+            c13 = c_vals[-13:]
+            o13 = o_vals[-13:]
+            heatmap_array = [1 if (c13[j] > o13[j] and c13[j] > c13[j-1]) else 0 for j in range(1, len(c13))]
+        else:
+            heatmap_array = []
             
         trend_score = sum(heatmap_array)
         heatmap_str = "".join(["🟩" if val == 1 else "⬛" for val in heatmap_array])
@@ -609,25 +650,16 @@ def main():
                 tickers = get_cached_universe("Deep Market (2500+ NSE Stocks)")
                 ind_map = {t: db_cache.get(t, {}).get('industry', 'Unknown') for t in tickers}
             
-        with st.spinner(f"Downloading historical & live data for {len(tickers)} stocks (~30-60s)..."):
-            history_df = fetch_yfinance_batch(tickers, days=252, force_today_refresh=True)
-            # Fetch Nifty 500 for benchmark (1y to compute RS Blue Dot 52W breakouts)
-            index_df = yf.download('^CRSLDX', period="1y", progress=False)
+        with st.spinner(f"Loading data for {len(tickers)} stocks (~10-20s)..."):
+            # Only force network delta fetch if market is actively open
+            force_refresh = is_market_open_ist()
+            history_df = fetch_yfinance_batch(tickers, days=252, force_today_refresh=force_refresh)
+            # Use cached index history
+            index_df = get_cached_index_history('^CRSLDX')
             
         with st.spinner("Computing Intraday Metrics..."):
             results_df, market_state = process_intraday_data(history_df, tickers, index_df, ind_map)
             breadth_history_df = process_historical_breadth(history_df, days=60)
-            
-            # --- AUTO-BACKFILL ENGINE ---
-            if len(tickers) == 1 or not isinstance(history_df.columns, pd.MultiIndex):
-                ticker_data = {tickers[0]: history_df} if not history_df.empty else {}
-            else:
-                ticker_data = {t: history_df[t] for t in tickers if t in history_df.columns.get_level_values(0).unique()}
-            
-            from database import auto_backfill_footprints
-            backfilled = auto_backfill_footprints(ticker_data, "INDIA", lookback_days=30)
-            if backfilled > 0:
-                st.session_state.batched_notifications.append(f"🔄 Auto-Backfill: Found & restored {backfilled} historical footprints from the last 30 days!")
             
             # Extract and save signals
             signals_to_save = []
