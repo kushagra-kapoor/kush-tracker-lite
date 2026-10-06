@@ -32,7 +32,14 @@ st.set_page_config(
     page_title="Kush Tracker Lite | CANSLIM Trading Terminal",
     page_icon="⚡",
     layout="wide",
-    initial_sidebar_state="expanded"
+    initial_sidebar_state="auto"
+)
+
+from session_manager import (
+    create_secure_session,
+    validate_secure_session,
+    revoke_secure_session,
+    cleanup_expired_sessions
 )
 
 # Load CSS & Init DB
@@ -64,6 +71,26 @@ def check_auth_credentials(user_input, pass_input):
 if 'authenticated' not in st.session_state:
     st.session_state.authenticated = False
 
+# Periodic single-day cleanup of expired sessions
+try:
+    cleanup_expired_sessions()
+except Exception:
+    pass
+
+# --- AUTO-LOGIN VIA SECURE SINGLE-DAY SESSION ---
+if not st.session_state.authenticated:
+    url_token = st.query_params.get("session") or st.query_params.get("s")
+    if url_token:
+        is_valid, user = validate_secure_session(url_token)
+        if is_valid:
+            st.session_state.authenticated = True
+            st.session_state.username = user
+            st.session_state.session_token = url_token
+        else:
+            # Stale or expired token from previous day: cleanly scrub from URL
+            st.query_params.pop("session", None)
+            st.query_params.pop("s", None)
+
 # Render Login Screen if not authenticated
 if not st.session_state.authenticated:
     st.markdown("<br/><br/>", unsafe_allow_html=True)
@@ -80,17 +107,29 @@ if not st.session_state.authenticated:
         with st.form("login_form"):
             username = st.text_input("👤 Username", placeholder="Enter username")
             password = st.text_input("🔑 Password", type="password", placeholder="Enter password")
+            remember_today = st.checkbox(
+                "💾 Stay signed in today on this browser",
+                value=True,
+                help="Securely keeps you logged in until midnight across mobile refreshes, tab switches, and app suspensions."
+            )
             submit_login = st.form_submit_button("🔐 Sign In", use_container_width=True, type="primary")
             
             if submit_login:
                 if check_auth_credentials(username, password):
                     st.session_state.authenticated = True
-                    st.success("Authentication successful! Redirecting...")
+                    st.session_state.username = username
+                    if remember_today:
+                        token = create_secure_session(username)
+                        if token:
+                            st.session_state.session_token = token
+                            st.query_params["session"] = token
+                    st.success("Authentication successful! Loading terminal...")
                     st.rerun()
                 else:
                     st.error("❌ Invalid Username or Password. Access Denied.")
                     
-        st.caption("🔒 Configured for private execution via Streamlit Secrets. Default: `admin / admin123`")
+        st.caption("🔒 Single-day secure session. Default: `admin / admin123`")
+        st.caption("💡 *Tip on Mobile*: Add to Home Screen after signing in to open like a native app!")
     st.stop()
 
 # --- MAIN AUTHENTICATED APP SHELL ---
@@ -153,7 +192,13 @@ except Exception as e:
 st.sidebar.markdown("---")
 st.sidebar.caption("Kush Tracker Lite v2.0")
 if st.sidebar.button("🚪 Sign Out", use_container_width=True):
+    curr_token = st.session_state.get("session_token") or st.query_params.get("session") or st.query_params.get("s")
+    if curr_token:
+        revoke_secure_session(curr_token)
+    st.query_params.pop("session", None)
+    st.query_params.pop("s", None)
     st.session_state.authenticated = False
+    st.session_state.clear()
     st.rerun()
 
 # Run Modern Streamlit Router

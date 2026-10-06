@@ -98,16 +98,16 @@ def sync_all_data():
         
     # 6. Global ETF Momentum
     print("Calculating ETF Momentum...")
-    if os.path.exists('historical_prices_matrix.pkl'):
-        df = pd.read_pickle('historical_prices_matrix.pkl')
-        if not df.empty:
-            close_prices = df.xs('Close', level=1, axis=1)
+    all_etfs = list(set(us_etfs + in_etfs))
+    if all_etfs:
+        try:
+            data = yf.download(all_etfs, period="7mo", progress=False)
+            close_prices = data['Close'] if isinstance(data.columns, pd.MultiIndex) else data
             etf_results = []
-            
-            for etf in set(us_etfs + in_etfs):
+            for etf in all_etfs:
                 if etf in close_prices.columns:
                     series = close_prices[etf].dropna()
-                    if len(series) > 0:
+                    if len(series) >= 20:
                         r1 = (series.iloc[-1] / series.iloc[-21]) - 1 if len(series) > 21 else 0
                         r3 = (series.iloc[-1] / series.iloc[-63]) - 1 if len(series) > 63 else 0
                         r6 = (series.iloc[-1] / series.iloc[-126]) - 1 if len(series) > 126 else 0
@@ -122,6 +122,9 @@ def sync_all_data():
                         })
             if etf_results:
                 save_global_etf_momentum(etf_results)
+                print(f"Saved momentum for {len(etf_results)} global ETFs.")
+        except Exception as e:
+            print(f"Failed ETF momentum calc: {e}")
                 
     # 7. Update NIFTY 500 RS Reference
     print("Computing NIFTY 500 RS Reference...")

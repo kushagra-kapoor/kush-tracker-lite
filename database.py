@@ -355,6 +355,22 @@ def init_database():
             UNIQUE(date, ticker)
         )
     ''')
+
+    # Persistent Web & Mobile Sessions Table
+    safe_execute(cursor, '''
+        CREATE TABLE IF NOT EXISTS app_sessions (
+            token_hash TEXT PRIMARY KEY,
+            username TEXT NOT NULL,
+            expires_at TEXT NOT NULL,
+            device_fingerprint TEXT DEFAULT '',
+            created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+            last_active TEXT DEFAULT CURRENT_TIMESTAMP
+        )
+    ''')
+    safe_execute(cursor, '''
+        CREATE INDEX IF NOT EXISTS idx_sessions_hash ON app_sessions(token_hash)
+    ''')
+
     conn.commit()
     conn.close()
     print("Database initialized successfully")
@@ -1476,13 +1492,12 @@ def get_latest_global_regime(market: str = None) -> list:
             ORDER BY date DESC LIMIT 1
         ''', (market,))
     else:
-        cursor.execute("SELECT MAX(date) FROM global_regime_history")
-        row = cursor.fetchone()
-        latest = row[0] if row else None
-        if not latest:
-            conn.close()
-            return []
-        cursor.execute("SELECT * FROM global_regime_history WHERE date = ?", (latest,))
+        cursor.execute('''
+            SELECT * FROM global_regime_history 
+            WHERE (market, date) IN (
+                SELECT market, MAX(date) FROM global_regime_history GROUP BY market
+            )
+        ''')
     
     results = _fetch_all_dicts(cursor)
     conn.close()
@@ -1507,14 +1522,148 @@ def get_latest_global_etf_momentum() -> list:
     import sqlite3
     conn = get_connection()
     cursor = conn.cursor()
-    cursor.execute("SELECT MAX(date) FROM global_etf_momentum")
-    row = cursor.fetchone()
-    latest = row[0] if row else None
-    if not latest:
-        conn.close()
-        return []
-        
-    cursor.execute("SELECT * FROM global_etf_momentum WHERE date = ?", (latest,))
+    # Fetch the latest recorded bar for EACH individual ticker to prevent
+    # differing market calendars (US vs India holidays/timezones) from dropping Indian ETFs
+    cursor.execute("""
+        SELECT * FROM global_etf_momentum 
+        WHERE (ticker, date) IN (
+            SELECT ticker, MAX(date) FROM global_etf_momentum GROUP BY ticker
+        )
+    """)
     results = _fetch_all_dicts(cursor)
     conn.close()
+    
+    # Enrich with Asset Class Taxonomy & Display Metadata
+    for r in results:
+        cat, display_name, ctry = classify_etf_asset_class(r['ticker'])
+        r['category'] = cat
+        r['display_name'] = display_name
+        r['country'] = ctry
     return results
+
+
+def classify_etf_asset_class(ticker: str) -> tuple:
+    """
+    Returns (category, display_name, country) for any ETF ticker.
+    Categories:
+    - 'Precious Metals & Commodities'
+    - 'Indian Sectoral & Factor'
+    - 'US Thematic & Sector'
+    - 'Global Country Flows'
+    """
+    t = str(ticker).upper()
+    
+    # 1. Precious Metals & Commodities
+    commodity_tickers = {
+        'GOLDBEES.NS': ('Nippon India Gold ETF', 'Precious Metals & Commodities', 'IN'),
+        'SILVERBEES.NS': ('Nippon India Silver ETF', 'Precious Metals & Commodities', 'IN'),
+        'GLD': ('SPDR Gold Trust', 'Precious Metals & Commodities', 'US'),
+        'SLV': ('iShares Silver Trust', 'Precious Metals & Commodities', 'US'),
+        'CPER': ('United States Copper Index Fund', 'Precious Metals & Commodities', 'US'),
+        'USO': ('United States Oil Fund', 'Precious Metals & Commodities', 'US'),
+        'BNO': ('United States Brent Oil Fund', 'Precious Metals & Commodities', 'US'),
+        'UNG': ('United States Natural Gas Fund', 'Precious Metals & Commodities', 'US'),
+        'DBA': ('Invesco DB Agriculture Fund', 'Precious Metals & Commodities', 'US'),
+        'DBC': ('Invesco DB Commodity Index', 'Precious Metals & Commodities', 'US'),
+    }
+    if t in commodity_tickers:
+        name, cat, ctry = commodity_tickers[t]
+        return cat, name, ctry
+    if 'GOLD' in t or 'SILVER' in t:
+        return 'Precious Metals & Commodities', t.replace('.NS', ''), 'IN' if t.endswith('.NS') else 'US'
+
+    # 2. Global Country / Geographic Flows
+    country_tickers = {
+        'SPY': ('S&P 500 US Core', 'Global Country Flows', 'US'),
+        'QQQ': ('Nasdaq 100 Tech', 'Global Country Flows', 'US'),
+        'IWM': ('Russell 2000 US SmallCap', 'Global Country Flows', 'US'),
+        'DIA': ('Dow Jones Industrial', 'Global Country Flows', 'US'),
+        'EEM': ('iShares MSCI Emerging Markets', 'Global Country Flows', 'Global'),
+        'EWZ': ('iShares MSCI Brazil', 'Global Country Flows', 'Brazil'),
+        'EWJ': ('iShares MSCI Japan', 'Global Country Flows', 'Japan'),
+        'EWT': ('iShares MSCI Taiwan', 'Global Country Flows', 'Taiwan'),
+        'EWY': ('iShares MSCI South Korea', 'Global Country Flows', 'Korea'),
+        'EWA': ('iShares MSCI Australia', 'Global Country Flows', 'Australia'),
+        'EWC': ('iShares MSCI Canada', 'Global Country Flows', 'Canada'),
+        'EWG': ('iShares MSCI Germany', 'Global Country Flows', 'Germany'),
+        'EWH': ('iShares MSCI Hong Kong', 'Global Country Flows', 'Hong Kong'),
+        'EWP': ('iShares MSCI Spain', 'Global Country Flows', 'Spain'),
+        'EWU': ('iShares MSCI United Kingdom', 'Global Country Flows', 'UK'),
+        'EWW': ('iShares MSCI Mexico', 'Global Country Flows', 'Mexico'),
+        'EZA': ('iShares MSCI South Africa', 'Global Country Flows', 'South Africa'),
+        'MCHI': ('iShares MSCI China', 'Global Country Flows', 'China'),
+        'FXI': ('iShares China Large-Cap', 'Global Country Flows', 'China'),
+        'VGK': ('Vanguard FTSE Europe', 'Global Country Flows', 'Europe'),
+        'MON100.NS': ('Motilal Oswal Nasdaq 100', 'Global Country Flows', 'US in IN'),
+        'MAFANG.NS': ('Mirae Asset NYSE FANG+', 'Global Country Flows', 'US Tech in IN'),
+        'HNGSNGBEES.NS': ('Nippon Hang Seng BeES', 'Global Country Flows', 'China/HK'),
+    }
+    if t in country_tickers:
+        name, cat, ctry = country_tickers[t]
+        return cat, name, ctry
+
+    # 3. Indian Sector & Factor ETFs
+    if t.endswith('.NS') or t.endswith('.BO'):
+        clean_name = t.replace('.NS', '').replace('.BO', '')
+        in_names = {
+            'NIFTYBEES': 'Nifty 50 Large Cap',
+            'JUNIORBEES': 'Nifty Next 50 Mid/Large',
+            'BANKBEES': 'Nifty Banking Sector',
+            'ITBEES': 'Nifty IT / Software',
+            'PHARMABEES': 'Nifty Pharma & Healthcare',
+            'AUTOBEES': 'Nifty Automotive',
+            'FMCGBEES': 'Nifty FMCG / Staples',
+            'CPSEETF': 'Central Public Sector Enterprises',
+            'INFRABEES': 'Nifty Infrastructure',
+            'CONSUMBEES': 'Nifty India Consumption',
+            'MID150BEES': 'Nifty Midcap 150',
+            'SMALLCAP': 'Nifty Smallcap 100',
+            'MIDSMALL': 'Nifty Midsmallcap 400',
+            'MOMENTUM50': 'Nifty 200 Momentum 30/50',
+            'MOM30IETF': 'Nifty Momentum 30',
+            'ALPHAETF': 'Nifty Alpha 50 Factor',
+            'ALPHABEES': 'Nifty Alpha 50 Factor',
+            'LOWVOLIETF': 'Nifty 100 Low Volatility 30',
+            'NV20IETF': 'Nifty 50 Value 20',
+            'PSUBNKBEES': 'Nifty PSU Public Banks',
+            'MAKEINDIA': 'Nifty India Manufacturing',
+            'HDFCSML250': 'HDFC Nifty Smallcap 250',
+            'MODEFENCE': 'Motilal Oswal India Defence',
+            'METALIETF': 'Nifty Metal Sector',
+            'ENERGYIETF': 'Nifty Energy Sector',
+        }
+        return 'Indian Sectoral & Factor', in_names.get(clean_name, clean_name), 'IN'
+
+    # 4. US Sector & Thematics
+    us_thematics = {
+        'SMH': ('VanEck Semiconductor ETF', 'US Thematic & Sector', 'US'),
+        'SOXX': ('iShares Semiconductor ETF', 'US Thematic & Sector', 'US'),
+        'IBIT': ('iShares Bitcoin Trust', 'US Thematic & Sector', 'US'),
+        'ARKK': ('ARK Innovation ETF', 'US Thematic & Sector', 'US'),
+        'MTUM': ('iShares MSCI USA Momentum', 'US Thematic & Sector', 'US'),
+        'QUAL': ('iShares MSCI USA Quality', 'US Thematic & Sector', 'US'),
+        'VLUE': ('iShares MSCI USA Value', 'US Thematic & Sector', 'US'),
+        'USMV': ('iShares MSCI USA Min Vol', 'US Thematic & Sector', 'US'),
+        'XLK': ('Technology Select Sector', 'US Thematic & Sector', 'US'),
+        'XLV': ('Health Care Select Sector', 'US Thematic & Sector', 'US'),
+        'XLF': ('Financial Select Sector', 'US Thematic & Sector', 'US'),
+        'XLY': ('Consumer Discretionary', 'US Thematic & Sector', 'US'),
+        'XLP': ('Consumer Staples', 'US Thematic & Sector', 'US'),
+        'XLI': ('Industrial Select Sector', 'US Thematic & Sector', 'US'),
+        'XLE': ('Energy Select Sector', 'US Thematic & Sector', 'US'),
+        'XLU': ('Utilities Select Sector', 'US Thematic & Sector', 'US'),
+        'XLB': ('Materials Select Sector', 'US Thematic & Sector', 'US'),
+        'XLRE': ('Real Estate Select Sector', 'US Thematic & Sector', 'US'),
+        'XLC': ('Communication Services', 'US Thematic & Sector', 'US'),
+        'ITA': ('iShares US Aerospace & Defense', 'US Thematic & Sector', 'US'),
+        'XHB': ('SPDR S&P Homebuilders', 'US Thematic & Sector', 'US'),
+        'TAN': ('Invesco Solar ETF', 'US Thematic & Sector', 'US'),
+        'URA': ('Global X Uranium ETF', 'US Thematic & Sector', 'US'),
+        'IBB': ('iShares Biotechnology ETF', 'US Thematic & Sector', 'US'),
+    }
+    if t in us_thematics:
+        name, cat, ctry = us_thematics[t]
+        return cat, name, ctry
+
+    return 'US Thematic & Sector', t, 'US'
+

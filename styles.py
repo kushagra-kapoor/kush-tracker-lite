@@ -252,5 +252,69 @@ def load_css():
         ::-webkit-scrollbar-track { background: #020617; }
         ::-webkit-scrollbar-thumb { background: #1e293b; border-radius: 3px; }
         ::-webkit-scrollbar-thumb:hover { background: #334155; }
+
+        /* =========================================
+           MOBILE RESPONSIVE BREAKPOINTS (max-width: 768px)
+           ========================================= */
+        @media (max-width: 768px) {
+            /* Compact mobile container spacing */
+            .block-container {
+                padding-top: 0.5rem !important;
+                padding-left: 0.75rem !important;
+                padding-right: 0.75rem !important;
+                padding-bottom: 2rem !important;
+                max-width: 100% !important;
+            }
+            
+            /* Compact mobile app header */
+            .st-app-header {
+                padding: 1.25rem 1rem !important;
+                margin-bottom: 1.2rem !important;
+                border-radius: 14px !important;
+            }
+            .st-app-header h1 {
+                font-size: 1.6rem !important;
+                line-height: 1.2 !important;
+                letter-spacing: -0.5px !important;
+            }
+            .st-app-header p {
+                font-size: 0.85rem !important;
+                margin-top: 0.4rem !important;
+            }
+            
+            /* Compact metric cards & bordered blocks */
+            .metric-card, [data-testid="stVerticalBlockBorderWrapper"] {
+                padding: 0.85rem 0.75rem !important;
+                border-radius: 12px !important;
+                margin-bottom: 0.5rem !important;
+            }
+            .metric-value {
+                font-size: 1.35rem !important;
+            }
+            .metric-label {
+                font-size: 0.72rem !important;
+                margin-bottom: 0.35rem !important;
+                letter-spacing: 1px !important;
+            }
+            
+            /* Thumb-friendly touch targets */
+            button, [data-testid="stBaseButton-secondary"], [data-testid="stBaseButton-primary"] {
+                min-height: 44px !important;
+                font-size: 0.95rem !important;
+            }
+            
+            /* Dataframe and table touch scrolling */
+            .stDataFrame, [data-testid="stTable"] {
+                width: 100% !important;
+                overflow-x: auto !important;
+                -webkit-overflow-scrolling: touch !important;
+            }
+
+            /* Responsive tabs */
+            [data-testid="stTabs"] [role="tablist"] {
+                overflow-x: auto !important;
+                white-space: nowrap !important;
+            }
+        }
     </style>
     """, unsafe_allow_html=True)
