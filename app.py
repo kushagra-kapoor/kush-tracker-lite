@@ -134,6 +134,11 @@ if not st.session_state.authenticated:
 
 # --- MAIN AUTHENTICATED APP SHELL ---
 
+# Continuous session parameter persistence across all page switches
+active_token = st.session_state.get("session_token")
+if active_token and st.query_params.get("session") != active_token:
+    st.query_params["session"] = active_token
+
 # Sidebar Brand Header
 st.sidebar.markdown("""
 <div style='text-align: center; padding: 10px 0;'>
