@@ -22,9 +22,14 @@ def _fetch_series(ticker: str) -> pd.Series:
     falling back to yfinance if needed.
     """
     try:
-        from curl_cffi import requests
-        url = f'https://query2.finance.yahoo.com/v8/finance/chart/{ticker}?range=1y&interval=1d'
-        r = requests.get(url, impersonate='chrome', timeout=8)
+        try:
+            from curl_cffi import requests as c_requests
+            r = c_requests.get(f'https://query2.finance.yahoo.com/v8/finance/chart/{ticker}?range=1y&interval=1d', impersonate='chrome', timeout=8)
+        except ImportError:
+            import requests as c_requests
+            headers = {'User-Agent': 'Mozilla/5.0'}
+            r = c_requests.get(f'https://query2.finance.yahoo.com/v8/finance/chart/{ticker}?range=1y&interval=1d', headers=headers, timeout=8)
+            
         if r.status_code == 200:
             data = r.json()
             res = data.get('chart', {}).get('result', [])

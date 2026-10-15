@@ -666,7 +666,10 @@ def main():
                 tickers, nse_map = fetch_nifty_total_market_tickers(return_industry_map=True)
                 ind_map = {t: db_cache.get(t, {}).get('industry', nse_map.get(t, 'Unknown')) for t in tickers}
             else:
-                from pages.true_market_leader import get_cached_universe
+                try:
+                    from views.true_market_leader import get_cached_universe
+                except ImportError:
+                    from pages.true_market_leader import get_cached_universe
                 tickers = get_cached_universe("Deep Market (2500+ NSE Stocks)")
                 ind_map = {t: db_cache.get(t, {}).get('industry', 'Unknown') for t in tickers}
 

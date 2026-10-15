@@ -951,10 +951,16 @@ import streamlit as st
 def fetch_index_new_highs():
     """
     Fetches major index data and calculates when the last 52-week high was made.
-    Uses curl_cffi directly against Yahoo Finance to bypass bot rate-limiting.
+    Uses curl_cffi or standard requests with headers, falling back to yfinance.
     """
     import pandas as pd
-    from curl_cffi import requests
+    
+    try:
+        from curl_cffi import requests as c_requests
+        has_curl_cffi = True
+    except ImportError:
+        import requests as c_requests
+        has_curl_cffi = False
     
     indices = {
         'NIFTY 50': '^NSEI',
@@ -967,33 +973,45 @@ def fetch_index_new_highs():
     
     for name, ticker in indices.items():
         try:
-            url = f'https://query2.finance.yahoo.com/v8/finance/chart/{ticker}?range=2y&interval=1d'
-            r = requests.get(url, impersonate='chrome', timeout=10)
-            
-            if r.status_code != 200:
-                print(f"Failed to fetch {ticker}: {r.status_code}")
-                continue
+            highs = None
+            try:
+                url = f'https://query2.finance.yahoo.com/v8/finance/chart/{ticker}?range=2y&interval=1d'
+                if has_curl_cffi:
+                    r = c_requests.get(url, impersonate='chrome', timeout=10)
+                else:
+                    headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'}
+                    r = c_requests.get(url, headers=headers, timeout=10)
                 
-            data = r.json()
-            result = data.get('chart', {}).get('result', [])
-            if not result:
-                continue
+                if r.status_code == 200:
+                    data = r.json()
+                    result = data.get('chart', {}).get('result', [])
+                    if result:
+                        timestamps = result[0].get('timestamp', [])
+                        quote = result[0].get('indicators', {}).get('quote', [{}])[0]
+                        high_prices = quote.get('high', [])
+                        
+                        if timestamps and high_prices:
+                            df = pd.DataFrame({
+                                'timestamp': pd.to_datetime(timestamps, unit='s'),
+                                'high': high_prices
+                            })
+                            highs = pd.to_numeric(df['high']).dropna()
+            except Exception:
+                highs = None
                 
-            timestamps = result[0].get('timestamp', [])
-            quote = result[0].get('indicators', {}).get('quote', [{}])[0]
-            high_prices = quote.get('high', [])
+            if highs is None or len(highs) < 200:
+                try:
+                    import yfinance as yf
+                    yf_df = yf.download(ticker, period='2y', progress=False)
+                    if not yf_df.empty:
+                        if isinstance(yf_df.columns, pd.MultiIndex):
+                            highs = yf_df['High'][ticker].dropna()
+                        elif 'High' in yf_df.columns:
+                            highs = yf_df['High'].dropna()
+                except Exception:
+                    pass
             
-            if not timestamps or not high_prices:
-                continue
-                
-            df = pd.DataFrame({
-                'timestamp': pd.to_datetime(timestamps, unit='s'),
-                'high': high_prices
-            })
-            
-            highs = pd.to_numeric(df['high']).dropna()
-            
-            if len(highs) < 200:
+            if highs is None or len(highs) < 200:
                 continue
                 
             # A new high is made if High >= rolling_max_prev

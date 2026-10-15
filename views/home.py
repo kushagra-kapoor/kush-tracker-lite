@@ -77,7 +77,11 @@ import os
 
 @st.cache_resource
 def start_background_backfill():
-    """Starts the TML history backfill script in the background once per server start."""
+    """Starts the TML history backfill script in the background once per server start if explicitly enabled."""
+    if os.environ.get("ENABLE_BACKGROUND_BACKFILL") != "1":
+        # Cloud safety: Do NOT run heavy 1,500-stock subprocesses on Streamlit Community Cloud (1GB RAM budget)
+        return False
+
     def run_backfill():
         print("[System] Starting background TML history backfill...")
         try:

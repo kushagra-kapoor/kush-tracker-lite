@@ -155,7 +155,9 @@ def get_zweig_tape_summary(market='IN', lookback=120) -> dict:
     latest = df.iloc[-1]
     
     # Days since last ZBT signal
-    zbt_indices = df.index[df.get('zbt_signal', 0) == 1].tolist()
+    zbt_indices = []
+    if 'zbt_signal' in df.columns:
+        zbt_indices = df.index[df['zbt_signal'] == 1].tolist()
     days_since_zbt = None
     if zbt_indices:
         last_zbt_date = zbt_indices[-1]
