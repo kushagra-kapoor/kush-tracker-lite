@@ -71,7 +71,8 @@ def check_warning_triggers(df: pd.DataFrame) -> dict:
     Check for warning-level trim triggers.
     
     Triggers:
-    1. Close < 21 EMA for 5+ consecutive days
+    1. Close < 21 EMA / 21 SMA for consecutive days:
+       - Ross Haber Core Sell Rule: 2 consecutive closes below 21 SMA/EMA triggers mandatory 1/3 to 1/2 trim.
     2. Single down day > 5% on above-average volume
     
     Args:
@@ -82,6 +83,7 @@ def check_warning_triggers(df: pd.DataFrame) -> dict:
     """
     triggers = {
         'consecutive_below_21ema': False,
+        'haber_double_close_triggered': False,
         'high_vol_down_day': False,
         'days_below_21ema': 0,
     }
@@ -93,7 +95,12 @@ def check_warning_triggers(df: pd.DataFrame) -> dict:
     days_below = count_days_below_ema(df, 'ema_21', lookback=10)
     triggers['days_below_21ema'] = days_below
     
-    if days_below >= TREND_RULES['WARNING_CONSECUTIVE_DAYS']:
+    # Ross Haber 21-Day Moving Average Double-Close Rule:
+    # 2 consecutive closes below 21 EMA/SMA triggers trim 1/3 to 1/2
+    if days_below >= 2:
+        triggers['haber_double_close_triggered'] = True
+        triggers['consecutive_below_21ema'] = True
+    elif days_below >= TREND_RULES.get('WARNING_CONSECUTIVE_DAYS', 5):
         triggers['consecutive_below_21ema'] = True
     
     # Check for high-volume down day

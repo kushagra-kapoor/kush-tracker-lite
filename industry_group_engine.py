@@ -708,6 +708,10 @@ def compute_industry_group_matrix(taxonomy: str = "canonical", universe_scope: s
             dual_badge = "📉 Bleed"
             dual_style = "bleed"
         
+        # Ross Haber Group Confirmation: >= 3 Leaders with RS >= 80
+        is_group_confirmed = bool(pack_count >= 3)
+        group_conf_badge = f"✅ Confirmed ({pack_count} Leaders)" if is_group_confirmed else f"⚪ Unconfirmed ({pack_count}/3)"
+        
         rows.append({
             'Industry_Group': grp,
             'Rank_Today': rank_td,
@@ -716,6 +720,8 @@ def compute_industry_group_matrix(taxonomy: str = "canonical", universe_scope: s
             'Dual_Style': dual_style,
             'Is_Dual_Alpha': bool(is_rel_3m and is_abs_3m),
             'Is_Relative_Mirage': bool(is_rel_3m and not is_abs_3m),
+            'Is_Group_Confirmed': is_group_confirmed,
+            'Group_Confirmation_Badge': group_conf_badge,
             'Rank_1W': rank_w1,
             'Rank_3W': rank_w3,
             'Rank_1M': rank_m1,

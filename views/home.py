@@ -425,8 +425,8 @@ def main():
             st.error("Failed to fetch universe data from NSE. Please try again later.")
             return None
         tks = universe['Symbol'].tolist()
-        idx_n50 = yf.download('^NSEI', period="100d", progress=False)
-        idx_n500 = yf.download('^CRSLDX', period="100d", progress=False)
+        idx_n50 = yf.download('^NSEI', period="250d", progress=False)
+        idx_n500 = yf.download('^CRSLDX', period="250d", progress=False)
         hist_df = fetch_yfinance_batch(tks, days=500)
         return process_macro_data(hist_df, universe, idx_n50, idx_n500)
 
@@ -470,148 +470,591 @@ def main():
     else:
         choch = None
     
-    if macro_res:
-        st.markdown("## 🦅 Daily Insights Cockpit")
-        
-        c_col1, c_col2, c_col3 = st.columns(3)
-        
-        # Panel 1: Macro Health & Exposure Guide
-        with c_col1:
-            ler = macro_res.get('leadership', {}).get('ler_current', 0)
-            lac = macro_res.get('leadership', {}).get('lac_current', 0)
-            lt = macro_res.get('leadership', {}).get('lt_current', 0)
-            bt = macro_res.get('breadth', {}).get('breadth_ma10_current', 0.5)
-            
-            health = generate_macro_health_score(ler, lac, lt, bt)
-            exposure_guide = generate_exposure_guide(regime, ler)
-            
-            st.markdown(f"""
-<div class="metric-card" style="border-top: 4px solid {health['color']}; height: 100%;">
-<p style="color: #94a3b8; font-size: 0.85rem; margin: 0; text-transform: uppercase; font-weight: bold;">Macro Health Index</p>
-<div style="display: flex; align-items: baseline; justify-content: center; gap: 10px; margin: 0.5rem 0;">
-<h1 style="color: {health['color']}; margin: 0;">{health['score']:.0f}</h1>
-<span style="color: #94a3b8; font-size: 1.2rem;">/ 100</span>
-</div>
-<h4 style="color: {health['color']}; margin: 0 0 1rem 0;">{health['label']}</h4>
-<div style="background: rgba(0,0,0,0.2); padding: 0.75rem; border-radius: 8px; text-align: left;">
-<p style="margin: 0; font-size: 0.9rem; color: #cbd5e1;">Target Exposure: <strong style="color: {exposure_guide['color']};">{exposure_guide['level']} ({exposure_guide['stance']})</strong></p>
-<p style="margin: 0.5rem 0 0 0; font-size: 0.8rem; color: #94a3b8;">💡 <i>{exposure_guide['advice']}</i></p>
-</div>
-</div>
-""", unsafe_allow_html=True)
-            
-        # Panel 2: Regime & Change of Character
-        with c_col2:
-            choch_html = ""
-            if choch and choch['detected']:
-                choch_html = f"""
-<div style="background: rgba({int(choch['color'].lstrip('#')[0:2], 16)}, {int(choch['color'].lstrip('#')[2:4], 16)}, {int(choch['color'].lstrip('#')[4:6], 16)}, 0.1); border-left: 3px solid {choch['color']}; padding: 0.5rem; border-radius: 4px; margin-top: 0.75rem; text-align: left;">
-<p style="margin: 0; font-size: 0.75rem; color: #94a3b8; text-transform: uppercase;">Wyckoff Alert ({choch['date']})</p>
-<p style="margin: 0; color: {choch['color']}; font-weight: bold; font-size: 0.9rem;">{choch['label']}</p>
-</div>
-"""
-                
-            st.markdown(f"""
-<div class="metric-card" style="border-top: 4px solid {regime_color}; height: 100%;">
-<p style="color: #94a3b8; font-size: 0.85rem; margin: 0; text-transform: uppercase; font-weight: bold;">Price Regime Status</p>
-<h3 style="color: {regime_color}; margin: 0.5rem 0;">{regime}</h3>
-<div style="display: flex; justify-content: space-around; font-size: 0.85rem; color: #cbd5e1; margin-top: 1rem;">
-<div><span style="color: #94a3b8;">Dist Days:</span> <strong>{dd_count}</strong></div>
-<div><span style="color: #94a3b8;">vs 50SMA:</span> <strong>{'+' if current_idx_price > sma50 else '-'}{abs((current_idx_price/sma50-1)*100):.1f}%</strong></div>
-</div>
-{choch_html}
+    # Fetch live Nifty 500 benchmark telemetry directly for 100% precision
+    from macro_regime_engine import fetch_nifty500_telemetry
+    n500_telem = fetch_nifty500_telemetry()
+
+    if macro_res or n500_telem:
+        # ---------------------------------------------------------------------
+        # WORLD-CLASS EXECUTIVE HEADER & TELEMETRY INDICATOR
+        # ---------------------------------------------------------------------
+        st.markdown("""
+<div style="display: flex; justify-content: space-between; align-items: flex-end; margin-bottom: 16px; padding-bottom: 10px; border-bottom: 1px solid rgba(255,255,255,0.06); flex-wrap: wrap; gap: 10px;">
+    <div>
+        <div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">
+            <span style="font-size: 1.5rem;">🦅</span>
+            <span style="font-size: 1.6rem; font-weight: 800; letter-spacing: -0.5px; color: #f8fafc;">
+                Institutional Market Commander Cockpit
+            </span>
+            <span style="background: rgba(16, 185, 129, 0.15); color: #34d399; border: 1px solid rgba(16, 185, 129, 0.35); padding: 3px 10px; border-radius: 9999px; font-size: 0.68rem; font-weight: 800; text-transform: uppercase; letter-spacing: 0.8px; display: inline-flex; align-items: center; gap: 6px;">
+                <span style="width: 6px; height: 6px; border-radius: 50%; background: #10b981; box-shadow: 0 0 8px #10b981;"></span> LIVE TELEMETRY
+            </span>
+        </div>
+        <div style="font-size: 0.80rem; color: #94a3b8; margin-top: 5px; display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+            <span>Nifty 500 Benchmark</span>
+            <span style="color: #475569;">•</span>
+            <span>Ross Haber Progressive Exposure</span>
+            <span style="color: #475569;">•</span>
+            <span>O'Neil Distribution Matrix</span>
+            <span style="color: #475569;">•</span>
+            <span>750 Universe Breadth</span>
+        </div>
+    </div>
 </div>
 """, unsafe_allow_html=True)
 
-            with st.expander("Explore Deep Indicators"):
-                st.metric("Leader Emergence Rate", f"{ler:.1f}%")
-                st.metric("Leadership Acceleration", f"{lac:.2f}")
-                st.metric("Leadership Thrust", f"{lt:.1f}")
-                st.metric("Breadth Over 10 SMA", f"{bt*100:.1f}%")
-                
-            # Safe Harbor Suggestion
-            if 'Correction' in regime or 'Pressure' in regime:
-                st.markdown("<br/>", unsafe_allow_html=True)
-                safe_assets = evaluate_safe_harbor()
-                if safe_assets:
-                    st.markdown("""
-                    <div style="background: rgba(245, 158, 11, 0.1); border-left: 4px solid #f59e0b; padding: 1rem; border-radius: 8px;">
-                        <h4 style="color: #f59e0b; margin-top: 0; margin-bottom: 0.5rem;">🛡️ Safe Harbor Rotation</h4>
-                        <p style="font-size: 0.85rem; color: #cbd5e1; margin-bottom: 0.75rem;">Protective asset allocation for current regime.</p>
-                    """, unsafe_allow_html=True)
-                    
-                    for asset in safe_assets[:2]: # Show top 2 alternatives
-                        status = asset['Status']
-                        color = "#10b981" if "Strong" in status or "Excellent" in status else "#f59e0b" if "Hold" in status else "#ef4444"
-                        st.markdown(f"""
-                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem; background: rgba(0,0,0,0.2); padding: 0.5rem; border-radius: 4px;">
-                            <span style="font-size: 0.85rem; font-weight: bold;">{asset['Ticker']}</span>
-                            <span style="font-size: 0.8rem; color: {color};">{status}</span>
-                        </div>
-                        """, unsafe_allow_html=True)
-                    st.markdown("</div>", unsafe_allow_html=True)
-            
-        # Panel 3: Institutional Clusters & Scraper Actions
-        with c_col3:
-            clusters = get_sector_clusters(macro_res.get('sector_df'), top_n=3)
-            cluster_html = ""
-            for i, c in enumerate(clusters):
-                cluster_html += f"""
-<div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #2d3748; padding: 0.4rem 0;">
-<span style="color: #cbd5e1; font-weight: bold; font-size: 0.9rem;">{i+1}. {c['name']}</span>
-<span style="color: #10b981; font-size: 0.85rem;">{c['bullish_pct']:.0f}% Bullish</span>
+        # ---------------------------------------------------------------------
+        # 1. EXTRACT TELEMETRY & PROGRESSIVE EXPOSURE
+        # ---------------------------------------------------------------------
+        if n500_telem and n500_telem.get('exposure_plan'):
+            exp_plan = n500_telem['exposure_plan']
+        elif macro_res and macro_res.get('exposure_plan'):
+            exp_plan = macro_res.get('exposure_plan')
+        else:
+            from macro_regime_engine import get_progressive_exposure_plan
+            try:
+                from breadth_engine import get_zweig_tape_summary
+                z_tape = get_zweig_tape_summary(market='IN')
+            except Exception:
+                z_tape = None
+            exp_plan = get_progressive_exposure_plan(regime, dd_count, zweig_tape=z_tape)
+
+        deck_state = exp_plan.get('deck_state', 'COLD DECK')
+        deck_tone = exp_plan.get('deck_tone', 'Defensive')
+        exp_range = exp_plan.get('exposure_range', '0% – 10% (Maximum Cash)')
+        pilot_size = exp_plan.get('pilot_size', '0% (No New Buys)')
+        exp_rule = exp_plan.get('rule', 'Capital preservation mode.')
+        accent_color = exp_plan.get('accent_color', '#ef4444')
+
+        # Haber 21 SMA Buffer
+        if n500_telem:
+            buf_pct = n500_telem.get('pct_diff_sma21', 0.0)
+            consecutive_closes_21 = n500_telem.get('consecutive_closes_below_21', 0)
+            haber_triggered = n500_telem.get('haber_triggered', False)
+        else:
+            haber_21 = macro_res.get('haber_21_n500', {}) if macro_res else {}
+            buf_pct = haber_21.get('pct_diff_sma21', 0.0)
+            consecutive_closes_21 = haber_21.get('consecutive_closes', 0)
+            haber_triggered = haber_21.get('triggered', False)
+        buf_color = "#10b981" if buf_pct >= 0 else "#ef4444"
+
+        if haber_triggered and consecutive_closes_21 >= 2:
+            haber_badge = f'<div style="color: #f87171; font-size: 0.65rem; font-weight: 800; text-transform: uppercase; margin-top: 3px; letter-spacing: 0.4px;">🚨 {consecutive_closes_21} Closes Below</div>'
+        elif buf_pct >= 0:
+            haber_badge = '<div style="color: #34d399; font-size: 0.65rem; font-weight: 800; text-transform: uppercase; margin-top: 3px; letter-spacing: 0.4px;">🟢 Above 21 SMA</div>'
+        else:
+            haber_badge = '<div style="color: #f59e0b; font-size: 0.65rem; font-weight: 800; text-transform: uppercase; margin-top: 3px; letter-spacing: 0.4px;">⚠️ Testing 21 SMA</div>'
+
+        # Distribution Details & DCR
+        if n500_telem:
+            cluster_detected = n500_telem.get('cluster_detected', False)
+            cluster_count_7d = n500_telem.get('cluster_count_7d', 0)
+            n500_dd = n500_telem.get('dd_count', dd_count)
+            std_dd = n500_telem.get('standard_dd_count', 0)
+            churn_dd = n500_telem.get('churning_dd_count', 0)
+            hammer_dd = n500_telem.get('hammer_acc_count', 0)
+            latest_dcr = n500_telem.get('latest_dcr', 0.5)
+            latest_dcr_verdict = n500_telem.get('latest_midpoint_verdict', 'Neutral')
+            status_label = n500_telem.get('status_label', regime)
+            status_color_raw = n500_telem.get('status_color', regime_color)
+            status_emoji = n500_telem.get('status_emoji', '🔴')
+            dist_sma50 = n500_telem.get('dist_sma50', 0.0)
+        else:
+            n500_details = macro_res.get('n500_dd_details', {}) if macro_res else {}
+            cluster_detected = n500_details.get('cluster_detected', False)
+            cluster_count_7d = n500_details.get('cluster_count_7d', 0)
+            n500_dd = macro_res.get('n500_dd', dd_count) if macro_res else dd_count
+            std_dd = n500_details.get('standard_dd_count', 0)
+            churn_dd = n500_details.get('churning_dd_count', 0)
+            hammer_dd = n500_details.get('hammer_acc_count', 0)
+            latest_dcr = n500_details.get('latest_dcr', 0.5)
+            latest_dcr_verdict = n500_details.get('latest_midpoint_verdict', 'Neutral')
+            status_label = macro_res.get('status_label', regime) if macro_res else regime
+            status_color_raw = macro_res.get('status_color', regime_color) if macro_res else regime_color
+            status_emoji = macro_res.get('status_emoji', '🔴' if 'Correction' in regime else '🟡' if 'Pressure' in regime else '🟢') if macro_res else '🔴'
+            curr_price = macro_res.get('n500_curr', current_idx_price) if macro_res else current_idx_price
+            curr_sma50 = macro_res.get('n500_sma50', sma50) if macro_res else sma50
+            dist_sma50 = ((curr_price - curr_sma50) / curr_sma50 * 100.0) if curr_sma50 > 0 else 0.0
+
+        if status_color_raw == 'red' or 'Correction' in status_label:
+            status_color = '#ef4444'
+        elif status_color_raw == 'yellow' or 'Pressure' in status_label:
+            status_color = '#f59e0b'
+        elif status_color_raw == 'green' or 'Confirmed' in status_label:
+            status_color = '#10b981'
+        else:
+            status_color = status_color_raw if str(status_color_raw).startswith('#') else '#ef4444'
+
+        dist_sma50_color = '#10b981' if dist_sma50 >= 0 else '#ef4444'
+        sma50_stance = "Above 50 SMA" if dist_sma50 >= 0 else "Below 50 SMA"
+
+        # Volume Flow & Smart Money
+        try:
+            from breadth_engine import get_latest_volume_and_ad_distribution
+            vol_flow = get_latest_volume_and_ad_distribution('IN')
+            ud_ratio = vol_flow.get('up_down_volume_ratio', 1.0)
+            up_vol = vol_flow.get('up_volume', 0.0)
+            down_vol = vol_flow.get('down_volume', 0.0)
+            tot_vol = up_vol + down_vol
+            adv_vol_pct = (up_vol / tot_vol * 100.0) if tot_vol > 0 else 50.0
+            smart_money = vol_flow.get('smart_money_ratio', 1.0)
+        except Exception:
+            ud_ratio, adv_vol_pct, smart_money = 1.0, 50.0, 1.0
+
+        ud_color = '#10b981' if ud_ratio >= 1.2 else '#ef4444' if ud_ratio <= 0.8 else '#f59e0b'
+
+        # Super-Leader Breadth (Top 100 RS)
+        try:
+            from breadth_engine import compute_top_rs_breadth_history
+            rs_hist = compute_top_rs_breadth_history('IN', lookback_days=5)
+            if not rs_hist.empty:
+                latest_rs_row = rs_hist.iloc[-1]
+                top100_21_ema = float(latest_rs_row.get('top100_above_21_ema', 0.0))
+                top100_50_sma = float(latest_rs_row.get('top100_above_50_sma', 0.0))
+                broad_50_sma = float(latest_rs_row.get('broad_above_50_sma', 0.0))
+                broad_20_ema = float(latest_rs_row.get('broad_above_20_ema', 0.0))
+                rs_spread = float(latest_rs_row.get('leadership_spread', 0.0))
+            else:
+                top100_21_ema, top100_50_sma, broad_50_sma, broad_20_ema, rs_spread = 0.0, 0.0, 0.0, 0.0, 0.0
+        except Exception:
+            top100_21_ema, top100_50_sma, broad_50_sma, broad_20_ema, rs_spread = 0.0, 0.0, 0.0, 0.0, 0.0
+
+        # Qualitative Leadership & FTD
+        leadership_qual = macro_res.get('leadership_qual', {}) if macro_res else {}
+        lead_grade = leadership_qual.get('leadership_grade', 'B')
+        near_high_pct = leadership_qual.get('near_high_pct', 0.0)
+        ftd_detected = macro_res.get('ftd_detected', False) if macro_res else False
+        ftd_date = macro_res.get('ftd') if macro_res else None
+        ftd_status = f"Confirmed ({ftd_date})" if ftd_detected and ftd_date else "Watching (No Active FTD)"
+
+        def _to_rgb(hex_code):
+            hc = str(hex_code).lstrip('#')
+            if len(hc) == 6:
+                try:
+                    return f"{int(hc[0:2], 16)}, {int(hc[2:4], 16)}, {int(hc[4:6], 16)}"
+                except Exception:
+                    pass
+            return "100, 116, 139"
+
+        deck_rgb = _to_rgb(accent_color)
+        status_rgb = _to_rgb(status_color)
+
+        # ---------------------------------------------------------------------
+        # TIER 1: MASTER PROGRESSIVE EXPOSURE HUD (FULL WIDTH)
+        # ---------------------------------------------------------------------
+        st.markdown(f"""
+<div style="background: linear-gradient(135deg, rgba(15, 23, 42, 0.95), rgba(30, 41, 59, 0.88)); border: 1px solid rgba(255, 255, 255, 0.08); border-left: 6px solid {accent_color}; border-radius: 14px; padding: 18px 24px; margin-bottom: 14px; box-shadow: 0 12px 30px -10px rgba(0, 0, 0, 0.6), 0 0 20px rgba({deck_rgb}, 0.12);">
+<div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 16px;">
+<div style="flex: 1; min-width: 300px;">
+<div style="display: flex; align-items: center; gap: 10px; margin-bottom: 6px;">
+<span style="font-size: 1.5rem; font-weight: 900; color: {accent_color}; letter-spacing: 0.3px; text-shadow: 0 0 20px rgba({deck_rgb}, 0.35);">{deck_state}</span>
+<span style="background: rgba({deck_rgb}, 0.2); color: {accent_color}; border: 1px solid rgba({deck_rgb}, 0.5); padding: 3px 10px; border-radius: 20px; font-size: 0.72rem; font-weight: 800; text-transform: uppercase; letter-spacing: 0.8px;">{deck_tone}</span>
 </div>
-"""
-            
-            st.markdown(f"""
-<div class="metric-card" style="border-top: 4px solid #3b82f6; height: 100%;">
-<p style="color: #94a3b8; font-size: 0.85rem; margin: 0; text-transform: uppercase; font-weight: bold;">Leading Themes (O'Neil)</p>
-<div style="text-align: left; margin-top: 0.5rem;">
-{cluster_html if cluster_html else "<p style='color: #64748b; font-size: 0.9rem;'>Gathering data...</p>"}
+<div style="background: rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.05); padding: 7px 14px; border-radius: 6px; font-size: 0.84rem; color: #cbd5e1; line-height: 1.4;">
+<strong style="color: #f8fafc;">Exposure Rule:</strong> {exp_rule}
+</div>
+</div>
+<div style="display: flex; gap: 12px; align-items: center; flex-wrap: wrap;">
+<div style="text-align: right; background: rgba(0,0,0,0.32); padding: 10px 16px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.06); min-width: 170px;">
+<div style="color: #94a3b8; font-size: 0.68rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.6px; margin-bottom: 3px;">Max Recommended Exposure</div>
+<div style="color: #f8fafc; font-size: 1.35rem; font-weight: 900; font-family: 'JetBrains Mono', monospace;">{exp_range}</div>
+</div>
+<div style="text-align: right; background: rgba(0,0,0,0.32); padding: 10px 16px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.06); min-width: 140px;">
+<div style="color: #94a3b8; font-size: 0.68rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.6px; margin-bottom: 3px;">Pilot Sizing</div>
+<div style="color: {accent_color}; font-size: 1.35rem; font-weight: 900; font-family: 'JetBrains Mono', monospace;">{pilot_size}</div>
+</div>
+<div style="text-align: right; background: rgba(0,0,0,0.32); padding: 10px 16px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.06); min-width: 170px;">
+<div style="color: #94a3b8; font-size: 0.68rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.6px; margin-bottom: 3px;">Nifty 500 vs 21 SMA</div>
+<div style="color: {buf_color}; font-size: 1.35rem; font-weight: 900; font-family: 'JetBrains Mono', monospace;">{buf_pct:+.1f}%</div>
+{haber_badge}
+</div>
+</div>
 </div>
 </div>
 """, unsafe_allow_html=True)
-            st.markdown("### 🐺 StockScans Engine")
+
+        # Acute Distribution Cluster Warning (Conditional)
+        if cluster_detected:
+            st.markdown(f"""
+<div style="background: linear-gradient(90deg, rgba(239, 68, 68, 0.16) 0%, rgba(15, 23, 42, 0.85) 100%); border: 1px solid rgba(239, 68, 68, 0.45); border-left: 6px solid #ef4444; border-radius: 10px; padding: 14px 20px; margin-bottom: 16px; box-shadow: 0 4px 20px rgba(239, 68, 68, 0.15);">
+<div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px;">
+<div style="display: flex; align-items: center; gap: 14px;">
+<span style="font-size: 1.4rem;">🚨</span>
+<div>
+<strong style="color: #f87171; font-size: 0.95rem; text-transform: uppercase; letter-spacing: 0.5px;">Acute Distribution Cluster Alert: {cluster_count_7d} Distribution Days in Last 7 Sessions</strong>
+<p style="margin: 3px 0 0 0; color: #cbd5e1; font-size: 0.82rem; line-height: 1.4;">
+<b>Ross Haber Rule:</b> Multiple distribution/churning days tightly compressed within 5–7 sessions indicate heavy institutional unloading. Halt new pilot positions; enforce strict defensive trailing stops.
+</p>
+</div>
+</div>
+<span style="background: rgba(239, 68, 68, 0.25); color: #fca5a5; border: 1px solid #ef4444; padding: 5px 14px; border-radius: 6px; font-size: 0.75rem; font-weight: 800; text-transform: uppercase; letter-spacing: 0.8px; white-space: nowrap; box-shadow: 0 0 10px rgba(239, 68, 68, 0.3);">DEFENSIVE LOCKDOWN</span>
+</div>
+</div>
+""", unsafe_allow_html=True)
+
+        # ---------------------------------------------------------------------
+        # TIER 2: TACTICAL COMMAND GRID (3-COLUMN LAYOUT)
+        # ---------------------------------------------------------------------
+        c_col1, c_col2, c_col3 = st.columns(3)
+
+        # --- COLUMN 1: MACRO REGIME & FLOW ---
+        with c_col1:
+            dcr_badge = f'<span style="background: rgba(239,68,68,0.2); color: #ef4444; border: 1px solid rgba(239,68,68,0.4); padding: 3px 8px; border-radius: 4px; font-size: 0.72rem; font-weight: 800;">🔴 Lower Half · Distributive Liquidation</span>' if latest_dcr < 0.50 else f'<span style="background: rgba(16,185,129,0.2); color: #10b981; border: 1px solid rgba(16,185,129,0.4); padding: 3px 8px; border-radius: 4px; font-size: 0.72rem; font-weight: 800;">🟢 Upper Half · Institutional Absorption</span>'
+            
+            dd_color = '#ef4444' if n500_dd >= 6 else '#f59e0b' if n500_dd >= 4 else '#10b981'
+            dcr_pct_marker = max(4, min(96, int(latest_dcr * 100)))
+            
+            st.markdown(f"""
+<div class="metric-card" style="border-top: 4px solid {status_color}; height: 100%; display: flex; flex-direction: column; justify-content: space-between; padding: 18px 20px;">
+<div>
+<div style="display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 8px;">
+<p style="color: #94a3b8; font-size: 0.80rem; margin: 0; text-transform: uppercase; font-weight: 800; letter-spacing: 1px;">Macro Regime & Flow</p>
+<span style="font-size: 0.68rem; color: #64748b; font-weight: 700; text-transform: uppercase;">NIFTY 500 TELEMETRY</span>
+</div>
+
+<div style="background: rgba({status_rgb}, 0.12); border: 1px solid rgba({status_rgb}, 0.35); border-radius: 8px; padding: 10px 14px; margin-bottom: 12px; display: flex; justify-content: space-between; align-items: center;">
+<div style="display: flex; align-items: center; gap: 8px;">
+<span style="font-size: 1.25rem;">{status_emoji}</span>
+<span style="font-size: 1.15rem; font-weight: 800; color: {status_color}; letter-spacing: 0.3px;">{status_label}</span>
+</div>
+<span style="font-size: 0.68rem; font-weight: 800; color: {status_color}; background: rgba({status_rgb}, 0.25); border: 1px solid rgba({status_rgb}, 0.5); padding: 2px 8px; border-radius: 4px; text-transform: uppercase; letter-spacing: 0.5px;">ACTIVE REGIME</span>
+</div>
+
+<div style="background: rgba(0,0,0,0.28); border: 1px solid rgba(255,255,255,0.05); border-radius: 8px; padding: 10px 12px; margin-bottom: 10px;">
+<div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+<span style="font-size: 0.72rem; color: #94a3b8; text-transform: uppercase; font-weight: 700;">Nifty 500 Dist Days</span>
+<strong style="font-size: 1.15rem; font-family: 'JetBrains Mono', monospace; color: {dd_color};">{n500_dd} / 25</strong>
+</div>
+<div style="display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 8px;">
+<span style="background: rgba(239,68,68,0.15); color: #f87171; border: 1px solid rgba(239,68,68,0.3); padding: 1px 7px; border-radius: 4px; font-size: 0.68rem; font-weight: 700;">{std_dd} Standard</span>
+<span style="background: rgba(245,158,11,0.15); color: #fbbf24; border: 1px solid rgba(245,158,11,0.3); padding: 1px 7px; border-radius: 4px; font-size: 0.68rem; font-weight: 700;">{churn_dd} Churning</span>
+<span style="background: rgba(16,185,129,0.15); color: #34d399; border: 1px solid rgba(16,185,129,0.3); padding: 1px 7px; border-radius: 4px; font-size: 0.68rem; font-weight: 700;">{hammer_dd} Hammer Absorbed</span>
+</div>
+<div style="display: flex; justify-content: space-between; align-items: center; border-top: 1px solid rgba(255,255,255,0.05); padding-top: 6px;">
+<span style="font-size: 0.72rem; color: #94a3b8; text-transform: uppercase; font-weight: 700;">vs 50 SMA</span>
+<span style="font-size: 0.85rem; font-weight: 800; font-family: 'JetBrains Mono', monospace; color: {dist_sma50_color};">{dist_sma50:+.1f}% ({sma50_stance})</span>
+</div>
+</div>
+
+<div style="background: rgba(0,0,0,0.28); border: 1px solid rgba(255,255,255,0.05); border-radius: 8px; padding: 10px 12px; margin-bottom: 10px;">
+<div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 2px;">
+<span style="font-size: 0.72rem; color: #94a3b8; text-transform: uppercase; font-weight: 700;">DCR Midpoint (O'Neil)</span>
+<strong style="font-size: 1.05rem; font-family: 'JetBrains Mono', monospace; color: #f8fafc;">{latest_dcr:.2f}</strong>
+</div>
+<div style="height: 6px; border-radius: 3px; background: rgba(255,255,255,0.08); position: relative; margin: 6px 0 6px 0;">
+<div style="width: 50%; height: 100%; border-right: 1px dashed rgba(255,255,255,0.25);"></div>
+<div style="position: absolute; left: {dcr_pct_marker}%; top: -3px; width: 12px; height: 12px; border-radius: 50%; background: {'#10b981' if latest_dcr >= 0.50 else '#ef4444'}; box-shadow: 0 0 8px {'#10b981' if latest_dcr >= 0.50 else '#ef4444'};"></div>
+</div>
+<div style="margin-bottom: 2px;">{dcr_badge}</div>
+</div>
+
+<div style="background: rgba(0,0,0,0.28); border: 1px solid rgba(255,255,255,0.05); border-radius: 8px; padding: 10px 12px;">
+<div style="display: flex; justify-content: space-between; align-items: center;">
+<span style="font-size: 0.72rem; color: #94a3b8; text-transform: uppercase; font-weight: 700;">Up/Down Vol Ratio</span>
+<strong style="font-size: 1.05rem; font-family: 'JetBrains Mono', monospace; color: {ud_color};">{ud_ratio:.2f}x</strong>
+</div>
+<div style="display: flex; justify-content: space-between; align-items: center; margin-top: 4px; font-size: 0.72rem; color: #94a3b8;">
+<span>Adv Vol: <strong style="color: #f8fafc; font-family: monospace;">{adv_vol_pct:.0f}%</strong></span>
+<span>Smart Money: <strong style="color: #f8fafc; font-family: monospace;">{smart_money:.2f}x</strong></span>
+</div>
+</div>
+</div>
+</div>
+""", unsafe_allow_html=True)
+
+        # --- COLUMN 2: GLOBAL INDEX MOMENTUM & 52W HIGH FRESHNESS (KEPT & ELEVATED) ---
+        with c_col2:
+            highs_html = ""
+            try:
+                from macro_regime_engine import fetch_index_new_highs
+                highs_data = fetch_index_new_highs()
+                if highs_data:
+                    highs_html = "<div style='display: flex; flex-direction: column; gap: 7px; margin-bottom: 10px;'>"
+                    for hd in highs_data:
+                        c1 = '#10b981' if hd['1w'] > 0 else '#475569'
+                        c2 = '#10b981' if hd['1m'] > 0 else '#475569'
+                        c3 = '#10b981' if hd['3m'] > 0 else '#475569'
+                        bg_r, bg_g, bg_b = _to_rgb(hd['color']).split(',')
+                        flag = '<span style="background: rgba(56,189,248,0.18); color: #38bdf8; border: 1px solid rgba(56,189,248,0.35); padding: 1px 5px; border-radius: 4px; font-size: 0.65rem; font-weight: 800; font-family: monospace;">IN</span>' if "NIFTY" in hd['name'] else '<span style="background: rgba(168,85,247,0.18); color: #c084fc; border: 1px solid rgba(168,85,247,0.35); padding: 1px 5px; border-radius: 4px; font-size: 0.65rem; font-weight: 800; font-family: monospace;">US</span>'
+                        
+                        highs_html += f"""
+<div style="display: flex; justify-content: space-between; align-items: center; background: rgba(15,23,42,0.85); border: 1px solid rgba(255,255,255,0.05); padding: 8px 12px; border-radius: 7px;">
+<div style="display: flex; align-items: center; gap: 8px;">
+{flag}
+<span style="font-size: 0.82rem; font-weight: 700; color: #f8fafc; width: 85px;">{hd['name']}</span>
+<span style="font-size: 0.70rem; font-weight: 800; background: rgba({bg_r},{bg_g},{bg_b},0.15); color: {hd['color']}; border: 1px solid rgba({bg_r},{bg_g},{bg_b},0.35); padding: 2px 7px; border-radius: 5px;">{hd['last_high_label']}</span>
+</div>
+<div style="font-size: 0.82rem; font-family: 'JetBrains Mono', monospace; font-weight: 700; display: flex; gap: 6px;">
+<span style="color:{c1};">{hd['1w']}</span><span style="color:#334155;">|</span><span style="color:{c2};">{hd['1m']}</span><span style="color:#334155;">|</span><span style="color:{c3};">{hd['3m']}</span>
+</div>
+</div>
+"""
+                    highs_html += "</div>"
+            except Exception as e:
+                highs_html = f"<div style='color: #ef4444; font-size: 0.8rem; padding: 10px;'>Highs data unavailable: {e}</div>"
+
+            choch_html = ""
+            if choch and choch.get('detected'):
+                ch_color = choch.get('color', '#f59e0b')
+                ch_rgb = _to_rgb(ch_color)
+                choch_html = f"""
+<div style="background: rgba({ch_rgb}, 0.12); border-left: 3px solid {ch_color}; padding: 6px 10px; border-radius: 4px; margin-top: 8px;">
+<p style="margin: 0; font-size: 0.7rem; color: #94a3b8; text-transform: uppercase;">Wyckoff Alert ({choch.get('date', 'Recent')})</p>
+<p style="margin: 0; color: {ch_color}; font-weight: bold; font-size: 0.85rem;">{choch.get('label')}</p>
+</div>
+"""
+
+            st.markdown(f"""
+<div class="metric-card" style="border-top: 4px solid #3b82f6; height: 100%; display: flex; flex-direction: column; justify-content: space-between; padding: 18px 20px;">
+<div>
+<div style="display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 8px;">
+<p style="color: #94a3b8; font-size: 0.80rem; margin: 0; text-transform: uppercase; font-weight: 800; letter-spacing: 1px;">Global Momentum</p>
+<span style="font-size: 0.68rem; color: #64748b; font-weight: 700; text-transform: uppercase;">1W | 1M | 3M NEW HIGHS</span>
+</div>
+<h3 style="color: #60a5fa; margin: 0.2rem 0 0.8rem 0; font-size: 1.35rem; font-weight: 800; text-align: left;">52W High Freshness</h3>
+
+<div style="display: flex; justify-content: space-between; align-items: center; font-size: 0.68rem; color: #64748b; font-weight: 700; text-transform: uppercase; padding: 0 10px 4px 10px; border-bottom: 1px solid rgba(255,255,255,0.05); margin-bottom: 6px;">
+<span>Benchmark Index</span>
+<span>1W · 1M · 3M Highs</span>
+</div>
+
+{highs_html}
+
+<div style="background: rgba(15,23,42,0.65); border: 1px solid rgba(245,158,11,0.25); border-left: 3px solid #f59e0b; padding: 8px 12px; border-radius: 6px; text-align: left; margin-top: 8px;">
+<p style="margin: 0; font-size: 0.72rem; color: #cbd5e1; line-height: 1.4;">
+<b style="color: #fbbf24;">💡 Divergence Insight:</b> Indian benchmarks are digesting 6-month overhead supply (zero 52W highs since April), while US tech/broad benchmarks are printing fresh blue-sky highs.
+</p>
+</div>
+{choch_html}
+</div>
+</div>
+""", unsafe_allow_html=True)
+
+        # --- COLUMN 3: LEADER BREADTH & CONFIRMED THEMES ---
+        with c_col3:
+            rs21_color = '#10b981' if top100_21_ema >= 70 else '#f59e0b' if top100_21_ema >= 50 else '#ef4444'
+            rs50_color = '#10b981' if top100_50_sma >= 70 else '#f59e0b' if top100_50_sma >= 50 else '#ef4444'
+            broad50_color = '#10b981' if broad_50_sma >= 50 else '#ef4444' if broad_50_sma < 30 else '#f59e0b'
+            grade_color = '#10b981' if lead_grade == 'A' else '#f59e0b' if lead_grade == 'B' else '#ef4444'
+
+            # Sector Clusters with Group Confirmation (Polished 2-line layout prevents wrapping)
+            sector_df_data = macro_res.get('sector_df') if macro_res else None
+            clusters = get_sector_clusters(sector_df_data, top_n=3)
+            cluster_html = ""
+            for i, c in enumerate(clusters):
+                conf_badge = c.get('confirmation', '')
+                leaders_cnt = c.get('leaders_count', 0)
+                if not conf_badge or conf_badge == '⚪ Unconfirmed':
+                    if leaders_cnt >= 3:
+                        conf_badge = f"✅ Confirmed ({int(leaders_cnt)} Leaders)"
+                    else:
+                        conf_badge = f"⚪ {int(leaders_cnt)} Leaders"
+                
+                is_conf = "Confirmed" in conf_badge or "✅" in conf_badge
+                badge_color = "#38bdf8" if is_conf else "#94a3b8"
+                badge_bg = "rgba(56,189,248,0.15)" if is_conf else "rgba(148,163,184,0.1)"
+                badge_border = "rgba(56,189,248,0.35)" if is_conf else "rgba(148,163,184,0.2)"
+                
+                badge_str = f"<span style='font-size: 0.68rem; background: {badge_bg}; color: {badge_color}; border: 1px solid {badge_border}; padding: 2px 7px; border-radius: 4px; font-weight: 700; white-space: nowrap;'>{conf_badge}</span>"
+                cluster_html += f"""
+<div style="background: rgba(15,23,42,0.6); border: 1px solid rgba(255,255,255,0.04); padding: 7px 10px; border-radius: 6px; margin-bottom: 5px;">
+<div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 3px;">
+<span style="color: #f8fafc; font-weight: 700; font-size: 0.82rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 190px;">{i+1}. {c['name']}</span>
+<span style="color: #10b981; font-size: 0.80rem; font-weight: 800; font-family: 'JetBrains Mono', monospace;">{c['bullish_pct']:.0f}% Bullish</span>
+</div>
+<div style="display: flex; justify-content: space-between; align-items: center;">
+{badge_str}
+<span style="font-size: 0.68rem; color: #64748b;">Avg RS: <strong style="color: #cbd5e1;">{c['avg_rs']:.0f}</strong></span>
+</div>
+</div>
+"""
+
+            st.markdown(f"""
+<div class="metric-card" style="border-top: 4px solid #8b5cf6; height: 100%; display: flex; flex-direction: column; justify-content: space-between; padding: 18px 20px;">
+<div>
+<div style="display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 8px;">
+<p style="color: #94a3b8; font-size: 0.80rem; margin: 0; text-transform: uppercase; font-weight: 800; letter-spacing: 1px;">Super-Leader Health</p>
+<span style="font-size: 0.68rem; color: #64748b; font-weight: 700; text-transform: uppercase;">TOP 100 BASKET</span>
+</div>
+<h3 style="color: #a78bfa; margin: 0.2rem 0 0.8rem 0; font-size: 1.35rem; font-weight: 800; text-align: left;">Breadth & Leading Themes</h3>
+
+<div style="background: rgba(0,0,0,0.28); border: 1px solid rgba(255,255,255,0.05); border-radius: 8px; padding: 10px 12px; margin-bottom: 8px;">
+<div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
+<span style="font-size: 0.72rem; color: #94a3b8; text-transform: uppercase; font-weight: 700;">Top 100 RS > 21 EMA (Pullbacks)</span>
+<strong style="font-size: 1.05rem; font-family: 'JetBrains Mono', monospace; color: {rs21_color};">{top100_21_ema:.0f}%</strong>
+</div>
+<div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
+<span style="font-size: 0.72rem; color: #94a3b8; text-transform: uppercase; font-weight: 700;">Top 100 RS > 50 SMA (Structure)</span>
+<strong style="font-size: 1.05rem; font-family: 'JetBrains Mono', monospace; color: {rs50_color};">{top100_50_sma:.0f}%</strong>
+</div>
+<div style="display: flex; justify-content: space-between; align-items: center; border-top: 1px solid rgba(255,255,255,0.05); margin-top: 4px; padding-top: 4px;">
+<span style="font-size: 0.70rem; color: #94a3b8; text-transform: uppercase;">Broad Market > 50 SMA</span>
+<strong style="font-size: 0.88rem; font-family: 'JetBrains Mono', monospace; color: {broad50_color};">{broad_50_sma:.0f}%</strong>
+</div>
+<div style="display: flex; justify-content: space-between; align-items: center; margin-top: 2px;">
+<span style="font-size: 0.70rem; color: #64748b; text-transform: uppercase;">Leadership Spread vs Market</span>
+<strong style="font-size: 0.95rem; font-family: 'JetBrains Mono', monospace; color: #10b981;">+{rs_spread:.0f}%</strong>
+</div>
+<div style="margin-top: 6px; background: rgba(0,0,0,0.4); border-radius: 4px; height: 5px; overflow: hidden; position: relative;">
+<div style="width: 100%; height: 100%; background: rgba(239, 68, 68, 0.45);"></div>
+<div style="position: absolute; left: 0; top: 0; width: {int(top100_50_sma)}%; height: 100%; background: linear-gradient(90deg, #10b981, #34d399); border-radius: 4px;"></div>
+</div>
+<div style="display: flex; justify-content: space-between; font-size: 0.65rem; color: #64748b; margin-top: 3px;">
+<span>Leaders ({top100_50_sma:.0f}%)</span>
+<span>Broad Market ({broad_50_sma:.0f}%)</span>
+</div>
+</div>
+
+<div style="background: rgba(0,0,0,0.28); border: 1px solid rgba(255,255,255,0.05); border-radius: 8px; padding: 10px 12px; margin-bottom: 8px;">
+<div style="display: flex; justify-content: space-between; align-items: center;">
+<span style="font-size: 0.72rem; color: #94a3b8; text-transform: uppercase; font-weight: 700;">Leadership Quality</span>
+<span style="background: rgba(139,92,246,0.18); color: {grade_color}; border: 1px solid rgba(139,92,246,0.35); padding: 2px 8px; border-radius: 4px; font-weight: 800; font-size: 0.75rem;">Grade {lead_grade}</span>
+</div>
+<div style="display: flex; justify-content: space-between; align-items: center; margin-top: 4px; font-size: 0.72rem; color: #cbd5e1;">
+<span>Near 52W High: <strong style="color: #f8fafc; font-family: monospace;">{near_high_pct:.0f}%</strong></span>
+<span style="color: #94a3b8;">FTD: <strong style="color: {'#10b981' if ftd_detected else '#94a3b8'};">{ftd_status}</strong></span>
+</div>
+</div>
+
+<div style="background: rgba(0,0,0,0.28); border: 1px solid rgba(255,255,255,0.05); border-radius: 8px; padding: 8px 10px;">
+<div style="color: #94a3b8; font-size: 0.68rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 6px;">Confirmed Leading Themes (O'Neil)</div>
+{cluster_html if cluster_html else "<p style='color: #64748b; font-size: 0.8rem; margin: 0;'>Gathering themes from 750-stock universe...</p>"}
+</div>
+</div>
+</div>
+""", unsafe_allow_html=True)
+
+        # ---------------------------------------------------------------------
+        # TIER 3: SAFE HARBOR CAPITAL ROTATION (WORLD-CLASS HEDGE MATRIX)
+        # ---------------------------------------------------------------------
+        if 'Correction' in regime or 'Pressure' in regime or (n500_telem and 'Correction' in n500_telem.get('status_label', '')):
+            import importlib
+            import safe_harbor_engine
+            importlib.reload(safe_harbor_engine)
+            safe_assets = safe_harbor_engine.evaluate_safe_harbor(cache_buster=3)
+            if safe_assets:
+                import math
+                asset_cards_html = ""
+                for asset in safe_assets:
+                    st_val = asset.get('Status', 'Wait')
+                    if "Rotation" in st_val or "Strong" in st_val or "Excellent" in st_val:
+                        bg_c = "rgba(16, 185, 129, 0.15)"
+                        bdr_c = "rgba(16, 185, 129, 0.4)"
+                        txt_c = "#34d399"
+                    elif "Hold" in st_val or "Accumulating" in st_val:
+                        bg_c = "rgba(245, 158, 11, 0.15)"
+                        bdr_c = "rgba(245, 158, 11, 0.4)"
+                        txt_c = "#fbbf24"
+                    else:
+                        bg_c = "rgba(100, 116, 139, 0.15)"
+                        bdr_c = "rgba(100, 116, 139, 0.3)"
+                        txt_c = "#94a3b8"
+                        
+                    ret1m = asset.get('1M_Return', 0.0)
+                    if ret1m is None or pd.isna(ret1m) or (isinstance(ret1m, (int, float)) and math.isnan(ret1m)):
+                        ret1m_str = "0.0%"
+                        ret1m_color = "#94a3b8"
+                    else:
+                        ret1m_str = f"{ret1m:+.1f}%"
+                        ret1m_color = "#10b981" if ret1m > 0 else "#ef4444"
+
+                    rel_rs = asset.get('Rel_Strength_Score', 0.0)
+                    if rel_rs is None or pd.isna(rel_rs) or (isinstance(rel_rs, (int, float)) and math.isnan(rel_rs)):
+                        rel_rs_str = "+0.0"
+                    else:
+                        rel_rs_str = f"{rel_rs:+.1f}"
+                    
+                    asset_cards_html += f"""<div style="flex: 1 1 200px; min-width: 200px; background: rgba(15, 23, 42, 0.75); border: 1px solid rgba(255, 255, 255, 0.06); border-radius: 8px; padding: 10px 14px; display: flex; flex-direction: column; justify-content: space-between;">
+<div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 6px;">
+<div>
+<span style="font-size: 0.85rem; font-weight: 800; color: #f8fafc; font-family: 'JetBrains Mono', monospace;">{asset['Ticker']}</span>
+<div style="font-size: 0.70rem; color: #94a3b8; margin-top: 1px;">{asset['Asset']}</div>
+</div>
+<span style="font-size: 0.82rem; font-weight: 800; font-family: 'JetBrains Mono', monospace; color: {ret1m_color};">{ret1m_str} 1M</span>
+</div>
+<div style="display: flex; justify-content: space-between; align-items: center; border-top: 1px solid rgba(255,255,255,0.04); padding-top: 6px; margin-top: 4px;">
+<span style="font-size: 0.68rem; background: {bg_c}; color: {txt_c}; border: 1px solid {bdr_c}; padding: 2px 7px; border-radius: 4px; font-weight: 700; white-space: nowrap;">{st_val}</span>
+<span style="font-size: 0.68rem; color: #64748b;">Rel RS: <b style="color: #cbd5e1;">{rel_rs_str}</b></span>
+</div>
+</div>"""
+
+                st.markdown(f"""
+<div style="background: linear-gradient(135deg, rgba(15, 23, 42, 0.92), rgba(30, 41, 59, 0.8)); border: 1px solid rgba(245, 158, 11, 0.35); border-left: 5px solid #f59e0b; padding: 16px 20px; border-radius: 12px; margin-top: 14px; margin-bottom: 14px; box-shadow: 0 10px 25px -5px rgba(0,0,0,0.5);">
+<div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; flex-wrap: wrap; gap: 8px;">
+<div style="display: flex; align-items: center; gap: 10px;">
+<span style="font-size: 1.3rem;">🛡️</span>
+<div>
+<strong style="color: #fbbf24; font-size: 0.95rem; text-transform: uppercase; letter-spacing: 0.6px;">Safe Harbor Capital Rotation</strong>
+<span style="font-size: 0.78rem; color: #94a3b8; margin-left: 8px;">Non-correlated asset allocation during active correction</span>
+</div>
+</div>
+<span style="background: rgba(245, 158, 11, 0.18); color: #fbbf24; border: 1px solid rgba(245, 158, 11, 0.45); padding: 3px 12px; border-radius: 6px; font-size: 0.72rem; font-weight: 800; text-transform: uppercase; letter-spacing: 0.6px;">DEFENSIVE SHIELD ACTIVE</span>
+</div>
+<div style="display: flex; gap: 10px; flex-wrap: wrap;">
+{asset_cards_html}
+</div>
+</div>
+""", unsafe_allow_html=True)
+
+        # Scraper / Engine Actions
+        with st.expander("🐺 StockScans Engine Actions & Setup"):
+            sc_c1, sc_c2 = st.columns(2)
             import os
-            app_dir = os.path.dirname(os.path.abspath(__file__))
-            scraper_path = os.path.join(app_dir, "stockscans_scraper.py")
-            
-            if st.button("⚙️ Setup Login (One-Time)", use_container_width=True):
-                if sys.platform == "win32":
-                    subprocess.Popen(f'cmd.exe /k python "{scraper_path}" --setup', cwd=app_dir, creationflags=subprocess.CREATE_NEW_CONSOLE)
-                else:
-                    subprocess.Popen([sys.executable, scraper_path, "--setup"], cwd=app_dir)
-                st.toast("Opening visible browser for setup...", icon="⚙️")
-            if st.button("🚀 Run Confluence Engine", use_container_width=True, type="primary"):
-                # Use cmd.exe /c to inherit the environment variables (like PATH) properly on Windows
-                if sys.platform == "win32":
-                    subprocess.Popen(f'cmd.exe /c python "{scraper_path}"', cwd=app_dir, creationflags=0x08000000)
-                else:
-                    subprocess.Popen([sys.executable, scraper_path], cwd=app_dir)
-                st.toast("Scraper launched! Wait 30 seconds for the popup.", icon="🚀")
-            
-        with st.expander("📚 How to read the Daily Insights Cockpit"):
-            st.markdown("""
-            **What is this?**
-            This professional insights cockpit aggregates the health of the entire total market to help you determine your daily "Risk OFF" vs "Risk ON" setting before you look at individual stocks. It uses principles from legendary traders like William O'Neil, Mark Minervini, and Richard Wyckoff.
-            
-            1. **Macro Health Index (0-100)**: Consolidates the strength of market breadth and emerging momentum leaders into a single score. 
-               * Uses Leader Emergence Rate (LER), Leadership Acceleration (LAC), Breadth Thrusts (BT), and Leadership Thrusts (LT).
-               * **Score > 60**: Healthy Bull. Start or continue progressive exposure.
-               * **Score < 40**: Defensive. Cash is a position. Stop initiating new buys.
-               
-            2. **Target Exposure**: Gives you a concrete capital allocation limit based on the alignment of the price trend and the internal leadership metrics.
-            
-            3. **Price Regime Status**: A classic Mark Minervini trend template applied to the benchmark index. 
-               * **Confirmed Uptrend**: Market is acting strong above key MAs.
-               * **Uptrend Under Pressure**: ≥ 4 Distribution Days (high volume sell-offs) have accumulated.
-               * **Correction**: Price has fallen below the 50 SMA or ≥ 6 Distribution Days accumulated.
-               
-            4. **Wyckoff Alerts**: Monitors the benchmark for "Change of Character" events such as volume-climax capitulations at bottoms (Springs) or distribution at tops (Upthrusts).
-            
-            5. **Leading Themes (O'Neil)**: Shows the 3 fastest growing industry groups in the market right now based on an aggregation of the RS scores and price trends of their component stocks. 
+            views_dir = os.path.dirname(os.path.abspath(__file__))
+            root_dir = os.path.dirname(views_dir)
+            scraper_path = os.path.join(root_dir, "stockscans_scraper.py")
+            if not os.path.exists(scraper_path):
+                scraper_path = os.path.join(views_dir, "stockscans_scraper.py")
+
+            with sc_c1:
+                if st.button("⚙️ Setup Login (One-Time)", use_container_width=True):
+                    if os.path.exists(scraper_path):
+                        if sys.platform == "win32":
+                            subprocess.Popen(f'cmd.exe /k python "{scraper_path}" --setup', cwd=os.path.dirname(scraper_path), creationflags=subprocess.CREATE_NEW_CONSOLE)
+                        else:
+                            subprocess.Popen([sys.executable, scraper_path, "--setup"], cwd=os.path.dirname(scraper_path))
+                        st.toast("Opening visible browser for setup...", icon="⚙️")
+                    else:
+                        st.info("StockScans scraper runs on local desktop instance.")
+            with sc_c2:
+                if st.button("🚀 Run Confluence Engine", use_container_width=True, type="primary"):
+                    if os.path.exists(scraper_path):
+                        if sys.platform == "win32":
+                            subprocess.Popen(f'cmd.exe /c python "{scraper_path}"', cwd=os.path.dirname(scraper_path), creationflags=0x08000000)
+                        else:
+                            subprocess.Popen([sys.executable, scraper_path], cwd=os.path.dirname(scraper_path))
+                        st.toast("Scraper launched! Wait 30 seconds for the popup.", icon="🚀")
+                    else:
+                        st.info("StockScans scraper runs on local desktop instance.")
+
+        # Deep Indicators Expander
+        with st.expander("📚 Institutional Playbook: How to Read the Market Commander Cockpit"):
+            st.markdown(r"""
+**The Institutional Market Commander Cockpit** consolidates the rules and telemetry of legendary market operators: **Ross Haber**, **William O'Neil**, and **Mark Minervini**.
+
+1. **Master Progressive Exposure Decks**:
+   - **🔥 Hot Deck (100–120% Exposure · 15–20% Pilots)**: Benchmark above 21 SMA + $\le 2$ Distribution Days. Aggressive trend acceleration mode.
+   - **🌤️ Warming Deck (50–75% Exposure · 8–12% Pilots)**: Confirmed FTD with Grade A leadership or 3–4 Distribution Days. Test market with disciplined pilots.
+   - **❄️ Cold Deck (25–40% Exposure · 5% Pilots)**: Uptrend under pressure (5–6 Distribution Days) or below 21 SMA. Capital preservation, raise stops.
+   - **🧊 Frozen Deck (0–10% Exposure · 0–2% Pilots)**: Correction regime, $\ge 7$ Distribution Days, or Haber 21-day SMA double close broken. Cash is king.
+
+2. **Acute Distribution Cluster Warning (Haber Rule)**:
+   - When **$\ge 3$ Distribution Days occur within 5 to 7 sessions**, institutions are actively liquidating holdings into every bounce. Halt buying immediately.
+
+3. **Daily Closing Range (DCR) Midpoint Rule**:
+   - $\text{DCR} = \frac{\text{Close} - \text{Low}}{\text{High} - \text{Low}}$
+   - **Upper Half ($\ge 0.50$)**: Institutional Accumulation. Even if the index finishes red, closing near the high proves buyers absorbed supply.
+   - **Lower Half ($< 0.50$)**: Distribution / Stalling. The index closed under seller control.
+
+4. **Global 52-Week High Freshness Velocity**:
+   - Compares the recency of 52-week highs across NIFTY 50, NIFTY 500, NASDAQ 100, and S&P 500.
+   - Highlights whether domestic markets are digesting overhead supply or leading international breakouts into blue-sky territory.
+
+5. **Super-Leader Breadth & O'Neil Pack-Hunting**:
+   - Tracks the percentage of top momentum leaders holding above their 21 EMA (short-term pullbacks) and 50 SMA (institutional backbone).
+   - Only buy stocks belonging to **Confirmed Leading Themes** where at least 2 other peers are printing fresh multi-month highs.
             """)
-            
+
         st.markdown("---")
 
     # =========================================================================
