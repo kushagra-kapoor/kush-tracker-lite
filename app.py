@@ -60,7 +60,13 @@ def check_auth_credentials(user_input, pass_input):
     valid_pass = "admin123"
     
     try:
-        if "auth" in st.secrets:
+        if "credentials" in st.secrets:
+            valid_user = st.secrets["credentials"].get("username", valid_user)
+            valid_pass = st.secrets["credentials"].get("password", valid_pass)
+        elif "app_auth" in st.secrets:
+            valid_user = st.secrets["app_auth"].get("username", valid_user)
+            valid_pass = st.secrets["app_auth"].get("password", valid_pass)
+        elif "auth" in st.secrets:
             valid_user = st.secrets["auth"].get("username", valid_user)
             valid_pass = st.secrets["auth"].get("password", valid_pass)
     except Exception:
