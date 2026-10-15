@@ -332,16 +332,18 @@ def load_data():
             market_data[ticker] = add_technical_indicators(market_data[ticker])
     
     # Calculate RS scores using UNIVERSE-LEVEL ranking (not intra-portfolio)
-    universe_rs = compute_universe_rs_scores(tickers)
-    
-    if universe_rs and len(universe_rs) >= 100:
-        # Universe RS available — use it (correct method)
-        rs_data = _build_rs_data_from_universe(tickers, universe_rs, market_data)
-        print(f"[RS] Using universe-level RS ({len(universe_rs)} stocks ranked)")
+    if tickers:
+        universe_rs = compute_universe_rs_scores(tickers)
+        if universe_rs and len(universe_rs) >= 100:
+            # Universe RS available — use it (correct method)
+            rs_data = _build_rs_data_from_universe(tickers, universe_rs, market_data)
+            print(f"[RS] Using universe-level RS ({len(universe_rs)} stocks ranked)")
+        else:
+            # Fallback to old method if universe data unavailable
+            rs_data = calculate_all_rs_scores(market_data)
+            print(f"[RS] ⚠️ Falling back to portfolio-level RS (universe unavailable)")
     else:
-        # Fallback to old method if universe data unavailable
-        rs_data = calculate_all_rs_scores(market_data)
-        print(f"[RS] ⚠️ Falling back to portfolio-level RS (universe unavailable)")
+        rs_data = {}
     
     # Calculate total portfolio value
     total_value = calculate_total_portfolio_value(portfolio_df, market_data)
