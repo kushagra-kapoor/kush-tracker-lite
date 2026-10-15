@@ -166,9 +166,9 @@ def check_layer2_trend(df: pd.DataFrame, trend_state: str) -> tuple:
     Layer 2: Trend health based actions.
     
     Rules:
-    - Ross Haber Sell Rule: >= 2 consecutive closes below 21 EMA/SMA → TRIM 1/3 to 1/2
+    - Warning + 5 days below 21 EMA → TRIM 25-50%
     - Warning + high-vol down day → TRIM 25-50%
-    - Broken trend → Reduce to tracking size / Exit
+    - Broken trend → Reduce to tracking size
     
     Args:
         df: DataFrame with indicators
@@ -177,15 +177,13 @@ def check_layer2_trend(df: pd.DataFrame, trend_state: str) -> tuple:
     Returns:
         Tuple of (action, reason) or (None, None) if no trigger
     """
-    triggers = check_warning_triggers(df)
-    
-    # Ross Haber 21-Day Moving Average Double-Close Rule:
-    # 2 consecutive closes below 21 EMA triggers mandatory trim 1/3 to 1/2
-    if triggers.get('haber_double_close_triggered', False) or triggers.get('days_below_21ema', 0) >= 2:
-        days = triggers['days_below_21ema']
-        return (ACTION_TRIM, f"Ross Haber Sell Rule: {days} consecutive closes below 21 EMA (Trim 1/3 to 1/2)")
-        
     if trend_state == TREND_WARNING:
+        triggers = check_warning_triggers(df)
+        
+        if triggers['consecutive_below_21ema']:
+            days = triggers['days_below_21ema']
+            return (ACTION_TRIM, f"Warning: {days} consecutive days below 21 EMA")
+        
         if triggers['high_vol_down_day']:
             return (ACTION_TRIM, "Warning: High-volume down day >5%")
     

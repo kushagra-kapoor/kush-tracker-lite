@@ -22,12 +22,8 @@ from config import BENCHMARK_TICKER, DATA_SETTINGS, RS_WEIGHTS
 from macro_regime_engine import (
     calculate_distribution_days, detect_follow_through_day, 
     get_market_regime_label, aggregate_sector_strength, standardize_columns,
-    calculate_leadership_metrics, calculate_breadth_thrust,
-    fetch_major_indices_daily_technicals, check_haber_21sma_rule,
-    evaluate_qualitative_leadership_health, get_progressive_exposure_plan,
-    fetch_nifty500_telemetry, fetch_nifty50_telemetry
+    calculate_leadership_metrics, calculate_breadth_thrust
 )
-from breadth_engine import get_latest_volume_and_ad_distribution
 from relative_strength import calculate_stock_returns, calculate_relative_returns, calculate_weighted_rs_raw, normalize_rs_against_nifty500
 from trend_analyzer import determine_trend_state
 from technical_indicators import add_technical_indicators
@@ -66,11 +62,9 @@ def fetch_yfinance_batch(tickers, days=500):
 def process_macro_data(history_df, universe_df, index_n50, index_n500):
     """Computes all macro and sector metrics with full vectorization."""
     # 1. Index Regime Analysis
-    n50_dd_count, _, n50_dd_details = calculate_distribution_days(index_n50, return_details=True)
-    n500_dd_count, _, n500_dd_details = calculate_distribution_days(index_n500, return_details=True)
-    ftd_detected, ftd_date, ftd_details = detect_follow_through_day(index_n500, return_details=True)
-    haber_21_n500 = check_haber_21sma_rule(index_n500)
-    haber_21_n50 = check_haber_21sma_rule(index_n50)
+    n50_dd_count, _ = calculate_distribution_days(index_n50)
+    n500_dd_count, _ = calculate_distribution_days(index_n500)
+    ftd_detected, ftd_date = detect_follow_through_day(index_n500)
     
     index_n500_cols = standardize_columns(index_n500)
     if index_n500_cols.empty or 'close' not in index_n500_cols.columns:
@@ -91,7 +85,7 @@ def process_macro_data(history_df, universe_df, index_n50, index_n500):
     existing_tickers = [t for t in all_tickers if t in history_df.columns.levels[0]]
     
     # Extract 'Close' prices for all existing tickers
-    close_prices = history_df.xs('Close', level=1, axis=1)[existing_tickers].fillna(method='ffill')
+    close_prices = history_df.xs('Close', level=1, axis=1)[existing_tickers].ffill()
     
     # Calculate Returns (1M=21d, 3M=63d, 6M=126d)
     r1 = (close_prices.iloc[-1] / close_prices.iloc[-(DATA_SETTINGS['TRADING_DAYS_1M']+1)]) - 1
@@ -160,45 +154,15 @@ def process_macro_data(history_df, universe_df, index_n50, index_n500):
     leadership_metrics = calculate_leadership_metrics(history_df, existing_tickers, rs_dict)
     breadth_metrics = calculate_breadth_thrust(history_df, existing_tickers)
     
-    leadership_qual = evaluate_qualitative_leadership_health(results_df)
-    
-    dd_cluster = n500_dd_details.get('cluster_detected', False)
-    status_label, status_color, status_emoji = get_market_regime_label(
-        n500_dd_count, 
-        curr_n500, 
-        n500_sma50, 
-        dd_cluster=dd_cluster
-    )
-    
-    exposure_plan = get_progressive_exposure_plan(
-        status_label, 
-        n500_dd_count, 
-        dd_cluster=dd_cluster, 
-        ftd_detected=ftd_detected, 
-        leadership_grade=leadership_qual.get('leadership_grade', 'B')
-    )
-    
     return {
         'n50_dd': n50_dd_count,
-        'n50_dd_details': n50_dd_details,
         'n500_dd': n500_dd_count,
-        'n500_dd_details': n500_dd_details,
         'n500_curr': curr_n500,
         'n500_sma50': n500_sma50,
         'ftd': ftd_date,
-        'ftd_detected': ftd_detected,
-        'ftd_details': ftd_details,
         'sector_df': sector_df,
         'leadership': leadership_metrics,
-        'breadth': breadth_metrics,
-        'haber_21_n500': haber_21_n500,
-        'haber_21_n50': haber_21_n50,
-        'leadership_qual': leadership_qual,
-        'exposure_plan': exposure_plan,
-        'status_label': status_label,
-        'status_color': status_color,
-        'status_emoji': status_emoji,
-        'results_df': results_df
+        'breadth': breadth_metrics
     }
 
 def main():
@@ -237,7 +201,7 @@ def main():
     if macro_results and 'sector_df' in macro_results:
         s_df = macro_results['sector_df']
         required_cols = ['Leadership Density', 'RS Momentum 21d', 'Near High Breadth']
-        if not all(col in s_df.columns for col in required_cols) or 'exposure_plan' not in macro_results or 'status_label' not in macro_results:
+        if not all(col in s_df.columns for col in required_cols):
             st.warning("⚠️ Data version mismatch detected. Upgrading sector metrics...")
             st.session_state['macro_refresh'] = True
             st.rerun()
@@ -248,302 +212,37 @@ def main():
 
     # --- RENDER UI ---
     
-    # 1. TOP HEADER: ROSS HABER PROGRESSIVE EXPOSURE & REGIME MASTER HUD
-    # Single source of truth: authoritative telemetry from fetch_nifty500_telemetry & fetch_nifty50_telemetry
-    n500_telem = fetch_nifty500_telemetry()
-    n50_telem = fetch_nifty50_telemetry()
+    # 1. TOP HEADER: MARKET STATUS
+    dd_count = macro_results['n500_dd']
+    status_label, status_color, status_emoji = get_market_regime_label(
+        dd_count, 
+        macro_results['n500_curr'], 
+        macro_results['n500_sma50']
+    )
     
-    if n500_telem:
-        status_label = n500_telem.get('status_label', "Market in Correction")
-        status_color = n500_telem.get('status_color', "red")
-        status_emoji = n500_telem.get('status_emoji', "🔴")
-        exposure_plan = n500_telem.get('exposure_plan') or (macro_results.get('exposure_plan', {}) if macro_results else {})
-        haber_21 = n500_telem.get('haber_21') or (macro_results.get('haber_21_n500', {}) if macro_results else {})
-        n500_details = n500_telem.get('dd_details') or (macro_results.get('n500_dd_details', {}) if macro_results else {})
-        n500_dd = n500_telem.get('dd_count', macro_results.get('n500_dd', 0) if macro_results else 0)
-    else:
-        status_label = macro_results.get('status_label', "Market in Correction") if macro_results else "Market in Correction"
-        status_color = macro_results.get('status_color', "red") if macro_results else "red"
-        status_emoji = macro_results.get('status_emoji', "🔴") if macro_results else "🔴"
-        exposure_plan = macro_results.get('exposure_plan', {}) if macro_results else {}
-        haber_21 = macro_results.get('haber_21_n500', {}) if macro_results else {}
-        n500_details = macro_results.get('n500_dd_details', {}) if macro_results else {}
-        n500_dd = macro_results.get('n500_dd', 0) if macro_results else 0
-
-    if n50_telem:
-        n50_details = n50_telem.get('dd_details') or (macro_results.get('n50_dd_details', {}) if macro_results else {})
-        n50_dd = n50_telem.get('dd_count', macro_results.get('n50_dd', 0) if macro_results else 0)
-    else:
-        n50_details = macro_results.get('n50_dd_details', {}) if macro_results else {}
-        n50_dd = macro_results.get('n50_dd', 0) if macro_results else 0
-
-    leadership_qual = macro_results.get('leadership_qual', {}) if macro_results else {}
-    
-    deck_state = exposure_plan.get('deck_state', "🧊 FROZEN DECK (Market in Correction)")
-    deck_color = exposure_plan.get('accent_color', "#ef4444")
-    exposure_range = exposure_plan.get('exposure_range', "0% – 10% (Maximum Cash)")
-    pilot_size = exposure_plan.get('pilot_size', "0% (No New Buys)")
-    deck_rule = exposure_plan.get('rule', "Do not fight the market. Swimming upstream. Enforce 21 SMA double-close exits and protect capital.")
-    
-    # Haber 21 SMA Buffer Calculation & Formatting
-    buf_pct = haber_21.get('pct_diff_sma21', 0.0)
-    consecutive_21 = haber_21.get('consecutive_closes', 0)
-    buf_color = '#10b981' if buf_pct >= 0 else '#ef4444'
-    if haber_21.get('triggered', False) and consecutive_21 >= 2:
-        haber_badge_text = f"🚨 {consecutive_21} Closes Below 21 SMA"
-    elif buf_pct >= 0:
-        haber_badge_text = "🟢 Above 21 SMA"
-    else:
-        haber_badge_text = "⚠️ Testing 21 SMA"
-
-    # Render Master Progressive Exposure Banner
     st.markdown(f"""
-    <div style="background: linear-gradient(135deg, rgba(15, 23, 42, 0.95) 0%, rgba(2, 6, 23, 0.98) 100%); border: 1px solid rgba(255, 255, 255, 0.12); border-left: 5px solid {deck_color}; border-radius: 14px; padding: 20px 24px; margin-bottom: 18px; box-shadow: 0 14px 32px rgba(0,0,0,0.5);">
-        <div style="display: flex; justify-content: space-between; align-items: flex-start; flex-wrap: wrap; gap: 14px; margin-bottom: 12px;">
-            <div>
-                <span style="font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.1em; color: #94a3b8; font-weight: 700;">Haber / O'Neil Progressive Exposure Engine</span>
-                <div style="font-size: 1.45rem; font-weight: 800; color: #f8fafc; margin-top: 3px; display: flex; align-items: center; gap: 10px;">
-                    {status_emoji} {status_label} <span style="font-size: 0.85rem; padding: 3px 10px; border-radius: 6px; background: rgba(255,255,255,0.08); color: {deck_color}; border: 1px solid {deck_color}44;">{deck_state}</span>
-                </div>
-            </div>
-            <div style="display: flex; gap: 18px; align-items: center; flex-wrap: wrap;">
-                <div style="text-align: right;">
-                    <div style="font-size: 0.72rem; text-transform: uppercase; color: #94a3b8; letter-spacing: 0.08em; font-weight: 600;">Max Recommended Exposure</div>
-                    <div style="font-family: 'JetBrains Mono', monospace; font-size: 1.25rem; font-weight: 800; color: {deck_color};">{exposure_range}</div>
-                </div>
-                <div style="height: 32px; width: 1px; background: rgba(255,255,255,0.12);"></div>
-                <div style="text-align: right;">
-                    <div style="font-size: 0.72rem; text-transform: uppercase; color: #94a3b8; letter-spacing: 0.08em; font-weight: 600;">Pilot Position Sizing</div>
-                    <div style="font-family: 'JetBrains Mono', monospace; font-size: 1.25rem; font-weight: 800; color: #38bdf8;">{pilot_size}</div>
-                </div>
-            </div>
-        </div>
-        <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px; padding-top: 12px; border-top: 1px solid rgba(255, 255, 255, 0.08); font-size: 0.84rem; color: #cbd5e1;">
-            <div>
-                <strong>Execution Mandate:</strong> {deck_rule}
-            </div>
-            <div>
-                <strong>Index 21 SMA Buffer:</strong> <span style="font-family: 'JetBrains Mono', monospace; color: {buf_color}; font-weight: 700;">{'+' if buf_pct >= 0 else ''}{buf_pct:.1f}%</span> ({haber_badge_text})
-            </div>
+    <div class="status-box {status_color}-status">
+        <div class="status-title">{status_emoji} {status_label}</div>
+        <div class="status-subtitle">
+            Nifty 500 Distribution Days: <strong>{dd_count}</strong> (Rolling 25 Sessions) | 
+            Price vs 50 SMA: <strong>{'+' if macro_results['n500_curr'] > macro_results['n500_sma50'] else '-'}{abs((macro_results['n500_curr']/macro_results['n500_sma50']-1)*100):.1f}%</strong>
         </div>
     </div>
     """, unsafe_allow_html=True)
     
-    # Check for Acute Distribution Cluster
-    if n500_details.get('cluster_detected', False):
-        st.markdown(f"""
-        <div style="background: rgba(239, 68, 68, 0.12); border: 1px solid rgba(239, 68, 68, 0.4); border-left: 5px solid #ef4444; border-radius: 10px; padding: 14px 18px; margin-bottom: 18px; color: #fca5a5;">
-            <div style="font-weight: 800; font-size: 0.95rem; display: flex; align-items: center; gap: 8px;">
-                🚨 ACUTE DISTRIBUTION CLUSTER DETECTED ({n500_details.get('cluster_count_7d', 3)} Distribution Days in Last 7 Sessions)
-            </div>
-            <div style="font-size: 0.82rem; margin-top: 4px; color: #e2e8f0;">
-                Ross Haber Warning Rule: Three or more distribution days clustered within a 5 to 7 day span signals institutional topping pressure or high-volume liquidation. Do not initiate new pilot buys. Tighten trailing stops to breakeven or 21 SMA immediately.
-            </div>
-        </div>
-        """, unsafe_allow_html=True)
-        
     from components import render_metric_card
-    vol_breadth = get_latest_volume_and_ad_distribution('IN')
-    ud_ratio = vol_breadth.get('up_down_volume_ratio', 1.0) if vol_breadth else 1.0
-    
-    m_col1, m_col2, m_col3, m_col4 = st.columns(4)
-    ftd = macro_results.get('ftd') if macro_results else None
-    dcr_val = n500_details.get('latest_dcr', 0.5)
-    dcr_verdict = n500_details.get('latest_midpoint_verdict', "Neutral")
-    
+    m_col1, m_col2, m_col3 = st.columns(3)
+    n50_dd = macro_results['n50_dd']
+    n500_dd = macro_results['n500_dd']
+    ftd = macro_results['ftd']
     with m_col1:
         render_metric_card("Nifty 50 DD Count", f"{n50_dd}/25", color_class="red-text" if n50_dd >= 4 else "green-text")
-        st.caption(f"{n50_details.get('standard_dd_count', 0)} Down-Vol | {n50_details.get('churning_dd_count', 0)} Churning")
+        st.caption("Bearish" if n50_dd >= 4 else "Safe")
     with m_col2:
         render_metric_card("Nifty 500 DD Count", f"{n500_dd}/25", color_class="red-text" if n500_dd >= 4 else "green-text")
-        st.caption(f"{n500_details.get('cluster_count_7d', 0)} in last 7d | {n500_details.get('hammer_acc_count', 0)} Hammers")
+        st.caption("Bearish" if n500_dd >= 4 else "Safe")
     with m_col3:
-        dcr_color = "green-text" if dcr_val >= 0.50 else "red-text"
-        render_metric_card("Daily Closing Range (DCR)", f"{dcr_val:.2f}", color_class=dcr_color)
-        st.caption(f"{'🟢 Upper Half (Accumulative)' if dcr_val >= 0.50 else '🔴 Lower Half (Distributive)'}")
-    with m_col4:
-        ftd_display = f"Confirmed ({ftd})" if ftd else "Watching"
-        l_grade = leadership_qual.get('leadership_grade', 'B')
-        render_metric_card("FTD & Leadership", ftd_display, color_class="green-text" if ftd else "yellow-text")
-        st.caption(f"Grade {l_grade} Leaders | {leadership_qual.get('near_high_pct', 0)}% Near 52W High")
-
-    # Dr. Martin Zweig Breadth Thrust & 9:1 Tape Telemetry
-    try:
-        from breadth_engine import get_zweig_tape_summary
-        zweig_tape = get_zweig_tape_summary(market='IN')
-    except Exception:
-        zweig_tape = {}
-
-    zbt_val = zweig_tape.get('zbt_10_ema', 0.50)
-    zbt_active = zweig_tape.get('zbt_active', False)
-    double_9to1 = zweig_tape.get('double_9_to_1_active', False)
-    count_9to1 = zweig_tape.get('count_9_to_1_65d', 0)
-    days_since_zbt = zweig_tape.get('days_since_zbt')
-    
-    zbt_status_text = "🚀 ACTIVE THRUST" if zbt_active else ("IGNITION ZONE (<0.40)" if zbt_val < 0.40 else "Neutral")
-    zbt_color = "#10b981" if zbt_active else ("#38bdf8" if zbt_val < 0.40 else "#94a3b8")
-    d9to1_text = "🔥 BLAST-OFF ACTIVE" if double_9to1 else f"{count_9to1} Days (Needs 2)"
-    d9to1_color = "#ec4899" if double_9to1 else ("#38bdf8" if count_9to1 >= 1 else "#94a3b8")
-
-    st.markdown(f"""
-    <div style="background: linear-gradient(145deg, rgba(15, 23, 42, 0.85) 0%, rgba(2, 6, 23, 0.95) 100%); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 12px; padding: 14px 18px; margin: 12px 0 20px 0;">
-        <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 10px;">
-            <div style="display: flex; align-items: center; gap: 8px;">
-                <span style="font-size: 1.15rem;">🏛️</span>
-                <span style="color: #38bdf8; font-weight: 700; font-size: 0.95rem; letter-spacing: 0.3px;">DR. MARTIN ZWEIG QUANTITATIVE BREADTH & TAPE BAROMETER</span>
-            </div>
-            <div style="display: flex; gap: 8px; flex-wrap: wrap;">
-                <span style="background: rgba(255,255,255,0.06); padding: 4px 10px; border-radius: 6px; font-size: 0.78rem; font-weight: 700; color: {zbt_color}; border: 1px solid {zbt_color}44;">
-                    ZBT 10-EMA: {zbt_val:.3f} &nbsp;|&nbsp; {zbt_status_text}
-                </span>
-                <span style="background: rgba(255,255,255,0.06); padding: 4px 10px; border-radius: 6px; font-size: 0.78rem; font-weight: 700; color: {d9to1_color}; border: 1px solid {d9to1_color}44;">
-                    9:1 Up-Volume: {d9to1_text}
-                </span>
-            </div>
-        </div>
-        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 12px; margin-top: 12px; font-size: 0.82rem; color: #94a3b8;">
-            <div style="background: rgba(255,255,255,0.02); padding: 8px 12px; border-radius: 6px; border: 1px solid rgba(255,255,255,0.04);">
-                <strong style="color: #cbd5e1;">Zweig Breadth Thrust (ZBT):</strong> Surges from &lt;0.40 to &ge;0.615 in &le;10 days. 
-                <span style="color: {zbt_color}; font-weight: 600;">{'Active within last ' + str(days_since_zbt) + ' days' if days_since_zbt is not None else 'No active thrust'}.</span>
-            </div>
-            <div style="background: rgba(255,255,255,0.02); padding: 8px 12px; border-radius: 6px; border: 1px solid rgba(255,255,255,0.04);">
-                <strong style="color: #cbd5e1;">Double 9:1 Blast-Off:</strong> Two 9:1 up-volume days in 65 sessions unlocks 100% Super-Thrust allocation.
-                <span style="color: {d9to1_color}; font-weight: 600;">{count_9to1} occurrences active.</span>
-            </div>
-        </div>
-    </div>
-    """, unsafe_allow_html=True)
-    with st.expander("📖 William O'Neil & Ross Haber Institutional Playbook (Market Timing & Risk Rules)", expanded=False):
-        st.markdown(r"""
-        #### 🎓 Core Rules from Ross Haber (Former William O'Neil PM) & Richard Moglen
-        
-        1. **The 'M' in CANSLIM (Market Trend is the Master Filter)**:
-           - **3 out of 4 stocks follow the general market trend.** Trying to buy growth setups in a downtrend is *"swimming upstream"* or playing with a *"cold deck"*.
-           - Russian Nesting Dolls: The General Market is the outer doll $\rightarrow$ Industry Group is the middle doll $\rightarrow$ Individual Leader is the inner doll.
-        
-        2. **Where It Closes Matters Far More Than Up or Down (The Midpoint Rule)**:
-           - $$\text{DCR} = \frac{\text{Close} - \text{Low}}{\text{High} - \text{Low}}$$
-           - **Upper Half ($\text{DCR} \ge 0.50$, Accumulative)**:
-             - *Strong Close*: Closed up near highs on volume.
-             - *Hammer Bar (Absorption)*: Closed DOWN on the day, but finished in the upper half on volume. Institutional buyers stepped in and absorbed selling. **Excluded from Distribution Days!**
-           - **Lower Half ($\text{DCR} < 0.50$, Distributive)**:
-             - *Weak Close*: Closed down near lows.
-             - *Churning / Stalling Day*: Closed UP ($0\% \le \Delta \text{Close} \le +0.4\%$) or flat on volume $>$ prior session, but in the lower half ($\text{DCR} < 0.50$). Huge volume with no upside progress = smart money selling into retail buying. **Counts as a Distribution Day!**
-             
-        3. **Follow-Through Day (FTD) — The Two Halves**:
-           - **Quantitative Half**: Day 4+ surge of $\ge +1.5\%$ to $+1.75\%$ on volume above prior day off a rally attempt low.
-           - **Qualitative Half ("Watch the Leaders")**: The deciding factor! If leaders are coiling within $10\%\text{–}15\%$ of 52-week highs and breaking out with group confirmation ($\ge 3\text{–}5$ stocks per group), the FTD succeeds. If no leaders emerge, it's a false rally.
-           
-        4. **Distribution Day Clusters (Impending Top Warning)**:
-           - When **$\ge 3$ distribution days occur within 5 to 7 trading days**, it forms an acute **Cluster**.
-           - Accompanied by wide-and-loose spreads and volume skyscrapers, indicating an impending market correction.
-           
-        5. **Ross Haber 21-Day Moving Average Double-Close Rule (Stock vs Index)**:
-           - **Individual Stock Level**: If a stock posts **2 consecutive closes below its 21-day SMA**, trim $1/3$ to $1/2$ position (if Stage 1/2 base) or liquidate $100\%$ (if Stage 3/4 base).
-           - **Index Level**: If the benchmark closes 2x below its 21-day SMA, downshift portfolio exposure (Hot Deck $\rightarrow$ Cold Deck) and halt aggressive new buys.
-        """)
-
-    st.markdown("")
-
-    # --- MAJOR BENCHMARK TECHNICALS & A/D COCKPIT (IBD GMI STANDARD) ---
-    st.markdown("### 🏛️ Major Benchmark Technicals & A/D Cockpit (IBD GMI Standard)")
-    st.caption("Multi-index assessment of price action, distance from 52-week highs, YTD return, 50/200 SMA buffers, and trailing 13-week Accumulation/Distribution grades.")
-
-    with st.expander("ℹ️ What do A, B, C, D, E mean in A/D and how is it calculated?", expanded=False):
-        st.markdown(r"""
-        #### 🏷️ What Do the A/D Grades Mean?
-        Investor's Business Daily (IBD) assigns an **Accumulation/Distribution (A/D) Grade** to major indices to measure whether institutional money ("Smart Money") is net buying or net selling over a trailing 13-week (65 trading day) cycle:
-
-        - 🟢 **Grade A (Heavy Institutional Accumulation)**: Large mutual funds, pension funds, and sovereign funds are aggressively buying on above-average volume. Index pullbacks are shallow and quickly bought up.
-        - 🟢 **Grade B (Moderate Institutional Accumulation)**: Institutional buying pressure consistently outpaces selling. Positive institutional sponsorship supporting the trend.
-        - 🟡 **Grade C+ (Mild Accumulation)**: Leaning slightly bullish with modest net institutional inflows.
-        - ⚪ **Grade C (Neutral / Equilibrium)**: Buying and selling volume are balanced. Indecisive market with no clear institutional accumulation or distribution bias.
-        - 🟠 **Grade D (Moderate Institutional Distribution)**: Institutions are net sellers, liquidating shares into bounces on elevated volume. Rallies tend to fail quickly.
-        - 🔴 **Grade E (Heavy Institutional Distribution)**: Severe institutional distribution and capital exit. High risk of extended market corrections and failed breakouts.
-
-        ---
-
-        #### 🧮 How Is the A/D Grade Calculated?
-        The algorithm evaluates the trailing **65 trading sessions (13 weeks)** using price action and volume dynamics:
-
-        1. **Intraday Close Location Value (CLV)**:
-           $$\text{CLV} = \frac{(\text{Close} - \text{Low}) - (\text{High} - \text{Close})}{\text{High} - \text{Low}} = \frac{2 \times \text{Close} - (\text{High} + \text{Low})}{\text{High} - \text{Low}}$$
-           Measures *where* the index closed within its daily high-low range: $+1.0$ if closed at the exact high of the day (aggressive buying), $-1.0$ if closed at the low (aggressive selling).
-
-        2. **Volume Ratio Scaling**:
-           $$\text{Volume Ratio} = \frac{\text{Daily Volume}}{\text{50-Day Moving Average Volume}}$$
-           High-volume sessions carry greater weighting; quiet low-volume days are dampened.
-
-        3. **Daily Institutional Flow**:
-           $$\text{Daily Flow} = \Big(0.6 \times \text{sign}(\Delta \text{Close}) + 0.4 \times \text{CLV}\Big) \times \text{Volume Ratio}$$
-
-        4. **Time-Decay Front-Weighting**:
-           Recent trading sessions are assigned up to **$2\times$ the weight** of older sessions from 13 weeks ago using a linear ramp, ensuring the score rapidly reflects current institutional accumulation or distribution shifts.
-
-        5. **Canonical IBD Grade Thresholds**:
-           - **A**: Score $\ge +12.0$
-           - **B**: $+4.0 \le \text{Score} < +12.0$
-           - **C+**: $0.0 \le \text{Score} < +4.0$
-           - **C**: $-4.0 \le \text{Score} < 0.0$
-           - **D**: $-12.0 \le \text{Score} < -4.0$
-           - **E**: Score $< -12.0$
-        """)
-    
-    try:
-        idx_technicals = fetch_major_indices_daily_technicals('IN')
-        if idx_technicals:
-            c_cols = st.columns(len(idx_technicals))
-            for col, idx in zip(c_cols, idx_technicals):
-                with col:
-                    ad_g = idx.get('ad_grade', 'C')
-                    grade_bg = "rgba(16,185,129,0.18)" if ad_g in ['A', 'B'] else ("rgba(245,158,11,0.18)" if ad_g == 'C+' else ("rgba(148,163,184,0.18)" if ad_g == 'C' else "rgba(239,68,68,0.18)"))
-                    grade_color = "#10b981" if ad_g in ['A', 'B'] else ("#f59e0b" if ad_g == 'C+' else ("#94a3b8" if ad_g == 'C' else "#ef4444"))
-                    chg_color = "#10b981" if idx.get('chg_pct', 0) >= 0 else "#ef4444"
-                    
-                    st.markdown(f"""
-                    <div style="background: linear-gradient(145deg, #0f172a 0%, #020617 100%); border: 1px solid rgba(255,255,255,0.08); border-radius: 12px; padding: 16px; margin-bottom: 12px; box-shadow: 0 4px 15px rgba(0,0,0,0.4);">
-                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
-                            <span style="font-weight: 700; color: #f8fafc; font-size: 1.05rem;">{idx['name']}</span>
-                            <span style="background: {grade_bg}; color: {grade_color}; border: 1px solid {grade_color}; padding: 2px 8px; border-radius: 6px; font-weight: 800; font-size: 0.8rem;">
-                                A/D: {ad_g}
-                            </span>
-                        </div>
-                        <div style="display: flex; align-items: baseline; gap: 8px; margin-bottom: 12px;">
-                            <span style="font-family: 'JetBrains Mono', monospace; font-size: 1.35rem; font-weight: 800; color: #f8fafc;">{idx['close']:,.2f}</span>
-                            <span style="font-family: 'JetBrains Mono', monospace; font-size: 0.85rem; font-weight: 700; color: {chg_color};">
-                                {idx['chg_pts']:+,.1f} ({idx['chg_pct']:+.2f}%)
-                            </span>
-                        </div>
-                        <div style="grid-template-columns: 1fr 1fr; display: grid; gap: 8px; font-size: 0.78rem; border-top: 1px solid rgba(255,255,255,0.05); padding-top: 10px;">
-                            <div>
-                                <span style="color: #64748b;">Off 52W High:</span><br>
-                                <strong style="color: {'#10b981' if idx['dist_52w_high'] >= -3.0 else '#f59e0b' if idx['dist_52w_high'] >= -8.0 else '#ef4444'}; font-family: 'JetBrains Mono';">
-                                    {idx['dist_52w_high']:.1f}%
-                                </strong>
-                            </div>
-                            <div>
-                                <span style="color: #64748b;">Since Jan 1 (YTD):</span><br>
-                                <strong style="color: {'#10b981' if idx['ytd_pct'] >= 0 else '#ef4444'}; font-family: 'JetBrains Mono';">
-                                    {idx['ytd_pct']:+.1f}%
-                                </strong>
-                            </div>
-                            <div>
-                                <span style="color: #64748b;">vs 50 SMA:</span><br>
-                                <strong style="color: {'#10b981' if idx['dist_sma50'] >= 0 else '#ef4444'}; font-family: 'JetBrains Mono';">
-                                    {idx['dist_sma50']:+.1f}%
-                                </strong>
-                            </div>
-                            <div>
-                                <span style="color: #64748b;">vs 200 SMA:</span><br>
-                                <strong style="color: {'#10b981' if idx['dist_sma200'] >= 0 else '#ef4444'}; font-family: 'JetBrains Mono';">
-                                    {idx['dist_sma200']:+.1f}%
-                                </strong>
-                            </div>
-                        </div>
-                    </div>
-                    """, unsafe_allow_html=True)
-    except Exception as e:
-        st.warning(f"Could not load major benchmark cockpit: {e}")
+        render_metric_card("Follow-Through Day", ftd if ftd else "None", color_class="green-text" if ftd else "yellow-text")
 
     st.markdown("")
     
@@ -648,77 +347,42 @@ def main():
             )
             
         st.write("")
-        chart_layout = st.radio(
-            "Leadership Charts Display Layout:",
-            ["📑 Modular Stacked (Full Width)", "🔲 2x2 Multi-Grid", "🔍 Focus Tabs"],
-            horizontal=True,
-            key="regime_chart_layout"
-        )
         
-        ler_series = leadership['ler_series']
-        fig_ler = px.line(ler_series, title="Leader Emergence Rate (%) - 24 Weeks", markers=True)
-        fig_ler.update_layout(xaxis_title="", yaxis_title="LER %", showlegend=False, paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', template='plotly_dark')
-        fig_ler.add_hline(y=1.5, line_dash="dash", line_color="green", opacity=0.5)
-
-        lac_series = leadership['lac_series']
-        fig_lac = px.bar(lac_series, title="Leadership Acceleration Curve (New/Wk) - 24 Weeks")
-        fig_lac.update_traces(marker_color=['#10b981' if val > 0 else '#ef4444' for val in lac_series])
-        fig_lac.update_layout(xaxis_title="", yaxis_title="Acceleration", showlegend=False, paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', template='plotly_dark')
-
-        lt_series = leadership['lt_series']
-        fig_lt = px.line(lt_series, title="Leadership Thrust (100 Days)")
-        fig_lt.update_layout(xaxis_title="", yaxis_title="LT %", showlegend=False, paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', template='plotly_dark')
-        fig_lt.add_hline(y=3.0, line_dash="dash", line_color="orange", opacity=0.5)
-
-        bt_series = breadth['breadth_ma10_series']
-        fig_bt = px.line(bt_series, title="Dr. Martin Zweig Breadth Thrust MA10 (100 Days)")
-        fig_bt.update_layout(xaxis_title="", yaxis_title="Advancers Ratio", showlegend=False, paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', template='plotly_dark')
-        fig_bt.add_hline(y=0.615, line_dash="dash", line_color="#10b981", annotation_text="Thrust Target (0.615)")
-        fig_bt.add_hline(y=0.40, line_dash="dash", line_color="#ef4444", annotation_text="Ignition Floor (0.40)")
-
-        if chart_layout == "📑 Modular Stacked (Full Width)":
-            fig_ler.update_layout(height=420)
+        # Charts Row 1
+        import plotly.graph_objects as go
+        ch1, ch2 = st.columns(2)
+        
+        with ch1:
+            ler_series = leadership['ler_series']
+            fig_ler = px.line(ler_series, title="Leader Emergence Rate (%) - 24 Weeks", markers=True)
+            fig_ler.update_layout(xaxis_title="", yaxis_title="LER %", showlegend=False, height=300, paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', template='plotly_dark')
+            fig_ler.add_hline(y=1.5, line_dash="dash", line_color="green", opacity=0.5)
             st.plotly_chart(fig_ler, use_container_width=True)
-            fig_lac.update_layout(height=400)
+            
+        with ch2:
+            lac_series = leadership['lac_series']
+            fig_lac = px.bar(lac_series, title="Leadership Acceleration Curve (New/Wk) - 24 Weeks")
+            fig_lac.update_traces(marker_color=['#10b981' if val > 0 else '#ef4444' for val in lac_series])
+            fig_lac.update_layout(xaxis_title="", yaxis_title="Acceleration", showlegend=False, height=300, paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', template='plotly_dark')
             st.plotly_chart(fig_lac, use_container_width=True)
-            fig_lt.update_layout(height=420)
+            
+        # Charts Row 2
+        ch3, ch4 = st.columns(2)
+        
+        with ch3:
+            lt_series = leadership['lt_series']
+            fig_lt = px.line(lt_series, title="Leadership Thrust (100 Days)")
+            fig_lt.update_layout(xaxis_title="", yaxis_title="LT %", showlegend=False, height=300, paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', template='plotly_dark')
+            fig_lt.add_hline(y=3.0, line_dash="dash", line_color="orange", opacity=0.5)
             st.plotly_chart(fig_lt, use_container_width=True)
-            fig_bt.update_layout(height=440)
+            
+        with ch4:
+            bt_series = breadth['breadth_ma10_series']
+            fig_bt = px.line(bt_series, title="Breadth Thrust MA10 (100 Days)")
+            fig_bt.update_layout(xaxis_title="", yaxis_title="Advancers Ratio", showlegend=False, height=300, paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', template='plotly_dark')
+            fig_bt.add_hline(y=0.60, line_dash="dash", line_color="green", annotation_text="Strong Buy")
+            fig_bt.add_hline(y=0.40, line_dash="dash", line_color="red", annotation_text="Weak")
             st.plotly_chart(fig_bt, use_container_width=True)
-        elif chart_layout == "🔲 2x2 Multi-Grid":
-            ch1, ch2 = st.columns(2)
-            with ch1:
-                fig_ler.update_layout(height=360)
-                st.plotly_chart(fig_ler, use_container_width=True)
-            with ch2:
-                fig_lac.update_layout(height=360)
-                st.plotly_chart(fig_lac, use_container_width=True)
-            ch3, ch4 = st.columns(2)
-            with ch3:
-                fig_lt.update_layout(height=360)
-                st.plotly_chart(fig_lt, use_container_width=True)
-            with ch4:
-                fig_bt.update_layout(height=360)
-                st.plotly_chart(fig_bt, use_container_width=True)
-        else: # Focus Tabs
-            t_ler, t_lac, t_lt, t_bt = st.tabs([
-                "🌱 Leader Emergence (LER)", 
-                "🚀 Acceleration (LAC)", 
-                "⚡ Leadership Thrust (LT)", 
-                "🏛️ Zweig Breadth Thrust (BT)"
-            ])
-            with t_ler:
-                fig_ler.update_layout(height=480)
-                st.plotly_chart(fig_ler, use_container_width=True)
-            with t_lac:
-                fig_lac.update_layout(height=480)
-                st.plotly_chart(fig_lac, use_container_width=True)
-            with t_lt:
-                fig_lt.update_layout(height=480)
-                st.plotly_chart(fig_lt, use_container_width=True)
-            with t_bt:
-                fig_bt.update_layout(height=480)
-                st.plotly_chart(fig_bt, use_container_width=True)
             
         # User Education Section
         with st.expander("📚 How to Use Market Leadership Signals"):
@@ -803,7 +467,6 @@ def main():
         sector_df,
         column_config={
             "Industry": st.column_config.TextColumn("Industry Group", width="large"),
-            "Group Confirmation": st.column_config.TextColumn("Group Confirmation", width="medium"),
             "Avg_RS": st.column_config.NumberColumn("Avg RS (T-0)", format="%.1f"),
             "RS Momentum 21d": st.column_config.NumberColumn("RS Mom (21d)", format="%+.1f"),
             "Leadership Density": st.column_config.ProgressColumn("Leadership Density", min_value=0, max_value=100, format="%d%%"),
@@ -818,11 +481,10 @@ def main():
     )
 
     with st.expander("ℹ️ Column Definitions & Methodology"):
-        st.markdown(r"""
+        st.markdown("""
 | Column | What It Represents | How It's Calculated |
 |---|---|---|
 | **Industry Group** | The NSE-defined industry classification for all ~750 Nifty Total Market stocks. | Groups with fewer than 3 stocks are filtered out. |
-| **Group Confirmation** | Ross Haber Institutional Pack-Hunting Confirmation. | ✅ Confirmed when the group has $\ge 3$ leading stocks (RS $\ge 85$) coiling/breaking out together; ⚪ Unconfirmed otherwise. |
 | **Avg RS (T-0)** | The current average Weighted Relative Strength score of the group. | Percentage-ranked (0-100) across all 750 stocks. |
 | **RS Mom (21d)** | The change in the group's Average RS over the last month (21 trading days). | `Current Avg_RS - Historical (T-21) Avg_RS`. Positive values indicate the sector is actively gaining leadership. |
 | **Leadership Density**| The percentage of stocks in the group that are "Elite Leaders" (RS > 85). | `(Stocks with RS > 85 / Total Stocks) × 100`. High density signals a true institutional theme. |
@@ -837,6 +499,7 @@ def main():
 - **RS Mom (21d) > +5.0** suggests a new group is appearing on the institutional radar.
 - **Trend Health > 70%** indicates the move is stable and broad-based.
         """)
+
 
 
 if __name__ == "__main__":

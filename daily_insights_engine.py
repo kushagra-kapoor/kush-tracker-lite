@@ -69,17 +69,11 @@ def get_sector_clusters(sector_strength_df: pd.DataFrame, top_n: int = 3) -> lis
         top_sectors = valid_sectors.sort_values('Cluster_Score', ascending=False).head(top_n)
         
         for _, row in top_sectors.iterrows():
-            conf = row.get('Group Confirmation', '')
-            leaders = row.get('Leaders_Count', 0)
-            if not conf:
-                conf = f"✅ Confirmed ({int(leaders)} Leaders)" if leaders >= 3 else "⚪ Unconfirmed"
             clusters.append({
                 'name': row['Industry'],
                 'avg_rs': row.get('Avg_RS', 0),
                 'bullish_pct': row.get('Bullish %', 0),
-                'count': row.get('Stocks', 0),
-                'confirmation': conf,
-                'leaders_count': leaders
+                'count': row.get('Stocks', 0)
             })
             
     return clusters

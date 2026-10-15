@@ -705,7 +705,6 @@ def main():
                 "🚀 Surging Only",
                 "🔄 Accumulating Only",
                 "⏸️ Consolidating Only",
-                "🐺 Group Confirmed (≥3 Leaders)",
                 "🐺 High Pack Hunting (≥3)"
             ],
             index=0
@@ -1004,8 +1003,8 @@ def main():
         filtered_df = filtered_df[filtered_df["Rotation_Status"].str.contains("Accumulating")]
     elif status_filter == "⏸️ Consolidating Only":
         filtered_df = filtered_df[filtered_df["Rotation_Status"].str.contains("Consolidating")]
-    elif status_filter in ["🐺 High Pack Hunting (≥3)", "🐺 Group Confirmed (≥3 Leaders)"]:
-        filtered_df = filtered_df[filtered_df["Is_Group_Confirmed"] == True]
+    elif status_filter == "🐺 High Pack Hunting (≥3)":
+        filtered_df = filtered_df[filtered_df["Pack_Hunting_Count"] >= 3]
 
     if search_query:
         filtered_df = filtered_df[
@@ -1117,26 +1116,26 @@ def main():
 
         if "Executive" in tv_mode:
             disp_cols = [
-                "Rank_Today", "Industry_Group", "Dual_Badge", "Group_Confirmation_Badge", "Horizon_Badge", "Rotation_Status",
+                "Rank_Today", "Industry_Group", "Dual_Badge", "Horizon_Badge", "Rotation_Status",
                 "Sortino_3M", "Apex_Leaders", "Pack_Hunting_Count",
                 "Return_1M", "Top_Leaders_Display", "Sparkline_1M"
             ]
         elif "Risk" in tv_mode:
             disp_cols = [
-                "Rank_Today", "Industry_Group", "Dual_Badge", "Group_Confirmation_Badge", "Horizon_Badge", "Horizon_State",
+                "Rank_Today", "Industry_Group", "Dual_Badge", "Horizon_Badge", "Horizon_State",
                 "Excess_3M", "Sortino_3M", "Sortino_6M", "Apex_Leaders",
                 "Pack_Hunting_Count", "Stock_Count", "Return_3M", "Return_6M",
                 "Top_Leaders_Display"
             ]
         elif "Velocity" in tv_mode:
             disp_cols = [
-                "Rank_Today", "Industry_Group", "Dual_Badge", "Group_Confirmation_Badge", "Horizon_Badge", "Horizon_State", "Rotation_Status",
+                "Rank_Today", "Industry_Group", "Dual_Badge", "Horizon_Badge", "Horizon_State", "Rotation_Status",
                 "Rank_1W", "Delta_1W", "Rank_1M", "Delta_1M", "Rank_3M", "Rank_6M",
                 "Pack_Hunting_Count", "Sparkline_1M"
             ]
         else:
             disp_cols = [
-                "Rank_Today", "Industry_Group", "Dual_Badge", "Group_Confirmation_Badge", "Horizon_Badge", "Horizon_State", "Rotation_Status",
+                "Rank_Today", "Industry_Group", "Dual_Badge", "Horizon_Badge", "Horizon_State", "Rotation_Status",
                 "Excess_1M", "Excess_3M", "Excess_6M",
                 "Sortino_3M", "Sortino_6M", "Apex_Leaders",
                 "Rank_1W", "Delta_1W", "Rank_1M", "Delta_1M", "Rank_3M", "Rank_6M",
@@ -1150,7 +1149,6 @@ def main():
             "Rank_Today": st.column_config.NumberColumn("Rank", format="%d", width=70, help="Current Relative Strength Rank (1 = Market Leader)"),
             "Industry_Group": st.column_config.TextColumn("Industry Sub-Group", width=250),
             "Dual_Badge": st.column_config.TextColumn("Dual Gate", width=95, help="Gary Antonacci Dual Momentum Gate: 🚀 Alpha (Excess>0 & Return>0), 🛡️ Mirage (Excess>0 but Return<=0), 📉 Bleed (Excess<=0 & Return<=0)"),
-            "Group_Confirmation_Badge": st.column_config.TextColumn("Group Confirmed", width=140, help="Ross Haber Pack-Hunting Rule: At least 3 liquid leaders with RS >= 80 breaking out or coiling together in early-stage bases."),
             "Horizon_Badge": st.column_config.TextColumn("3H Alignment", width=95, help="3-Horizon relative strength agreement: 1M (Short) · 3M (Med) · 6M (Long) vs Benchmark (🟢 Outperform · 🟡 In-Line · 🔴 Lag)"),
             "Horizon_State": st.column_config.TextColumn("Alignment State", width=140, help="Classified horizon state: 🟢 Confluence (all 3 leading), 🌱 Emerging Turn (short-term turning up), ⚠️ Fading (short-term losing momentum), 🔴 Chronic Laggard"),
             "Excess_1M": st.column_config.NumberColumn("Excess 1M", format="%+.1f%%", width=90, help="Group 1M return minus benchmark return (% pts)"),
@@ -1445,7 +1443,7 @@ def main():
                                 <div style='display:flex; gap:4px; justify-content:flex-end; margin-top:2px; flex-wrap:wrap;'>
                                     <span class='badge-pill {dual_pill_cls}' title='Dual Momentum: {g_data.get("Dual_State", "")}'>{g_data.get("Dual_Badge", "")}</span>
                                     <span class='badge-pill' style='background:rgba(255,255,255,0.06); border:1px solid rgba(255,255,255,0.15); font-family:monospace;' title='3-Horizon (1M · 3M · 6M): {g_data.get("Horizon_State", "")}'>{g_data.get("Horizon_Badge", "")}</span>
-                                    <span class='badge-pill {"pill-emerald" if g_data.get("Is_Group_Confirmed") else "pill-purple"}' title='Ross Haber Group Confirmation: {g_data.get("Group_Confirmation_Badge", "")}'>{g_data.get("Group_Confirmation_Badge", f"🐺 {g_data['Pack_Hunting_Count']} Pack")}</span>
+                                    <span class='badge-pill pill-purple'>🐺 {g_data["Pack_Hunting_Count"]} Pack</span>
                                     <span class='badge-pill {rot_pill}'>{g_data["Rotation_Status"]}</span>
                                 </div>
                             </div>

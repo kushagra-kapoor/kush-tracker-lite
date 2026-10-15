@@ -48,19 +48,10 @@ try:
 except Exception:
     pass
 
-@st.cache_resource
-def setup_app_resources():
-    try:
-        init_database()
-    except Exception as e:
-        print(f"[App Init] Database initialization warning: {e}")
-    try:
-        cleanup_expired_sessions()
-    except Exception:
-        pass
-    return True
-
-setup_app_resources()
+try:
+    init_database()
+except Exception as e:
+    print(f"[App Init] Database initialization warning: {e}")
 
 # --- AUTHENTICATION ENGINE ---
 def check_auth_credentials(user_input, pass_input):
@@ -79,6 +70,12 @@ def check_auth_credentials(user_input, pass_input):
 
 if 'authenticated' not in st.session_state:
     st.session_state.authenticated = False
+
+# Periodic single-day cleanup of expired sessions
+try:
+    cleanup_expired_sessions()
+except Exception:
+    pass
 
 # --- AUTO-LOGIN VIA SECURE SINGLE-DAY SESSION ---
 if not st.session_state.authenticated:
