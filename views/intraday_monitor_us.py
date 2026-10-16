@@ -45,7 +45,8 @@ from intraday_ui import (
     render_beach_ball_timing_banner,
     detect_roppel_support_bounce,
     compute_sister_stock_tandems,
-    detect_20ema_recapture_and_sequence
+    detect_20ema_recapture_and_sequence,
+    render_all_setups_filter
 )
 
 # Custom CSS
@@ -886,11 +887,17 @@ def main():
         if selected_pill.startswith("🔥 All Setups"):
             st.markdown(f"### 🔥 Active Confluence Setups ({len(all_setups_df)} Stocks)")
             st.caption("Stocks triggering one or more institutional momentum setups today. Confluence is the ultimate alpha edge.")
-            render_tv_copy_box(all_setups_df, "All Setups", is_us=True)
+            
+            filtered_setups_df = render_all_setups_filter(all_setups_df, is_us=True, key_prefix="us_all_setups")
+            
+            tv_label = f"All Setups ({len(filtered_setups_df)})" if len(filtered_setups_df) != len(all_setups_df) else "All Setups"
+            render_tv_copy_box(filtered_setups_df, tv_label, is_us=True)
             render_setup_table(
-                all_setups_df.sort_values(by=['RS Rating', 'Volume Expansion'], ascending=[False, False]),
+                filtered_setups_df.sort_values(by=['RS Rating', 'Volume Expansion'], ascending=[False, False]),
                 ['TickerLink', 'Active Setups', 'Sister Stock Tandem', 'RS Rating', 'Today %', 'Volume Expansion', 'Dollar Volume ($M)', 'Close Range %', 'Dist from 10 EMA %', 'ADR %', 'Industry', 'Is Power Trend', 'Is Ants', 'HV1 Defended'],
                 is_us=True,
+                empty_msg="No confluence setups match the active filter criteria. Try relaxing your filters.",
+                empty_icon="🔍",
                 height=520
             )
 
