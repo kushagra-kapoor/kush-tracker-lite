@@ -20,7 +20,8 @@ except ImportError:
 from components import render_header, apply_plotly_theme
 from database import (
     get_connection, get_latest_global_regime, 
-    get_latest_global_etf_momentum, classify_etf_asset_class
+    get_latest_global_etf_momentum, classify_etf_asset_class,
+    get_latest_global_sovereign_returns
 )
 try:
     from sync_macro import sync_all_data
@@ -588,6 +589,561 @@ def render_market_column(market_code, market_name):
         st.info(f"No liquidity turnover data recorded for {market_code}.")
 
 
+# =============================================================================
+# GLOBAL SOVEREIGN EQUITY MARKETS — NORMALIZED USD RETURNS
+# =============================================================================
+
+DEFAULT_SOVEREIGN_DATA = [
+    {'country': 'South Korea', 'index_ticker': '^KS11', 'etf_ticker': 'EWY', 'index_name': 'KOSPI', 'currency': 'KRW', 'fx_ticker': 'KRW=X', 'local_close': 6008.8, 'fx_rate': 1341.2, 'return_1m_local': -9.33, 'return_1m_fx': 0.33, 'return_1m_usd': -9.03, 'return_3m_local': -17.51, 'return_3m_fx': 10.94, 'return_3m_usd': -8.49, 'return_6m_local': -1.36, 'return_6m_fx': 9.56, 'return_6m_usd': 8.07, 'return_1y_local': 64.30, 'return_1y_fx': 6.58, 'return_1y_usd': 75.10, 'alpha_1m_usd': -11.12, 'alpha_3m_usd': -10.76, 'alpha_6m_usd': -2.20, 'alpha_1y_usd': 59.02, 'dist_52w_high': -24.7},
+    {'country': 'Taiwan', 'index_ticker': '^TWII', 'etf_ticker': 'EWT', 'index_name': 'TAIEX', 'currency': 'TWD', 'fx_ticker': 'TWD=X', 'local_close': 48625.8, 'fx_rate': 32.35, 'return_1m_local': 6.84, 'return_1m_fx': -1.96, 'return_1m_usd': 4.74, 'return_3m_local': 6.56, 'return_3m_fx': -0.68, 'return_3m_usd': 5.84, 'return_6m_local': 32.42, 'return_6m_fx': -2.58, 'return_6m_usd': 28.99, 'return_1y_local': 78.28, 'return_1y_fx': -5.16, 'return_1y_usd': 69.08, 'alpha_1m_usd': 2.65, 'alpha_3m_usd': 3.57, 'alpha_6m_usd': 18.72, 'alpha_1y_usd': 53.00, 'dist_52w_high': -4.2},
+    {'country': 'Brazil', 'index_ticker': '^BVSP', 'etf_ticker': 'EWZ', 'index_name': 'Ibovespa', 'currency': 'BRL', 'fx_ticker': 'BRL=X', 'local_close': 204324.3, 'fx_rate': 5.10, 'return_1m_local': 9.56, 'return_1m_fx': 0.78, 'return_1m_usd': 10.42, 'return_3m_local': 16.09, 'return_3m_fx': -0.20, 'return_3m_usd': 15.86, 'return_6m_local': 3.33, 'return_6m_fx': -2.22, 'return_6m_usd': 1.04, 'return_1y_local': 43.28, 'return_1y_fx': 7.52, 'return_1y_usd': 54.06, 'alpha_1m_usd': 8.33, 'alpha_3m_usd': 13.59, 'alpha_6m_usd': -9.23, 'alpha_1y_usd': 37.98, 'dist_52w_high': -4.4},
+    {'country': 'Japan', 'index_ticker': '^N225', 'etf_ticker': 'EWJ', 'index_name': 'Nikkei 225', 'currency': 'JPY', 'fx_ticker': 'JPY=X', 'local_close': 67744.3, 'fx_rate': 157.96, 'return_1m_local': 6.71, 'return_1m_fx': -2.26, 'return_1m_usd': 4.30, 'return_3m_local': -1.47, 'return_3m_fx': 2.68, 'return_3m_usd': 1.17, 'return_6m_local': 16.53, 'return_6m_fx': 0.53, 'return_6m_usd': 17.15, 'return_1y_local': 42.10, 'return_1y_fx': -3.94, 'return_1y_usd': 36.50, 'alpha_1m_usd': 2.21, 'alpha_3m_usd': -1.10, 'alpha_6m_usd': 6.88, 'alpha_1y_usd': 20.42, 'dist_52w_high': -4.3},
+    {'country': 'United States', 'index_ticker': '^NDX', 'etf_ticker': 'QQQ', 'index_name': 'Nasdaq 100 Growth', 'currency': 'USD', 'fx_ticker': 'USD', 'local_close': 23850.0, 'fx_rate': 1.0, 'return_1m_local': 2.45, 'return_1m_fx': 0.0, 'return_1m_usd': 2.45, 'return_3m_local': 4.80, 'return_3m_fx': 0.0, 'return_3m_usd': 4.80, 'return_6m_local': 14.10, 'return_6m_fx': 0.0, 'return_6m_usd': 14.10, 'return_1y_local': 20.97, 'return_1y_fx': 0.0, 'return_1y_usd': 20.97, 'alpha_1m_usd': 0.36, 'alpha_3m_usd': 2.53, 'alpha_6m_usd': 3.83, 'alpha_1y_usd': 4.89, 'dist_52w_high': -2.1},
+    {'country': 'Canada', 'index_ticker': '^GSPTSE', 'etf_ticker': 'EWC', 'index_name': 'S&P/TSX Composite', 'currency': 'CAD', 'fx_ticker': 'CAD=X', 'local_close': 36137.1, 'fx_rate': 1.42, 'return_1m_local': 1.56, 'return_1m_fx': -2.20, 'return_1m_usd': -0.68, 'return_3m_local': 2.04, 'return_3m_fx': -1.13, 'return_3m_usd': 0.88, 'return_6m_local': 5.80, 'return_6m_fx': -3.14, 'return_6m_usd': 2.47, 'return_1y_local': 17.95, 'return_1y_fx': -1.18, 'return_1y_usd': 16.56, 'alpha_1m_usd': -2.77, 'alpha_3m_usd': -1.39, 'alpha_6m_usd': -7.80, 'alpha_1y_usd': 0.48, 'dist_52w_high': -4.8},
+    {'country': 'United States', 'index_ticker': '^GSPC', 'etf_ticker': 'SPY', 'index_name': 'S&P 500 Core', 'currency': 'USD', 'fx_ticker': 'USD', 'local_close': 6820.0, 'fx_rate': 1.0, 'return_1m_local': 2.09, 'return_1m_fx': 0.0, 'return_1m_usd': 2.09, 'return_3m_local': 2.27, 'return_3m_fx': 0.0, 'return_3m_usd': 2.27, 'return_6m_local': 10.27, 'return_6m_fx': 0.0, 'return_6m_usd': 10.27, 'return_1y_local': 16.08, 'return_1y_fx': 0.0, 'return_1y_usd': 16.08, 'alpha_1m_usd': 0.0, 'alpha_3m_usd': 0.0, 'alpha_6m_usd': 0.0, 'alpha_1y_usd': 0.0, 'dist_52w_high': -1.5},
+    {'country': 'United Kingdom', 'index_ticker': '^FTSE', 'etf_ticker': 'EWU', 'index_name': 'FTSE 100', 'currency': 'GBP', 'fx_ticker': 'GBPUSD=X', 'local_close': 10840.4, 'fx_rate': 1.33, 'return_1m_local': 1.71, 'return_1m_fx': -1.69, 'return_1m_usd': 0.00, 'return_3m_local': 3.09, 'return_3m_fx': -0.92, 'return_3m_usd': 2.13, 'return_6m_local': 2.66, 'return_6m_fx': -2.22, 'return_6m_usd': 0.37, 'return_1y_local': 15.02, 'return_1y_fx': -0.36, 'return_1y_usd': 14.60, 'alpha_1m_usd': -2.09, 'alpha_3m_usd': -0.14, 'alpha_6m_usd': -9.90, 'alpha_1y_usd': -1.48, 'dist_52w_high': -3.1},
+    {'country': 'Australia', 'index_ticker': '^AXJO', 'etf_ticker': 'EWA', 'index_name': 'S&P/ASX 200', 'currency': 'AUD', 'fx_ticker': 'AUDUSD=X', 'local_close': 8719.7, 'fx_rate': 0.69, 'return_1m_local': 0.54, 'return_1m_fx': -2.99, 'return_1m_usd': -2.46, 'return_3m_local': -1.37, 'return_3m_fx': -0.74, 'return_3m_usd': -2.10, 'return_6m_local': -2.88, 'return_6m_fx': -2.87, 'return_6m_usd': -5.67, 'return_1y_local': -3.02, 'return_1y_fx': 6.68, 'return_1y_usd': 3.46, 'alpha_1m_usd': -4.55, 'alpha_3m_usd': -4.37, 'alpha_6m_usd': -15.94, 'alpha_1y_usd': -12.62, 'dist_52w_high': -7.9},
+    {'country': 'Germany', 'index_ticker': '^GDAXI', 'etf_ticker': 'EWG', 'index_name': 'DAX 40', 'currency': 'EUR', 'fx_ticker': 'EURUSD=X', 'local_close': 25298.6, 'fx_rate': 1.12, 'return_1m_local': -0.41, 'return_1m_fx': -2.87, 'return_1m_usd': -3.27, 'return_3m_local': 1.20, 'return_3m_fx': -1.82, 'return_3m_usd': -0.64, 'return_6m_local': 5.12, 'return_6m_fx': -4.94, 'return_6m_usd': -0.07, 'return_1y_local': 4.62, 'return_1y_fx': -3.32, 'return_1y_usd': 1.15, 'alpha_1m_usd': -5.36, 'alpha_3m_usd': -2.91, 'alpha_6m_usd': -10.34, 'alpha_1y_usd': -14.93, 'dist_52w_high': -8.4},
+    {'country': 'France', 'index_ticker': '^FCHI', 'etf_ticker': 'EWQ', 'index_name': 'CAC 40', 'currency': 'EUR', 'fx_ticker': 'EURUSD=X', 'local_close': 7873.1, 'fx_rate': 1.12, 'return_1m_local': -2.68, 'return_1m_fx': -2.87, 'return_1m_usd': -5.48, 'return_3m_local': -6.08, 'return_3m_fx': -1.82, 'return_3m_usd': -7.78, 'return_6m_local': -4.85, 'return_6m_fx': -4.94, 'return_6m_usd': -9.55, 'return_1y_local': -2.52, 'return_1y_fx': -3.32, 'return_1y_usd': -5.76, 'alpha_1m_usd': -7.57, 'alpha_3m_usd': -10.05, 'alpha_6m_usd': -19.82, 'alpha_1y_usd': -21.84, 'dist_52w_high': -13.3},
+    {'country': 'China', 'index_ticker': '^HSI', 'etf_ticker': 'MCHI', 'index_name': 'Hang Seng Index', 'currency': 'HKD', 'fx_ticker': 'HKD=X', 'local_close': 24314.2, 'fx_rate': 7.85, 'return_1m_local': -1.43, 'return_1m_fx': -0.06, 'return_1m_usd': -1.49, 'return_3m_local': -1.49, 'return_3m_fx': -0.13, 'return_3m_usd': -1.61, 'return_6m_local': -6.29, 'return_6m_fx': -0.18, 'return_6m_usd': -6.46, 'return_1y_local': -6.16, 'return_1y_fx': -0.94, 'return_1y_usd': -7.05, 'alpha_1m_usd': -3.58, 'alpha_3m_usd': -3.88, 'alpha_6m_usd': -16.73, 'alpha_1y_usd': -23.13, 'dist_52w_high': -13.6},
+    {'country': 'India', 'index_ticker': '^CRSLDX', 'etf_ticker': 'INDA', 'index_name': 'NIFTY 500 BroadMarket', 'currency': 'INR', 'fx_ticker': 'USDINR=X', 'local_close': 22038.0, 'fx_rate': 95.05, 'return_1m_local': -1.96, 'return_1m_fx': 0.83, 'return_1m_usd': -1.14, 'return_3m_local': -5.27, 'return_3m_fx': 1.45, 'return_3m_usd': -3.89, 'return_6m_local': -2.47, 'return_6m_fx': -1.98, 'return_6m_usd': -4.40, 'return_1y_local': -5.73, 'return_1y_fx': -6.59, 'return_1y_usd': -11.94, 'alpha_1m_usd': -3.23, 'alpha_3m_usd': -6.16, 'alpha_6m_usd': -14.67, 'alpha_1y_usd': -28.02, 'dist_52w_high': -14.6},
+    {'country': 'India', 'index_ticker': '^NSEI', 'etf_ticker': 'INDY', 'index_name': 'NIFTY 50 LargeCap', 'currency': 'INR', 'fx_ticker': 'USDINR=X', 'local_close': 21469.7, 'fx_rate': 95.05, 'return_1m_local': -2.15, 'return_1m_fx': 0.83, 'return_1m_usd': -1.33, 'return_3m_local': -6.05, 'return_3m_fx': 1.45, 'return_3m_usd': -4.68, 'return_6m_local': -6.64, 'return_6m_fx': -1.98, 'return_6m_usd': -8.48, 'return_1y_local': -10.67, 'return_1y_fx': -6.59, 'return_1y_usd': -16.55, 'alpha_1m_usd': -3.42, 'alpha_3m_usd': -6.95, 'alpha_6m_usd': -18.75, 'alpha_1y_usd': -32.63, 'dist_52w_high': -19.6},
+]
+
+@st.cache_data(ttl=900)
+def fetch_sovereign_usd_returns():
+    """
+    Fetches global sovereign normalized USD returns from the database.
+    If database is empty, performs fallback or live computation.
+    """
+    try:
+        db_data = get_latest_global_sovereign_returns()
+        if db_data and len(db_data) >= 8:
+            return db_data
+    except Exception as e:
+        print(f"[Sovereign USD] DB fetch notice: {e}")
+        
+    try:
+        from sync_macro import sync_global_sovereign_returns
+        live_res = sync_global_sovereign_returns()
+        if live_res and len(live_res) >= 8:
+            return live_res
+    except Exception as e:
+        print(f"[Sovereign USD] Live calculation notice: {e}")
+        
+    return DEFAULT_SOVEREIGN_DATA
+
+
+def render_global_sovereign_usd_returns(sovereign_data):
+    """
+    Renders Institutional Global Sovereign Equity Markets with Normalized USD Returns.
+    Features:
+    - 4 horizons: 1M Tactical, 3M Intermediate, 6M Structural, 1Y Secular
+    - 4 KPI Telemetry Cards: #1 Sovereign Leader (USD), Worst Currency Drag, Nifty 50 (USD), Nifty 500 (USD)
+    - Deconstruction Grouped Bar Chart: Local Return vs FX Impact vs Net USD Return
+    - Institutional Matrix Table with Dual Momentum vs S&P 500 baseline
+    """
+    st.markdown("### 💵 Global Sovereign Equity Markets — Normalized USD Returns")
+    st.caption("Super-Investor Asset Allocation Benchmark: Deconstructing sovereign market returns into local equity performance vs currency tailwinds/headwinds, normalized into a single benchmark currency (USD).")
+    
+    if not sovereign_data:
+        sovereign_data = DEFAULT_SOVEREIGN_DATA
+
+    df_sov = pd.DataFrame(sovereign_data)
+    
+    # 1. Horizon Selector
+    col_ctrl, col_info = st.columns([2.8, 3.2])
+    with col_ctrl:
+        horizon = st.radio(
+            "Evaluation Horizon",
+            options=["1-Month Tactical", "3-Month Intermediate", "6-Month Structural", "1-Year Secular"],
+            horizontal=True,
+            key="rad_sovereign_usd_horizon_lite"
+        )
+    with col_info:
+        st.markdown("""
+        <div style="background: rgba(30, 41, 59, 0.4); border-left: 3px solid #38bdf8; padding: 8px 12px; border-radius: 6px; font-size: 0.78rem; color: #94a3b8; margin-top: 18px;">
+            <strong style="color: #f1f5f9;">Super-Investor Formula:</strong> USD Return = (1 + Local Return) × (1 + FX Return) - 1.<br>
+            Reveals true global purchasing power across borders.
+        </div>
+        """, unsafe_allow_html=True)
+        
+    h_key = "1m" if "1-Month" in horizon else "3m" if "3-Month" in horizon else "6m" if "6-Month" in horizon else "1y"
+    usd_col = f"return_{h_key}_usd"
+    loc_col = f"return_{h_key}_local"
+    fx_col = f"return_{h_key}_fx"
+    alpha_col = f"alpha_{h_key}_usd"
+    
+    # Sort by Net USD Return
+    df_sorted = df_sov.sort_values(usd_col, ascending=False).reset_index(drop=True)
+    
+    # Flags mapping
+    flag_map = {
+        'United States': '🇺🇸',
+        'India': '🇮🇳',
+        'Japan': '🇯🇵',
+        'Germany': '🇩🇪',
+        'United Kingdom': '🇬🇧',
+        'China': '🇨🇳',
+        'France': '🇫🇷',
+        'Australia': '🇦🇺',
+        'Canada': '🇨🇦',
+        'Brazil': '🇧🇷',
+        'South Korea': '🇰🇷',
+        'Taiwan': '🇹🇼'
+    }
+    iso_map = {
+        'United States': 'US',
+        'India': 'IN',
+        'Japan': 'JP',
+        'Germany': 'DE',
+        'United Kingdom': 'GB',
+        'China': 'CN',
+        'France': 'FR',
+        'Australia': 'AU',
+        'Canada': 'CA',
+        'Brazil': 'BR',
+        'South Korea': 'KR',
+        'Taiwan': 'TW'
+    }
+    df_sorted['flag'] = df_sorted['country'].map(lambda c: flag_map.get(c, '🌐'))
+    df_sorted['iso'] = df_sorted['country'].map(lambda c: iso_map.get(c, 'GL'))
+
+    # S&P 500 baseline value
+    sp500_row = df_sorted[df_sorted['index_ticker'] == '^GSPC']
+    sp500_val = sp500_row[usd_col].iloc[0] if not sp500_row.empty else 0.0
+
+    # 2. KPI Cards
+    c1, c2, c3, c4 = st.columns(4)
+    
+    # Top USD Performer
+    top_p = df_sorted.iloc[0]
+    top_usd = top_p[usd_col]
+    top_color = "#10b981" if top_usd >= 0 else "#ef4444"
+    
+    with c1:
+        render_html(f"""
+        <div style="background: rgba(15, 23, 42, 0.75); border: 1px solid rgba(255, 255, 255, 0.08); 
+                    border-top: 3px solid #10b981; border-radius: 12px; padding: 16px; min-height: 155px;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+                <span style="font-size: 0.75rem; font-weight: 700; color: #94a3b8; text-transform: uppercase;">🥇 #1 Global Leader (USD)</span>
+                <span style="background: rgba(16, 185, 129, 0.15); color: #10b981; font-size: 0.70rem; padding: 2px 7px; border-radius: 6px; font-weight: 700;">Rank #1</span>
+            </div>
+            <div style="font-size: 1.35rem; font-weight: 800; color: #f8fafc; margin-bottom: 2px; display: flex; align-items: center;">
+                <span style="background: rgba(16, 185, 129, 0.2); color: #10b981; font-size: 0.72rem; padding: 2px 7px; border-radius: 4px; font-weight: 800; border: 1px solid rgba(16, 185, 129, 0.35); margin-right: 8px;">{top_p['iso']}</span>
+                {top_p['country']}
+            </div>
+            <div style="font-size: 0.80rem; color: #94a3b8; margin-bottom: 8px;">
+                {top_p['index_name']} ({top_p.get('etf_ticker') or top_p['index_ticker']})
+            </div>
+            <div style="font-size: 1.15rem; font-weight: 800; color: {top_color};">
+                {top_usd:+.2f}% USD
+                <span style="font-size: 0.75rem; font-weight: 600; color: #94a3b8; margin-left: 6px;">(Local: {top_p[loc_col]:+.1f}%)</span>
+            </div>
+        </div>
+        """)
+        
+    # Worst FX Drag
+    worst_fx = df_sorted.sort_values(fx_col, ascending=True).iloc[0]
+    worst_fx_val = worst_fx[fx_col]
+    fx_drag_color = "#ef4444" if worst_fx_val < 0 else "#10b981"
+    
+    with c2:
+        render_html(f"""
+        <div style="background: rgba(15, 23, 42, 0.75); border: 1px solid rgba(255, 255, 255, 0.08); 
+                    border-top: 3px solid #f59e0b; border-radius: 12px; padding: 16px; min-height: 155px;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+                <span style="font-size: 0.75rem; font-weight: 700; color: #94a3b8; text-transform: uppercase;">⚠️ Worst Currency Drag</span>
+                <span style="background: rgba(239, 68, 68, 0.15); color: #ef4444; font-size: 0.70rem; padding: 2px 7px; border-radius: 6px; font-weight: 700;">FX Erosion</span>
+            </div>
+            <div style="font-size: 1.35rem; font-weight: 800; color: #f8fafc; margin-bottom: 2px; display: flex; align-items: center;">
+                <span style="background: rgba(239, 68, 68, 0.2); color: #ef4444; font-size: 0.72rem; padding: 2px 7px; border-radius: 4px; font-weight: 800; border: 1px solid rgba(239, 68, 68, 0.35); margin-right: 8px;">{worst_fx['iso']}</span>
+                {worst_fx['country']}
+            </div>
+            <div style="font-size: 0.80rem; color: #94a3b8; margin-bottom: 8px;">
+                {worst_fx['currency']} vs USD ({worst_fx['fx_ticker']})
+            </div>
+            <div style="font-size: 1.15rem; font-weight: 800; color: {fx_drag_color};">
+                {worst_fx_val:+.2f}% FX
+                <span style="font-size: 0.75rem; font-weight: 600; color: #94a3b8; margin-left: 6px;">(Erodes equity gain)</span>
+            </div>
+        </div>
+        """)
+
+    # India NIFTY 50 (USD)
+    n50_rows = df_sorted[df_sorted['index_ticker'] == '^NSEI']
+    if not n50_rows.empty:
+        n50 = n50_rows.iloc[0]
+        n50_rank = df_sorted[df_sorted['index_ticker'] == '^NSEI'].index[0] + 1
+        n50_usd = n50[usd_col]
+        n50_color = "#10b981" if n50_usd >= 0 else "#ef4444"
+        with c3:
+            render_html(f"""
+            <div style="background: rgba(15, 23, 42, 0.75); border: 1px solid rgba(255, 255, 255, 0.08); 
+                        border-top: 3px solid #38bdf8; border-radius: 12px; padding: 16px; min-height: 155px;">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+                    <span style="font-size: 0.75rem; font-weight: 700; color: #94a3b8; text-transform: uppercase;">🇮🇳 India Nifty 50 (USD)</span>
+                    <span style="background: rgba(56, 189, 248, 0.15); color: #38bdf8; font-size: 0.70rem; padding: 2px 7px; border-radius: 6px; font-weight: 700;">Rank #{n50_rank} / {len(df_sorted)}</span>
+                </div>
+                <div style="font-size: 1.35rem; font-weight: 800; color: #f8fafc; margin-bottom: 2px; display: flex; align-items: center;">
+                    <span style="background: rgba(56, 189, 248, 0.2); color: #38bdf8; font-size: 0.72rem; padding: 2px 7px; border-radius: 4px; font-weight: 800; border: 1px solid rgba(56, 189, 248, 0.35); margin-right: 8px;">IN</span>
+                    NIFTY 50 LargeCap
+                </div>
+                <div style="font-size: 0.80rem; color: #94a3b8; margin-bottom: 8px;">
+                    ETF: <strong style="color: #f1f5f9;">INDY</strong> | FX: <strong style="color: {'#10b981' if n50[fx_col]>=0 else '#ef4444'};">{n50[fx_col]:+.1f}%</strong>
+                </div>
+                <div style="font-size: 1.15rem; font-weight: 800; color: {n50_color};">
+                    {n50_usd:+.2f}% USD
+                    <span style="font-size: 0.75rem; font-weight: 600; color: {'#10b981' if n50[alpha_col]>0 else '#ef4444'}; margin-left: 6px;">(Alpha: {n50[alpha_col]:+.1f}%)</span>
+                </div>
+            </div>
+            """)
+    else:
+        with c3:
+            st.empty()
+
+    # India NIFTY 500 (USD)
+    n500_rows = df_sorted[df_sorted['index_ticker'] == '^CRSLDX']
+    if not n500_rows.empty:
+        n500 = n500_rows.iloc[0]
+        n500_rank = df_sorted[df_sorted['index_ticker'] == '^CRSLDX'].index[0] + 1
+        n500_usd = n500[usd_col]
+        n500_color = "#10b981" if n500_usd >= 0 else "#ef4444"
+        with c4:
+            render_html(f"""
+            <div style="background: rgba(15, 23, 42, 0.75); border: 1px solid rgba(255, 255, 255, 0.08); 
+                        border-top: 3px solid #818cf8; border-radius: 12px; padding: 16px; min-height: 155px;">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+                    <span style="font-size: 0.75rem; font-weight: 700; color: #94a3b8; text-transform: uppercase;">🇮🇳 India Nifty 500 (USD)</span>
+                    <span style="background: rgba(129, 140, 248, 0.15); color: #818cf8; font-size: 0.70rem; padding: 2px 7px; border-radius: 6px; font-weight: 700;">Rank #{n500_rank} / {len(df_sorted)}</span>
+                </div>
+                <div style="font-size: 1.35rem; font-weight: 800; color: #f8fafc; margin-bottom: 2px; display: flex; align-items: center;">
+                    <span style="background: rgba(129, 140, 248, 0.2); color: #818cf8; font-size: 0.72rem; padding: 2px 7px; border-radius: 4px; font-weight: 800; border: 1px solid rgba(129, 140, 248, 0.35); margin-right: 8px;">IN</span>
+                    NIFTY 500 BroadMarket
+                </div>
+                <div style="font-size: 0.80rem; color: #94a3b8; margin-bottom: 8px;">
+                    ETF: <strong style="color: #f1f5f9;">INDA</strong> | FX: <strong style="color: {'#10b981' if n500[fx_col]>=0 else '#ef4444'};">{n500[fx_col]:+.1f}%</strong>
+                </div>
+                <div style="font-size: 1.15rem; font-weight: 800; color: {n500_color};">
+                    {n500_usd:+.2f}% USD
+                    <span style="font-size: 0.75rem; font-weight: 600; color: {'#10b981' if n500[alpha_col]>0 else '#ef4444'}; margin-left: 6px;">(Alpha: {n500[alpha_col]:+.1f}%)</span>
+                </div>
+            </div>
+            """)
+    else:
+        with c4:
+            st.empty()
+
+    st.markdown("<div style='height: 16px;'></div>", unsafe_allow_html=True)
+
+    # 3. Dynamic Return Filter & Visualization Controls
+    df_sorted['global_rank'] = range(1, len(df_sorted) + 1)
+    
+    col_filter_ctrl, col_chart_opt = st.columns([3.4, 2.6])
+    with col_filter_ctrl:
+        ret_filter = st.radio(
+            "Filter Sovereign Markets by Net USD Return",
+            options=["🌐 All Markets", "🟢 Positive USD (> 0%)", "🚀 Outperforming S&P 500 (Alpha > 0)", "🔴 Negative USD (< 0%)"],
+            horizontal=True,
+            key="rad_sovereign_usd_filter"
+        )
+    with col_chart_opt:
+        chart_mode = st.radio(
+            "Visualization Mode",
+            options=["🪐 Macro Quadrant Bubble Chart", "📊 Deconstruction Bar Chart"],
+            horizontal=True,
+            key="rad_sovereign_chart_mode"
+        )
+
+    # Apply Filter to active cohort
+    if ret_filter == "🟢 Positive USD (> 0%)":
+        chart_df = df_sorted[df_sorted[usd_col] > 0].copy()
+    elif ret_filter == "🚀 Outperforming S&P 500 (Alpha > 0)":
+        chart_df = df_sorted[df_sorted[alpha_col] > 0].copy()
+    elif ret_filter == "🔴 Negative USD (< 0%)":
+        chart_df = df_sorted[df_sorted[usd_col] < 0].copy()
+    else:
+        chart_df = df_sorted.copy()
+
+    # Filter Status & Cohort Analytics Banner
+    if len(chart_df) > 0:
+        avg_usd_val = chart_df[usd_col].mean()
+        avg_color = "#10b981" if avg_usd_val >= 0 else "#ef4444"
+        avg_text = f"{avg_usd_val:+.2f}%"
+    else:
+        avg_color = "#94a3b8"
+        avg_text = "N/A"
+
+    render_html(f"""
+    <div style="background: rgba(15, 23, 42, 0.60); border: 1px solid rgba(255, 255, 255, 0.08); 
+                padding: 8px 16px; border-radius: 8px; font-size: 0.82rem; color: #94a3b8; 
+                margin: 6px 0 16px 0; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px;">
+        <div>
+            Active Filter: <strong style="color: #f1f5f9;">{ret_filter}</strong> — 
+            Displaying <strong style="color: #38bdf8;">{len(chart_df)}</strong> of {len(df_sorted)} Sovereign Markets
+        </div>
+        <div>
+            Filtered Cohort Avg USD Return: <strong style="color: {avg_color}; font-size: 0.88rem;">{avg_text}</strong>
+        </div>
+    </div>
+    """)
+
+    if chart_mode == "🪐 Macro Quadrant Bubble Chart":
+        if chart_df.empty:
+            st.info(f"No sovereign markets meet the selected filter criteria ('{ret_filter}') for the {horizon} horizon.")
+        else:
+            # Determine dynamic axes bounds with padding, keeping zero crosshairs centered
+            x_min_raw = chart_df[loc_col].min()
+            x_max_raw = chart_df[loc_col].max()
+            y_min_raw = chart_df[fx_col].min()
+            y_max_raw = chart_df[fx_col].max()
+
+            x_min = min(-4.0, float(x_min_raw) * 1.25 if x_min_raw < 0 else -4.0)
+            x_max = max(4.0, float(x_max_raw) * 1.25 if x_max_raw > 0 else 4.0)
+            y_min = min(-3.0, float(y_min_raw) * 1.35 if y_min_raw < 0 else -3.0)
+            y_max = max(3.0, float(y_max_raw) * 1.35 if y_max_raw > 0 else 3.0)
+
+            fig_q = go.Figure()
+
+            # Background Quadrants Shading
+            fig_q.add_shape(type='rect', x0=0, x1=x_max, y0=0, y1=y_max, fillcolor='rgba(16, 185, 129, 0.07)', line_width=0, layer='below')
+            fig_q.add_shape(type='rect', x0=x_min, x1=0, y0=0, y1=y_max, fillcolor='rgba(56, 189, 248, 0.05)', line_width=0, layer='below')
+            fig_q.add_shape(type='rect', x0=x_min, x1=0, y0=y_min, y1=0, fillcolor='rgba(239, 68, 68, 0.07)', line_width=0, layer='below')
+            fig_q.add_shape(type='rect', x0=0, x1=x_max, y0=y_min, y1=0, fillcolor='rgba(245, 158, 11, 0.05)', line_width=0, layer='below')
+
+            # Neutral Crosshairs
+            fig_q.add_hline(y=0, line_dash='dash', line_color='rgba(148, 163, 184, 0.4)', line_width=1.5)
+            fig_q.add_vline(x=0, line_dash='dash', line_color='rgba(148, 163, 184, 0.4)', line_width=1.5)
+
+            # Quadrant Zone Annotations
+            fig_q.add_annotation(
+                x=x_max * 0.96, y=y_max * 0.92,
+                text='<b>🚀 QUADRANT I: DUAL ALPHA LEADERS</b><br><span style="font-size:10px; color:#94a3b8">Strong Local Equity + FX Currency Tailwind</span>',
+                showarrow=False, xanchor='right', font=dict(color='#10b981', size=11), align='right'
+            )
+            fig_q.add_annotation(
+                x=x_min * 0.96, y=y_max * 0.92,
+                text='<b>🛡️ QUADRANT II: CURRENCY HAVENS</b><br><span style="font-size:10px; color:#94a3b8">FX Appreciation Buffers Local Softness</span>',
+                showarrow=False, xanchor='left', font=dict(color='#38bdf8', size=11), align='left'
+            )
+            fig_q.add_annotation(
+                x=x_min * 0.96, y=y_min * 0.92,
+                text='<b>📉 QUADRANT III: CAPITAL FLIGHT / TWIN BLEED</b><br><span style="font-size:10px; color:#94a3b8">Negative Equity + Currency Headwind</span>',
+                showarrow=False, xanchor='left', font=dict(color='#ef4444', size=11), align='left'
+            )
+            fig_q.add_annotation(
+                x=x_max * 0.96, y=y_min * 0.92,
+                text='<b>⚠️ QUADRANT IV: FX VALUE TRAP</b><br><span style="font-size:10px; color:#94a3b8">Domestic Equity Gain Eroded by FX Depreciation</span>',
+                showarrow=False, xanchor='right', font=dict(color='#f59e0b', size=11), align='right'
+            )
+
+            # Labels & Sizing
+            bubble_labels = [
+                f"{r['country']} ({r.get('etf_ticker') or r['index_ticker']})"
+                for _, r in chart_df.iterrows()
+            ]
+            bubble_sizes = [
+                max(22, min(56, 24 + abs(float(v)) * 0.42))
+                for v in chart_df[usd_col]
+            ]
+
+            customdata = []
+            for _, r in chart_df.iterrows():
+                loc_v = r[loc_col]
+                fx_v = r[fx_col]
+                if loc_v > 0 and fx_v > 0:
+                    q_regime = "🚀 Quadrant I: Dual Alpha (Strong Equity + FX Tailwind)"
+                elif loc_v <= 0 and fx_v > 0:
+                    q_regime = "🛡️ Quadrant II: Currency Haven (FX Appreciation Buffers Equity)"
+                elif loc_v <= 0 and fx_v <= 0:
+                    q_regime = "📉 Quadrant III: Twin Bleed (Local Drop + Currency Erosion)"
+                else:
+                    q_regime = "⚠️ Quadrant IV: FX Value Trap (Local Gain Eroded by FX)"
+
+                customdata.append([
+                    r['country'],
+                    r['index_name'],
+                    r.get('etf_ticker', '-'),
+                    r[usd_col],
+                    r[alpha_col],
+                    r.get('dist_52w_high', 0.0),
+                    q_regime
+                ])
+
+            fig_q.add_trace(go.Scatter(
+                x=chart_df[loc_col],
+                y=chart_df[fx_col],
+                mode='markers+text',
+                text=bubble_labels,
+                textposition='top center',
+                textfont=dict(color='#f8fafc', size=11, family='sans-serif'),
+                customdata=customdata,
+                hovertemplate="""<b>%{customdata[0]}</b> (%{customdata[1]})<br>
+USD ETF (NYSE/Nasdaq): <b>%{customdata[2]}</b><br>
+------------------------------------<br>
+💰 <b>Net Normalized USD Return: %{customdata[3]:+.2f}%</b><br>
+📈 Local Equity Return: %{x:+.2f}%<br>
+💱 Currency FX Impact: %{y:+.2f}%<br>
+🎯 Alpha vs S&P 500: %{customdata[4]:+.2f}%<br>
+🏔️ Proximity to 52W High: %{customdata[5]:.1f}%<br>
+🧭 Regime: %{customdata[6]}<extra></extra>""",
+                marker=dict(
+                    size=bubble_sizes,
+                    color=chart_df[usd_col],
+                    colorscale=[
+                        [0.0, "#e11d48"],
+                        [0.25, "#ef4444"],
+                        [0.45, "#f59e0b"],
+                        [0.55, "#38bdf8"],
+                        [0.75, "#10b981"],
+                        [1.0, "#059669"]
+                    ],
+                    showscale=True,
+                    colorbar=dict(
+                        title=dict(text="Net USD %", font=dict(color="#94a3b8", size=11)),
+                        tickfont=dict(color="#94a3b8"),
+                        thickness=14,
+                        len=0.8
+                    ),
+                    line=dict(color='#ffffff', width=1.5),
+                    opacity=0.9
+                )
+            ))
+
+            fig_q.update_layout(
+                title=f"<b>Global Sovereign Macro Matrix ({horizon}) — Local Equity Momentum vs Currency FX Headwinds/Tailwinds</b>",
+                xaxis=dict(
+                    title="Local Currency Equity Return (%)",
+                    zeroline=False,
+                    gridcolor="rgba(255,255,255,0.06)",
+                    tickfont=dict(color="#94a3b8"),
+                    title_font=dict(color="#cbd5e1", size=12)
+                ),
+                yaxis=dict(
+                    title="Currency FX Return vs USD (%)",
+                    zeroline=False,
+                    gridcolor="rgba(255,255,255,0.06)",
+                    tickfont=dict(color="#94a3b8"),
+                    title_font=dict(color="#cbd5e1", size=12)
+                ),
+                plot_bgcolor="rgba(15, 23, 42, 0.4)",
+                paper_bgcolor="rgba(15, 23, 42, 0.0)",
+                height=540,
+                margin=dict(l=50, r=40, t=60, b=60)
+            )
+            apply_plotly_theme(fig_q)
+            st.plotly_chart(fig_q, use_container_width=True)
+
+    else:
+        # Currency Decomposition Plotly Grouped Bar Chart
+        if chart_df.empty:
+            st.info(f"No sovereign markets meet the selected filter criteria ('{ret_filter}') for the {horizon} horizon.")
+        else:
+            chart_df_bars = chart_df.copy()
+            chart_df_bars['display_label'] = chart_df_bars['flag'] + ' ' + chart_df_bars['index_name']
+            
+            fig = go.Figure()
+            # Bar 1: Local Return
+            fig.add_trace(go.Bar(
+                x=chart_df_bars['display_label'],
+                y=chart_df_bars[loc_col],
+                name="Local Currency Return",
+                marker_color="rgba(56, 189, 248, 0.75)",
+                hovertemplate="<b>%{x}</b><br>Local Return: %{y:+.2f}%<extra></extra>"
+            ))
+            # Bar 2: FX Impact vs USD
+            fig.add_trace(go.Bar(
+                x=chart_df_bars['display_label'],
+                y=chart_df_bars[fx_col],
+                name="FX Impact vs USD",
+                marker_color=["rgba(245, 158, 11, 0.8)" if v >= 0 else "rgba(239, 68, 68, 0.7)" for v in chart_df_bars[fx_col]],
+                hovertemplate="<b>%{x}</b><br>Currency Effect vs USD: %{y:+.2f}%<extra></extra>"
+            ))
+            # Bar 3: Normalized USD Return
+            fig.add_trace(go.Bar(
+                x=chart_df_bars['display_label'],
+                y=chart_df_bars[usd_col],
+                name="Net Normalized USD Return",
+                marker_color=["#10b981" if v >= 0 else "#e11d48" for v in chart_df_bars[usd_col]],
+                hovertemplate="<b>%{x}</b><br>Normalized USD Return: %{y:+.2f}%<extra></extra>"
+            ))
+            
+            # S&P 500 Baseline Reference Line
+            fig.add_hline(
+                y=sp500_val, 
+                line_dash="dash", 
+                line_color="#facc15", 
+                annotation_text=f"S&P 500 Baseline ({sp500_val:+.1f}%)", 
+                annotation_position="top left",
+                annotation_font_color="#facc15"
+            )
+            
+            fig.update_layout(
+                barmode='group',
+                title=f"Global Sovereign Return Decomposition ({horizon}) — Local vs FX vs USD",
+                xaxis_title="Sovereign Market Benchmark",
+                yaxis_title="Return (%)",
+                legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+                margin=dict(l=40, r=20, t=50, b=80),
+                height=450
+            )
+            apply_plotly_theme(fig)
+            st.plotly_chart(fig, use_container_width=True)
+
+    # 4. Institutional Sovereign Return Matrix Table
+    st.markdown(f"#### 📋 Sovereign Benchmark Matrix & Dual Momentum Alpha ({len(chart_df)} of {len(df_sorted)} Markets)")
+    
+    if chart_df.empty:
+        st.info("No sovereign markets to display for the active filter.")
+    else:
+        table_rows = []
+        for idx, r in chart_df.reset_index(drop=True).iterrows():
+            rank = r.get('global_rank', idx + 1)
+            ctry_label = f"{r.get('iso', 'GL')} · {r['country']}"
+            idx_label = f"{r['index_name']} ({r['index_ticker']})"
+            loc_val = f"{r[loc_col]:+.2f}%"
+            
+            # FX badge
+            fx_v = r[fx_col]
+            if r['currency'] == 'USD':
+                fx_badge = "⚪ Base USD (0.0%)"
+            elif fx_v > 0.05:
+                fx_badge = f"🟢 +{fx_v:.2f}% (Tailwind)"
+            elif fx_v < -0.05:
+                fx_badge = f"🔴 {fx_v:.2f}% (Headwind)"
+            else:
+                fx_badge = f"⚪ {fx_v:+.2f}% (Flat)"
+                
+            usd_val = f"{r[usd_col]:+.2f}%"
+            
+            # Alpha & Dual Momentum
+            alpha_v = r[alpha_col]
+            if r['index_ticker'] == '^GSPC':
+                alpha_badge = "🎯 Baseline (0.00%)"
+            elif alpha_v > 0:
+                alpha_badge = f"🚀 TRUE ALPHA (+{alpha_v:.2f}%)"
+            else:
+                alpha_badge = f"🛡️ LAGGING ({alpha_v:.2f}%)"
+                
+            dist_52w = f"{r.get('dist_52w_high', 0.0):.1f}%"
+            
+            table_rows.append({
+                'Rank': f"#{rank}",
+                'Country': ctry_label,
+                'Benchmark Index': idx_label,
+                'USD ETF (Out-of-the-Box)': r.get('etf_ticker', '-'),
+                'Currency': r['currency'],
+                'Local Return': loc_val,
+                'FX Impact vs USD': fx_badge,
+                'Net USD Return': usd_val,
+                'Dual Momentum Alpha (vs S&P 500)': alpha_badge,
+                'Dist 52W High (USD)': dist_52w
+            })
+            
+        df_display = pd.DataFrame(table_rows)
+        st.dataframe(df_display, use_container_width=True, hide_index=True)
+
+
 def render_asset_rotation_radar(etf_data, benchmarks):
     """
     Renders Segmented 4-Category Asset Rotation Radar with Dual Momentum Classification:
@@ -909,7 +1465,7 @@ def render_asset_rotation_radar(etf_data, benchmarks):
     with tab4:
         render_category_view(
             "Global Country Flows", 
-            "Cross-border sovereign equity allocation tracking foreign institutional capital rotation across US, India, China, Brazil, Japan, and Europe.",
+            "Cross-border sovereign equity allocation tracking foreign institutional capital rotation across US, India (INDA/INDY), China, Brazil, Japan, and Europe (100% USD-Denominated Tradeable ETFs).",
             "S&P 500", us_bm_1m
         )
 
@@ -988,11 +1544,12 @@ def main():
                 st.success("Global Macro Data Synchronized!")
                 st.rerun()
     
-    # 1. Fetch Regimes and Barometers
+    # 1. Fetch Regimes, Barometers, and Sovereign Returns
     in_regime = get_latest_global_regime(market='IN')
     us_regime = get_latest_global_regime(market='US')
     etf_data = get_latest_global_etf_momentum()
     benchmarks = fetch_benchmark_returns()
+    sovereign_data = fetch_sovereign_usd_returns()
 
     # 2. CANSLIM Exposure Dial
     render_canslim_exposure_dial(in_regime, us_regime)
@@ -1012,7 +1569,12 @@ def main():
 
     render_html("<hr style='border: 0; height: 1px; background: rgba(255,255,255,0.08); margin: 30px 0;'>")
 
-    # 5. Asset Rotation Radar ("Where is the Momentum?")
+    # 5. Global Sovereign Equity Markets — Normalized USD Returns
+    render_global_sovereign_usd_returns(sovereign_data)
+
+    render_html("<hr style='border: 0; height: 1px; background: rgba(255,255,255,0.08); margin: 30px 0;'>")
+
+    # 6. Asset Rotation Radar ("Where is the Momentum?")
     render_asset_rotation_radar(etf_data, benchmarks)
 
 

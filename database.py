@@ -365,6 +365,45 @@ def init_database():
         except Exception:
             pass
 
+    # Global Sovereign Normalized USD Returns table
+    safe_execute(cursor, '''
+        CREATE TABLE IF NOT EXISTS global_sovereign_returns (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            date TEXT NOT NULL,
+            country TEXT NOT NULL,
+            index_ticker TEXT NOT NULL,
+            etf_ticker TEXT,
+            index_name TEXT NOT NULL,
+            currency TEXT NOT NULL,
+            fx_ticker TEXT NOT NULL,
+            local_close REAL,
+            fx_rate REAL,
+            return_1m_local REAL,
+            return_1m_fx REAL,
+            return_1m_usd REAL,
+            return_3m_local REAL,
+            return_3m_fx REAL,
+            return_3m_usd REAL,
+            return_6m_local REAL,
+            return_6m_fx REAL,
+            return_6m_usd REAL,
+            return_1y_local REAL,
+            return_1y_fx REAL,
+            return_1y_usd REAL,
+            alpha_1m_usd REAL,
+            alpha_3m_usd REAL,
+            alpha_6m_usd REAL,
+            alpha_1y_usd REAL,
+            dist_52w_high REAL,
+            created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE(date, country, index_ticker)
+        )
+    ''')
+    safe_execute(cursor, '''
+        CREATE INDEX IF NOT EXISTS idx_sovereign_date
+        ON global_sovereign_returns(date)
+    ''')
+
     # Persistent Web & Mobile Sessions Table
     safe_execute(cursor, '''
         CREATE TABLE IF NOT EXISTS app_sessions (
@@ -1552,6 +1591,57 @@ def get_latest_global_etf_momentum() -> list:
     return results
 
 
+def save_global_sovereign_returns(records: list):
+    import sqlite3
+    conn = get_connection()
+    cursor = conn.cursor()
+    try:
+        cursor.execute("ALTER TABLE global_sovereign_returns ADD COLUMN etf_ticker TEXT")
+    except sqlite3.OperationalError:
+        pass
+
+    for r in records:
+        cursor.execute('''
+            INSERT OR REPLACE INTO global_sovereign_returns
+            (date, country, index_ticker, etf_ticker, index_name, currency, fx_ticker,
+             local_close, fx_rate,
+             return_1m_local, return_1m_fx, return_1m_usd,
+             return_3m_local, return_3m_fx, return_3m_usd,
+             return_6m_local, return_6m_fx, return_6m_usd,
+             return_1y_local, return_1y_fx, return_1y_usd,
+             alpha_1m_usd, alpha_3m_usd, alpha_6m_usd, alpha_1y_usd,
+             dist_52w_high)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ''', (
+            r['date'], r['country'], r['index_ticker'], r.get('etf_ticker', ''), r['index_name'], r['currency'], r['fx_ticker'],
+            r.get('local_close', 0.0), r.get('fx_rate', 1.0),
+            r.get('return_1m_local', 0.0), r.get('return_1m_fx', 0.0), r.get('return_1m_usd', 0.0),
+            r.get('return_3m_local', 0.0), r.get('return_3m_fx', 0.0), r.get('return_3m_usd', 0.0),
+            r.get('return_6m_local', 0.0), r.get('return_6m_fx', 0.0), r.get('return_6m_usd', 0.0),
+            r.get('return_1y_local', 0.0), r.get('return_1y_fx', 0.0), r.get('return_1y_usd', 0.0),
+            r.get('alpha_1m_usd', 0.0), r.get('alpha_3m_usd', 0.0), r.get('alpha_6m_usd', 0.0), r.get('alpha_1y_usd', 0.0),
+            r.get('dist_52w_high', 0.0)
+        ))
+    conn.commit()
+    conn.close()
+
+
+def get_latest_global_sovereign_returns() -> list:
+    import sqlite3
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute("""
+        SELECT * FROM global_sovereign_returns 
+        WHERE (index_ticker, date) IN (
+            SELECT index_ticker, MAX(date) FROM global_sovereign_returns GROUP BY index_ticker
+        )
+        ORDER BY return_1m_usd DESC
+    """)
+    results = _fetch_all_dicts(cursor)
+    conn.close()
+    return results
+
+
 def classify_etf_asset_class(ticker: str) -> tuple:
     """
     Returns (category, display_name, country) for any ETF ticker.
@@ -1604,9 +1694,8 @@ def classify_etf_asset_class(ticker: str) -> tuple:
         'MCHI': ('iShares MSCI China', 'Global Country Flows', 'China'),
         'FXI': ('iShares China Large-Cap', 'Global Country Flows', 'China'),
         'VGK': ('Vanguard FTSE Europe', 'Global Country Flows', 'Europe'),
-        'MON100.NS': ('Motilal Oswal Nasdaq 100', 'Global Country Flows', 'US in IN'),
-        'MAFANG.NS': ('Mirae Asset NYSE FANG+', 'Global Country Flows', 'US Tech in IN'),
-        'HNGSNGBEES.NS': ('Nippon Hang Seng BeES', 'Global Country Flows', 'China/HK'),
+        'INDA': ('iShares MSCI India', 'Global Country Flows', 'India'),
+        'INDY': ('iShares India 50', 'Global Country Flows', 'India'),
     }
     if t in country_tickers:
         name, cat, ctry = country_tickers[t]
@@ -1649,6 +1738,9 @@ def classify_etf_asset_class(ticker: str) -> tuple:
             'COMMOIETF': 'Nifty Commodities',
             'DIVOPPBEES': 'Nifty Dividend Opportunities 50',
             'HEALTHIETF': 'Nifty Healthcare Services',
+            'MON100': 'Motilal Nasdaq 100 [INR]',
+            'MAFANG': 'Mirae NYSE FANG+ [INR]',
+            'HNGSNGBEES': 'Nippon Hang Seng [INR]',
         }
         return 'Indian Sectoral & Factor', in_names.get(clean_name, clean_name), 'IN'
 
