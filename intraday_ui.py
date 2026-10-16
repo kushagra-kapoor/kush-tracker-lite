@@ -702,6 +702,60 @@ def render_intraday_hud(
     seq_badge_html = f'<span title="{seq_tooltip}" style="background: rgba(255,255,255,0.06); padding: 3px 9px; border-radius: 6px; color: {step_badge_color}; font-size: 0.78rem; font-weight: 700; border: 1px solid {step_badge_color}44; cursor: help;">📍 {seq_summary}</span>' if seq_summary else ''
 
     hud_html = f"""
+    <style>
+    .intraday-hud-container {{
+        background: linear-gradient(145deg, rgba(15, 23, 42, 0.85) 0%, rgba(2, 6, 23, 0.95) 100%);
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        border-radius: 14px;
+        padding: 1.25rem 1.5rem;
+        margin-bottom: 1.5rem;
+        box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.05);
+    }}
+    .intraday-hud-grid {{
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+        gap: 1rem;
+        margin-top: 0.75rem;
+    }}
+    .intraday-metric-card {{
+        background: rgba(15, 23, 42, 0.6);
+        border: 1px solid rgba(255, 255, 255, 0.06);
+        border-radius: 10px;
+        padding: 0.85rem 1rem;
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+    }}
+    .intraday-metric-label {{
+        font-size: 0.75rem;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 0.8px;
+        color: #94a3b8;
+        margin-bottom: 0.25rem;
+    }}
+    .intraday-metric-val {{
+        font-family: 'JetBrains Mono', monospace;
+        font-size: 1.4rem;
+        font-weight: 800;
+        color: #f8fafc;
+    }}
+    .intraday-metric-sub {{
+        font-size: 0.75rem;
+        color: #64748b;
+        margin-top: 0.2rem;
+    }}
+    .intraday-regime-bar {{
+        padding: 0.85rem 1.25rem;
+        border-radius: 10px;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        flex-wrap: wrap;
+        gap: 0.75rem;
+        font-weight: 600;
+    }}
+    </style>
     <div class="intraday-hud-container">
         {recap_ribbon_html}
         <div class="intraday-regime-bar" style="background: {banner_color}18; border: 1px solid {banner_color}55;">
