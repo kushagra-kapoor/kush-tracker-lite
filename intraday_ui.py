@@ -185,7 +185,7 @@ def get_intraday_column_config(is_us: bool = False):
         "Sister Stock Tandem": st.column_config.TextColumn(
             "Sister Tandem",
             width="medium",
-            help="Jesse Livermore Sister Stock Tandem: Tracks the #1 and #2 RS leaders in the industry group to confirm group accumulation vs solitary false move"
+            help="Jesse Livermore Sister Stock Tandem: 👥 Confirmed = Top 2 leaders advancing together near 52W high | ⚠️ Divergence = Sister dumping/lagging (false breakout risk) | 🔵 Group Confirmed = Theme sponsorship"
         ),
         "Support Bounce Type": st.column_config.TextColumn(
             "Bounce MA",
@@ -947,10 +947,15 @@ def render_intraday_hud(
     """
     st.markdown(clean_html(hud_html), unsafe_allow_html=True)
 
-    # Informational Guide on Regime Badges & Capitulation Sequence
-    with st.expander(f"ℹ️ What Do These Mean? (Paul Tudor Jones 200 SMA & Shake Pryzby 7-Step Cycle Explained)", expanded=False):
-        c_ptj, c_seq = st.columns([1, 1.4])
-        with c_ptj:
+    # Informational Guide on Regime Badges, Capitulation Sequence & Sister Stock Tandem
+    with st.expander("ℹ️ Intraday Playbook: Market Regime, 7-Step Recovery Cycle & Sister Stock Tandems", expanded=False):
+        tab_regime, tab_seq, tab_sister = st.tabs([
+            "🏛️ PTJ 200 SMA & Slopes",
+            "📍 Shake Pryzby 7-Step Cycle",
+            "👥 Jesse Livermore Sister Tandems"
+        ])
+
+        with tab_regime:
             st.markdown(f"""
             #### 🏛️ Paul Tudor Jones 200 SMA Rule:
             > *"My metric for anything I trade is whether it is above or below the 200-day simple moving average. If it is below, you are playing defense."* — Paul Tudor Jones (*Market Wizards*)
@@ -964,7 +969,8 @@ def render_intraday_hud(
             - **20 EMA Slope ({ema_20_sl:+.2f})**: Intermediate 2-4 week swing trend vector.
             - When **both slopes are positive**, you have a green light to step on the gas. When unaligned or negative, tighten stops and play defense.
             """)
-        with c_seq:
+
+        with tab_seq:
             st.markdown(f"""
             #### 📍 Shake Pryzby 7-Step Capitulation & Recovery Sequence (*Pinpoint Trading*):
             Institutional turnaround sequence from selling climax to confirmed bull trend:
@@ -978,6 +984,33 @@ def render_intraday_hud(
             7. **Step 7: Stress Test Held (Confirmed Trend)** {'👈 **[ACTIVE TODAY]**' if current_step_num == 7 else ''} — First pullback to rising 20 EMA is defended. Full offensive sizing permitted.
             
             **👉 Current Tactical Directive**: `{action_guidance}`
+            """)
+
+        with tab_sister:
+            st.markdown("""
+            #### 👥 Jesse Livermore 'Sister Stock' Tandem Confirmation Engine
+            > *"Stocks do not move alone. When a real move comes, it carries the leaders of an industry group together."* — Jesse Livermore (*Reminiscences of a Stock Operator*)
+            
+            William O'Neil (*How to Make Money in Stocks*) proved that **nearly 50% of any stock's total price performance is driven directly by its industry group and broad sector strength**.
+            
+            The **Sister Tandem** engine dynamically pairs each stock with the **#1 and #2 Relative Strength (RS Score) leaders** inside its specific industry group in real time. It confirms whether an intraday breakout has genuine institutional group sponsorship or is an isolated trap.
+            
+            ---
+            
+            ##### 🎯 How to Read the Badges & Take Action:
+            
+            | Badge & Example | Institutional Meaning | Execution Playbook |
+            | :--- | :--- | :--- |
+            | **👥 Confirmed**<br>`(SKYGOLD +5.3%, RS99)` | **Dual Institutional Accumulation.** The top 2 leaders in the theme are both trading well, holding near 52W highs (≤22% dist), and advancing or stable. | **🟢 High Conviction Green Light.** Highest breakout win-rate. Full pilot position sizing permitted with trailing stop at 10/20 EMA. |
+            | **⚠️ Divergence**<br>`(DIACABS -1.5%, RS98)` | **Solitary Move / Lack of Confirmation.** The stock is trying to rally alone, while its primary sister stock is dumping (-1.5%+), breaking down, or far below its high. | **🟡 Caution / False Breakout Risk.** Often driven by temporary rumors, low-liquidity spikes, or distribution. Trim position size by 50% or wait for the sister stock to turn green. |
+            | **🔵 Group Confirmed**<br>`(SIGMAADV/UNIMECH)` | **Top-Tier Theme Sponsorship.** Applied to 3rd, 4th, or junior stocks in an industry. The group's top two alpha leaders are both confirmed healthy. | **🔵 Secondary / Sympathy Momentum.** Safe to trade base breakouts or pullbacks to 21 EMA; the entire theme has institutional tailwinds. |
+            | **⚠️ Group Mixed**<br>`(REDINGTON/COFORGE)` | **Split Industry Momentum.** The #1 and #2 group leaders are diverging or showing mixed signals (one green, one breaking down). | **🟠 Selective Execution.** Stick strictly to the #1 RS leader; avoid junior or lagging sympathy stocks in this group. |
+            | **— Solitary Leader** | **Unique Monopolistic / Single-Ticker Theme.** No other peer exists in the current universe to cross-validate. | **⚪ Individual Chart Action.** Evaluate purely on standalone price/volume and RS Rating without group confirmation. |
+            
+            ---
+            
+            ##### 💡 Pro Trader Tip:
+            When filtering setups in the **🔥 All Setups** or **🚀 IBD Leaders** tab, prioritize stocks tagged with **👥 Confirmed**. If a stock triggers a Minervini Breakout or Qullamaggie Apex with **👥 Confirmed**, institutions are buying the entire basket!
             """)
 
 

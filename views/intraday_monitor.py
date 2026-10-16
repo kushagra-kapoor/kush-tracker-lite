@@ -766,10 +766,11 @@ def main():
             sector_txt = f"🔥 Hot Sectors: {', '.join(top_sectors)}" if top_sectors else "Hot Sectors not cached"
             st.markdown(f"**Symbol & Footprint Guide** ({sector_txt})")
             st.caption(
-                "👑 **TML**: True Market Leader | 🎩 **Next 20** | ⚡ **Compounder** | 🚀 **Rocket**\\n"
-                "⚡ **Power Trend**: Price > 21 EMA > 50 SMA (sloping up)\\n"
-                "🐜 **Ants Momentum**: 12+ up closes in last 15 days\\n"
-                "🛡️ **HV1 Defender**: Within 5% of 1Y Max-Volume AVWAP"
+                "👑 **TML**: True Market Leader | 🎩 **Next 20** | ⚡ **Compounder** | 🚀 **Rocket**\n"
+                "⚡ **Power Trend**: Price > 21 EMA > 50 SMA (sloping up)\n"
+                "🐜 **Ants Momentum**: 12+ up closes in last 15 days\n"
+                "🛡️ **HV1 Defender**: Within 5% of 1Y Max-Volume AVWAP\n"
+                "👥 **Sister Tandem**: Livermore group confirmation (👥 Confirmed vs ⚠️ Divergence)"
             )
 
     # 3. State Management & Data Fetch Trigger
