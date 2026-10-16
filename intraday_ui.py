@@ -784,3 +784,197 @@ def render_intraday_hud(
             
             **👉 Current Tactical Directive**: `{action_guidance}`
             """)
+
+
+def standardize_columns(df: pd.DataFrame):
+    """Standardizes dataframe columns to lowercase and handles MultiIndex flattening."""
+    if df.empty:
+        return df
+    df = df.copy()
+    if isinstance(df.columns, pd.MultiIndex):
+        found_level = -1
+        for i in range(df.columns.nlevels):
+            level_vals = [str(c).lower() for c in df.columns.get_level_values(i)]
+            if 'close' in level_vals:
+                found_level = i
+                break
+        df.columns = df.columns.get_level_values(found_level)
+    df.columns = [str(c).lower().strip() for c in df.columns]
+    return df
+
+
+def detect_20ema_recapture_and_sequence(df: pd.DataFrame) -> dict:
+    """
+    Paul Tudor Jones 200 SMA rule and Shake Pryzby 7-step bottom progression sequence.
+    """
+    default_res = {
+        'secular_bull': True,
+        'dist_200_sma_pct': 0.0,
+        'secular_label': "Secular Bull (Above 200 SMA)",
+        'secular_color': "#10b981",
+        'recapture_active': False,
+        'recapture_fresh': False,
+        'recapture_sessions_ago': -1,
+        'current_step_num': 1,
+        'current_step_name': "Base Foundation",
+        'step_badge_color': "#94a3b8",
+        'sequence_summary': "Step 1/7: Initial Base Construction",
+        'action_guidance': "Monitor market internals.",
+        'steps_detail': {}
+    }
+    
+    if df is None or df.empty or len(df) < 20:
+        return default_res
+        
+    df_std = standardize_columns(df).copy()
+    if 'close' not in df_std.columns:
+        return default_res
+        
+    close = df_std['close'].dropna()
+    if len(close) < 20:
+        return default_res
+        
+    # Moving Averages
+    ema10 = close.ewm(span=10, adjust=False).mean()
+    ema20 = close.ewm(span=20, adjust=False).mean()
+    sma50 = close.rolling(50, min_periods=10).mean()
+    sma200 = close.rolling(200, min_periods=25).mean()
+    
+    c_now = float(close.iloc[-1])
+    sma200_now = float(sma200.iloc[-1])
+    ema20_now = float(ema20.iloc[-1])
+    ema10_now = float(ema10.iloc[-1])
+    sma50_now = float(sma50.iloc[-1])
+    
+    # 1. Secular Regime (PTJ 200 SMA)
+    secular_bull = c_now >= sma200_now
+    dist_200 = ((c_now - sma200_now) / sma200_now) * 100.0 if sma200_now > 0 else 0.0
+    secular_label = "Secular Bull (Above 200 SMA)" if secular_bull else "Secular Bear (Below 200 SMA)"
+    secular_color = "#10b981" if secular_bull else "#ef4444"
+    
+    # 2. Tactical 20 EMA Recapture
+    below_mask = close < ema20
+    above_mask = close >= ema20
+    
+    recapture_active = False
+    recapture_fresh = False
+    recapture_sessions_ago = -1
+    
+    if c_now >= ema20_now:
+        prior_below = below_mask.iloc[-12:-1]
+        if prior_below.sum() >= 2:
+            for i in range(1, min(6, len(close))):
+                if close.iloc[-i] >= ema20.iloc[-i] and close.iloc[-i - 1] < ema20.iloc[-i - 1]:
+                    recapture_active = True
+                    recapture_sessions_ago = i - 1
+                    recapture_fresh = (recapture_sessions_ago <= 1)
+                    break
+            if not recapture_active and prior_below.iloc[-1]:
+                recapture_active = True
+                recapture_fresh = True
+                recapture_sessions_ago = 0
+                
+    # 3. 7-Step Bottom Progression
+    sub_df = df_std.tail(30).copy()
+    sub_close = sub_df['close']
+    sub_pct = sub_close.pct_change() * 100.0
+    sub_vol = sub_df['volume'] if 'volume' in sub_df.columns else pd.Series(1, index=sub_df.index)
+    
+    if 'high' in sub_df.columns and 'low' in sub_df.columns:
+        high = sub_df['high']
+        low = sub_df['low']
+        prev_close = sub_close.shift(1)
+        tr = pd.concat([
+            high - low,
+            (high - prev_close).abs(),
+            (low - prev_close).abs()
+        ], axis=1).max(axis=1)
+        atr_3 = float(tr.tail(3).mean()) if len(tr) >= 3 else 1.0
+        atr_20 = float(tr.tail(20).mean()) if len(tr) >= 20 else 1.0
+        hl_spread = (high - low).replace(0, np.nan)
+        dcr = ((sub_close - low) / hl_spread).fillna(0.5).clip(0.0, 1.0)
+    else:
+        atr_3 = 1.0
+        atr_20 = 1.0
+        dcr = pd.Series(0.5, index=sub_df.index)
+        
+    avg_vol = sub_vol.rolling(20, min_periods=5).mean()
+    
+    step1_capitulation = bool(((sub_pct <= -1.2) & (sub_vol > avg_vol * 1.25)).any())
+    step2_turnaround = bool((dcr.tail(15) >= 0.60).any() and (sub_pct.tail(15) > 0).any())
+    step3_contraction = bool(atr_3 < atr_20)
+    
+    dist_10 = abs((c_now - ema10_now) / ema10_now) * 100.0 if ema10_now > 0 else 99.0
+    dist_20 = abs((c_now - ema20_now) / ema20_now) * 100.0 if ema20_now > 0 else 99.0
+    step4_clustering = bool(dist_10 <= 1.5 or dist_20 <= 1.5)
+    
+    step5_recaptured = bool(c_now >= ema20_now)
+    step6_golden_cross = bool(ema10_now > ema20_now)
+    
+    ema20_slope = float((ema20.iloc[-1] - ema20.iloc[-3]) / 2.0) if len(ema20) >= 3 else 0.0
+    step7_stress_test = bool(step6_golden_cross and step5_recaptured and ema20_slope > 0)
+    
+    if step7_stress_test:
+        current_step_num = 7
+        current_step_name = "Stress Test Held (Confirmed Trend)"
+        step_badge_color = "#10b981"
+        action_guidance = "Trend confirmed. Full pilot & sizing allowed on leading Stage 1/2 breakouts."
+    elif step6_golden_cross:
+        current_step_num = 6
+        current_step_name = "10/20 EMA Crossback"
+        step_badge_color = "#34d399"
+        action_guidance = "Short-term momentum turned bullish. Look for high-volume base breakouts."
+    elif step5_recaptured:
+        current_step_num = 5
+        current_step_name = "20 EMA Recapture (Tactical Buy)"
+        step_badge_color = "#38bdf8"
+        action_guidance = "Tactical supply-demand flip. Deploy initial 2.5%-5% pilot risk in top leaders."
+    elif step4_clustering:
+        current_step_num = 4
+        current_step_name = "Moving Average Clustering"
+        step_badge_color = "#f59e0b"
+        action_guidance = "Price coiling near MAs. Prepare buy stop orders; wait for 20 EMA reclaim."
+    elif step3_contraction:
+        current_step_num = 3
+        current_step_name = "Volatility Contraction"
+        step_badge_color = "#fbbf24"
+        action_guidance = "Range contracting. Watch for volume dry-up and subsequent expansion."
+    elif step2_turnaround:
+        current_step_num = 2
+        current_step_name = "Turnaround Attempt"
+        step_badge_color = "#fb923c"
+        action_guidance = "First bounce off lows. Do not chase; wait for constructive digestion."
+    elif step1_capitulation:
+        current_step_num = 1
+        current_step_name = "Capitulation Liquidation"
+        step_badge_color = "#ef4444"
+        action_guidance = "Selling climax in progress. Maintain 100% defense; observe potential support."
+    else:
+        current_step_num = 5 if step5_recaptured else 4
+        current_step_name = "20 EMA Recaptured" if step5_recaptured else "Consolidating"
+        step_badge_color = "#38bdf8" if step5_recaptured else "#94a3b8"
+        action_guidance = "Monitor market posture."
+        
+    return {
+        'secular_bull': secular_bull,
+        'dist_200_sma_pct': round(dist_200, 2),
+        'secular_label': secular_label,
+        'secular_color': secular_color,
+        'recapture_active': recapture_active,
+        'recapture_fresh': recapture_fresh,
+        'recapture_sessions_ago': recapture_sessions_ago,
+        'current_step_num': current_step_num,
+        'current_step_name': current_step_name,
+        'step_badge_color': step_badge_color,
+        'sequence_summary': f"Step {current_step_num}/7: {current_step_name}",
+        'action_guidance': action_guidance,
+        'steps_detail': {
+            '1_capitulation': step1_capitulation,
+            '2_turnaround': step2_turnaround,
+            '3_contraction': step3_contraction,
+            '4_clustering': step4_clustering,
+            '5_recaptured': step5_recaptured,
+            '6_golden_cross': step6_golden_cross,
+            '7_stress_test': step7_stress_test
+        }
+    }

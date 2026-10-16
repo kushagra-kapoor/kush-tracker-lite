@@ -34,9 +34,9 @@ from intraday_ui import (
     apply_institutional_theme,
     detect_beach_ball_divergence,
     get_beach_ball_timing_state,
-    render_beach_ball_timing_banner
+    render_beach_ball_timing_banner,
+    detect_20ema_recapture_and_sequence
 )
-from macro_regime_engine import detect_20ema_recapture_and_sequence
 
 # Page config
 # st.set_page_config(

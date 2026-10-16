@@ -44,9 +44,9 @@ from intraday_ui import (
     get_beach_ball_timing_state,
     render_beach_ball_timing_banner,
     detect_roppel_support_bounce,
-    compute_sister_stock_tandems
+    compute_sister_stock_tandems,
+    detect_20ema_recapture_and_sequence
 )
-from macro_regime_engine import detect_20ema_recapture_and_sequence
 
 # Custom CSS
 
