@@ -31,6 +31,12 @@ import plotly.graph_objects as go
 # )
 
 # Local imports
+try:
+    import intraday_ui
+    import importlib
+    importlib.reload(intraday_ui)
+except Exception:
+    pass
 from intraday_ui import (
     render_intraday_hud,
     generate_tv_export,
@@ -45,9 +51,149 @@ from intraday_ui import (
     render_beach_ball_timing_banner,
     detect_roppel_support_bounce,
     compute_sister_stock_tandems,
-    detect_20ema_recapture_and_sequence,
-    render_all_setups_filter
+    detect_20ema_recapture_and_sequence
 )
+
+
+def reset_all_setups_filters(key_prefix: str = "us_all_setups"):
+    st.session_state[f"{key_prefix}_min_rs"] = 0
+    st.session_state[f"{key_prefix}_min_today"] = -15.0
+    st.session_state[f"{key_prefix}_min_vol"] = 0.0
+    st.session_state[f"{key_prefix}_min_adtv"] = 0
+    st.session_state[f"{key_prefix}_min_cr"] = 0
+
+
+def render_all_setups_filter(
+    df: pd.DataFrame,
+    is_us: bool = True,
+    key_prefix: str = "us_all_setups"
+) -> pd.DataFrame:
+    """
+    Renders interactive multi-parameter confluence filters for All Setups view:
+    - RS Rating (Min RS Score)
+    - Today % (Min Today Gain/Loss)
+    - Volume Surge (Min Vol Expansion)
+    - ADTV (Min Turnover in ₹ Cr or $M)
+    - Close Range % (Min Close Range)
+
+    Returns the filtered DataFrame.
+    """
+    if df is None or df.empty:
+        return df
+
+    adtv_col = 'Dollar Volume ($M)' if is_us else 'Dollar Volume (Cr)'
+    adtv_unit = '$M' if is_us else '₹ Cr'
+    adtv_max = 200 if is_us else 100
+
+    with st.container(border=True):
+        c_rs, c_today, c_vol, c_adtv, c_cr = st.columns(5)
+        with c_rs:
+            min_rs = st.slider(
+                "Min RS Score:",
+                min_value=0,
+                max_value=99,
+                value=0,
+                step=1,
+                key=f"{key_prefix}_min_rs",
+                help="Filter by Relative Strength rating (0-99). Focus on 80+ for market leaders."
+            )
+        with c_today:
+            min_today = st.slider(
+                "Min Today %:",
+                min_value=-15.0,
+                max_value=15.0,
+                value=-15.0,
+                step=0.5,
+                format="%+.1f%%",
+                key=f"{key_prefix}_min_today",
+                help="Filter by intraday percentage change. Set to 0.0% to view only advancing stocks."
+            )
+        with c_vol:
+            min_vol = st.slider(
+                "Min Vol Surge:",
+                min_value=0.0,
+                max_value=5.0,
+                value=0.0,
+                step=0.1,
+                format="%.1fx",
+                key=f"{key_prefix}_min_vol",
+                help="Filter by today's volume expansion vs 20-day average. 1.25x+ indicates institutional accumulation."
+            )
+        with c_adtv:
+            min_adtv = st.slider(
+                f"Min ADTV ({adtv_unit}):",
+                min_value=0,
+                max_value=adtv_max,
+                value=0,
+                step=5,
+                key=f"{key_prefix}_min_adtv",
+                help=f"Filter by 20-day Average Daily Traded Value ({adtv_unit}). Eliminates illiquid names."
+            )
+        with c_cr:
+            min_cr = st.slider(
+                "Min Close Range %:",
+                min_value=0,
+                max_value=100,
+                value=0,
+                step=5,
+                format="%d%%",
+                key=f"{key_prefix}_min_cr",
+                help="Where stock is trading within its high-low range (100% = closing at top of the day)."
+            )
+
+        # Filtering logic
+        filtered_df = df.copy()
+        is_filtered = (
+            (min_rs > 0) or
+            (min_today > -15.0) or
+            (min_vol > 0.0) or
+            (min_adtv > 0) or
+            (min_cr > 0)
+        )
+
+        if min_rs > 0 and 'RS Rating' in filtered_df.columns:
+            filtered_df = filtered_df[filtered_df['RS Rating'].fillna(0) >= min_rs]
+        if min_today > -15.0 and 'Today %' in filtered_df.columns:
+            filtered_df = filtered_df[filtered_df['Today %'].fillna(0.0) >= min_today]
+        if min_vol > 0.0 and 'Volume Expansion' in filtered_df.columns:
+            filtered_df = filtered_df[filtered_df['Volume Expansion'].fillna(0.0) >= min_vol]
+        if min_adtv > 0 and adtv_col in filtered_df.columns:
+            filtered_df = filtered_df[filtered_df[adtv_col].fillna(0.0) >= min_adtv]
+        if min_cr > 0 and 'Close Range %' in filtered_df.columns:
+            filtered_df = filtered_df[filtered_df['Close Range %'].fillna(0.0) >= min_cr]
+
+        if is_filtered:
+            active_tags = []
+            if min_rs > 0:
+                active_tags.append(f"RS ≥ {min_rs}")
+            if min_today > -15.0:
+                active_tags.append(f"Today ≥ {min_today:+.1f}%")
+            if min_vol > 0.0:
+                active_tags.append(f"Vol Surge ≥ {min_vol:.1f}x")
+            if min_adtv > 0:
+                active_tags.append(f"ADTV ≥ {min_adtv} {adtv_unit}")
+            if min_cr > 0:
+                active_tags.append(f"Close Range ≥ {min_cr}%")
+
+            f_status_col, f_reset_col = st.columns([5, 1])
+            with f_status_col:
+                st.markdown(
+                    f"<div style='font-size: 0.85rem; color: #38bdf8; padding: 6px 0;'>"
+                    f"⚡ <b>Active Filters ({len(filtered_df)} of {len(df)} setups matching):</b> "
+                    f"<span style='color: #cbd5e1;'>{' • '.join(active_tags)}</span>"
+                    f"</div>",
+                    unsafe_allow_html=True
+                )
+            with f_reset_col:
+                st.button(
+                    "↺ Reset Filters",
+                    key=f"{key_prefix}_btn_reset",
+                    on_click=reset_all_setups_filters,
+                    kwargs={"key_prefix": key_prefix},
+                    use_container_width=True
+                )
+
+    return filtered_df
 
 # Custom CSS
 
