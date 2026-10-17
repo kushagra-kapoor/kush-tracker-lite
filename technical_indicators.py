@@ -922,6 +922,216 @@ def calculate_atr_chandelier_stop(df: pd.DataFrame, atr_multiplier: float = 3.5,
         
     stop_price = highest_close - (atr_multiplier * latest_atr)
     return stop_price
+
+
+# =============================================================================
+# SUPERPERFORMER LAUNCHPAD TECHNICAL INDICATORS (WEINSTEIN / MURPHY / LOVE)
+# =============================================================================
+
+def calculate_wilder_adx(df: pd.DataFrame, period: int = 14) -> dict:
+    """
+    Calculates J. Welles Wilder's Average Directional Index (ADX 14) & Directional Movement (+DI / -DI).
+    Used as John J. Murphy's Trend-Regime Gate (Ch. 9 & 15):
+    - ADX < 20: Non-trending / choppy consolidation -> Breakout Warning.
+    - ADX >= 20 and rising with +DI > -DI: Accelerating Stage 2 trend -> Green Light.
+    - ADX >= 40 and rolling over: Trend exhaustion / climax warning.
+    """
+    empty_res = {
+        'adx': 0.0, 'plus_di': 0.0, 'minus_di': 0.0, 'adx_slope': 0.0,
+        'regime_label': 'Non-Trending (Choppy)', 'regime_color': '#94a3b8',
+        'regime_badge': '⚖️ Non-Trending (ADX < 20)', 'green_light': False
+    }
+    if df.empty or len(df) < period * 2:
+        return empty_res
+
+    high = df['high'] if 'high' in df.columns else df['High']
+    low = df['low'] if 'low' in df.columns else df['Low']
+    close = df['close'] if 'close' in df.columns else df['Close']
+
+    prev_close = close.shift(1)
+    prev_high = high.shift(1)
+    prev_low = low.shift(1)
+
+    tr1 = high - low
+    tr2 = (high - prev_close).abs()
+    tr3 = (low - prev_close).abs()
+    tr = pd.concat([tr1, tr2, tr3], axis=1).max(axis=1)
+
+    up_move = high - prev_high
+    down_move = prev_low - low
+
+    plus_dm = np.where((up_move > down_move) & (up_move > 0), up_move, 0.0)
+    minus_dm = np.where((down_move > up_move) & (down_move > 0), down_move, 0.0)
+
+    # Wilder's modified exponential smoothing (alpha = 1 / period)
+    alpha = 1.0 / period
+    tr_smooth = pd.Series(tr).ewm(alpha=alpha, adjust=False).mean()
+    plus_dm_smooth = pd.Series(plus_dm, index=df.index).ewm(alpha=alpha, adjust=False).mean()
+    minus_dm_smooth = pd.Series(minus_dm, index=df.index).ewm(alpha=alpha, adjust=False).mean()
+
+    plus_di = 100.0 * (plus_dm_smooth / tr_smooth.replace(0, np.nan)).fillna(0.0)
+    minus_di = 100.0 * (minus_dm_smooth / tr_smooth.replace(0, np.nan)).fillna(0.0)
+
+    di_sum = plus_di + minus_di
+    di_diff = (plus_di - minus_di).abs()
+    dx = 100.0 * (di_diff / di_sum.replace(0, np.nan)).fillna(0.0)
+    adx_series = dx.ewm(alpha=alpha, adjust=False).mean()
+
+    curr_adx = float(adx_series.iloc[-1])
+    curr_plus_di = float(plus_di.iloc[-1])
+    curr_minus_di = float(minus_di.iloc[-1])
+    prev_adx_5 = float(adx_series.iloc[-6]) if len(adx_series) >= 6 else curr_adx
+    prev_adx_3 = float(adx_series.iloc[-4]) if len(adx_series) >= 4 else curr_adx
+    adx_slope = curr_adx - prev_adx_5
+
+    if curr_adx >= 40.0 and curr_adx < prev_adx_3:
+        regime = "Climax Exhaustion"
+        color = "#f97316"
+        badge = f"🔥 Climax Warning (ADX {curr_adx:.1f})"
+        green_light = False
+    elif curr_adx >= 20.0 and curr_plus_di >= curr_minus_di and adx_slope >= 0:
+        regime = "Trend Expanding (Green Light)"
+        color = "#10b981"
+        badge = f"🚀 Trend Expanding (ADX {curr_adx:.1f})"
+        green_light = True
+    elif curr_adx >= 20.0 and curr_minus_di > curr_plus_di:
+        regime = "Bearish Downtrend"
+        color = "#ef4444"
+        badge = f"🛑 Bearish Trend (ADX {curr_adx:.1f})"
+        green_light = False
+    elif curr_adx < 20.0:
+        regime = "Non-Trending (Choppy / Base)"
+        color = "#94a3b8"
+        badge = f"⚖️ Chop / Base (ADX {curr_adx:.1f})"
+        green_light = False
+    else:
+        regime = "Consolidating"
+        color = "#38bdf8"
+        badge = f"🛡️ Consolidating (ADX {curr_adx:.1f})"
+        green_light = False
+
+    return {
+        'adx': round(curr_adx, 1),
+        'plus_di': round(curr_plus_di, 1),
+        'minus_di': round(curr_minus_di, 1),
+        'adx_slope': round(adx_slope, 2),
+        'regime_label': regime,
+        'regime_color': color,
+        'regime_badge': badge,
+        'green_light': green_light
+    }
+
+
+def calculate_price_weighted_obv(df: pd.DataFrame) -> pd.Series:
+    """
+    John J. Murphy's Price-Weighted On-Balance Volume (Ch. 7):
+    Scales volume by percentage price move so minor 1-tick moves don't distort cumulative flow:
+    ΔW_OBV = ((Close_t - Close_{t-1}) / Close_{t-1}) * Volume_t
+    """
+    if df.empty or len(df) < 2:
+        return pd.Series(dtype=float)
+        
+    close = df['close'] if 'close' in df.columns else df['Close']
+    vol = df['volume'] if 'volume' in df.columns else df['Volume']
+    
+    pct_chg = close.pct_change().fillna(0.0)
+    weighted_flow = pct_chg * vol
+    return weighted_flow.cumsum()
+
+
+def detect_obv_breakout_lead(df: pd.DataFrame, lookback: int = 63, threshold_days: int = 5) -> dict:
+    """
+    Detects Murphy's 'OBV Breakout Lead' (McDonald's Rule):
+    Weighted OBV reaches a new 63-day / 252-day high while price is still coiling inside its base
+    (within 0.5% of OBV high, but price is > 2% below 52W high).
+    """
+    res = {'obv_lead_active': False, 'days_ago': None, 'obv_ahead_of_price': False}
+    if df.empty or len(df) < lookback:
+        return res
+        
+    w_obv = calculate_price_weighted_obv(df)
+    close = df['close'] if 'close' in df.columns else df['Close']
+    high = df['high'] if 'high' in df.columns else df['High']
+    
+    eff_lb = min(lookback, len(w_obv))
+    rolling_obv_high = w_obv.rolling(window=eff_lb, min_periods=eff_lb // 2).max()
+    rolling_price_high = high.rolling(window=eff_lb, min_periods=eff_lb // 2).max()
+    
+    recent_obv = w_obv.tail(threshold_days)
+    recent_obv_highs = rolling_obv_high.tail(threshold_days)
+    
+    is_obv_high = recent_obv >= (recent_obv_highs * 0.995)
+    if is_obv_high.any():
+        res['obv_lead_active'] = True
+        hit_pos = np.where(is_obv_high.values)[0]
+        if len(hit_pos) > 0:
+            res['days_ago'] = int((len(recent_obv) - 1) - hit_pos[-1])
+            
+        curr_p = float(close.iloc[-1])
+        curr_p_high = float(rolling_price_high.iloc[-1])
+        if curr_p_high > 0 and (curr_p_high - curr_p) / curr_p_high >= 0.02:
+            res['obv_ahead_of_price'] = True
+            
+    return res
+
+
+def calculate_mansfield_rs(stock_close: pd.Series, bench_close: pd.Series, period: int = 252) -> pd.Series:
+    """
+    Stan Weinstein's Mansfield Relative Strength (MRS):
+    R = stock_close / bench_close
+    MRS = ((R / SMA(R, period)) - 1.0) * 100.0
+    Positive values (> 0) indicate outperforming the benchmark on a 52-week moving basis.
+    """
+    if stock_close is None or bench_close is None or len(stock_close) < 20 or len(bench_close) < 20:
+        return pd.Series(dtype=float)
+        
+    common_idx = stock_close.index.intersection(bench_close.index)
+    if len(common_idx) < 20:
+        return pd.Series(dtype=float)
+        
+    s = stock_close.loc[common_idx]
+    b = bench_close.loc[common_idx]
+    
+    r = s / b.replace(0, np.nan)
+    eff_period = min(period, len(r))
+    sma_r = r.rolling(window=eff_period, min_periods=eff_period // 2).mean()
+    mrs = ((r / sma_r) - 1.0) * 100.0
+    return mrs
+
+
+def snap_round_number_undercut(price: float, buffer_pct: float = 0.25) -> float:
+    """
+    Stan Weinstein's Round-Number Undercut Stop (Ch. 6, p. 183):
+    Because retail stop-loss orders cluster on exact whole numbers and half numbers,
+    market makers frequently hunt round numbers. Weinstein's secret: if a stop sits
+    right on or fractionally above a round number, snap it 0.25% - 0.50% BELOW the round number.
+    
+    Rules:
+    - For stocks >= ₹200: Undercut whole integers (e.g., 500.20 -> 498.50, 250.10 -> 248.80)
+    - For stocks < ₹200: Undercut whole and half integers (e.g., 20.10 -> 19.85, 18.05 -> 17.85)
+    """
+    if price <= 0:
+        return round(price, 2)
+        
+    # Check if price is within 0.75% above a whole integer
+    nearest_whole = round(price)
+    diff_whole = price - nearest_whole
+    
+    if 0.0 <= diff_whole <= (price * 0.0075):
+        # Snap below the round number by buffer_pct
+        return round(nearest_whole * (1.0 - (buffer_pct / 100.0)), 2)
+        
+    # For sub-₹200 stocks, check half-integers
+    if price < 200:
+        nearest_half = round(price * 2.0) / 2.0
+        diff_half = price - nearest_half
+        if 0.0 <= diff_half <= (price * 0.0075):
+            return round(nearest_half * (1.0 - (buffer_pct / 100.0)), 2)
+            
+    return round(price, 2)
+
+
+if __name__ == '__main__':
     # Test with sample data
     print("Testing technical indicators...")
     

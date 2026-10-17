@@ -9,10 +9,13 @@ from datetime import datetime, timedelta
 from market_data import fetch_stock_data, get_ticker_symbol
 from technical_indicators import (
     calculate_ema, calculate_sma, calculate_atr, calculate_returns,
-    add_technical_indicators, get_atr_state
+    add_technical_indicators, get_atr_state,
+    calculate_mansfield_rs, calculate_wilder_adx, snap_round_number_undercut,
+    calculate_price_weighted_obv, detect_obv_breakout_lead
 )
 from relative_strength import calculate_all_rs_scores
 from trend_analyzer import determine_trend_state
+from risk_metrics import calculate_sortino_ratio, calculate_downside_deviation
 
 
 # =============================================================================
@@ -568,6 +571,264 @@ def calculate_buy_readiness(
 
 
 # =============================================================================
+# SUPERPERFORMER LAUNCHPAD: WEINSTEIN TRIPLE CONFIRMATION & LOVE EXPANDABLE P/E
+# =============================================================================
+
+def check_weinstein_triple_confirmation(
+    stock_df: pd.DataFrame,
+    benchmark_df: pd.DataFrame = None,
+    lookback_base: int = 120
+) -> dict:
+    """
+    Evaluates Stan Weinstein's Chapter 5 Multi-Bagger 'Triple Confirmation Pattern':
+    1. Sustained Multi-Week Volume Surge:
+       - Breakout volume >= 2.0x the 20-day (4-week) average volume.
+       - Breakout volume is highest or near highest (>= 90%) in the Stage 1 base.
+    2. Mansfield RS Zero-Line Crossover:
+       - Mansfield RS line crosses from <= 0 to > 0 within the last 10 sessions,
+         or current MRS > 0 with strong upward momentum.
+    3. Pre-Breakout Base Crouch (High-Jumper Run-Up):
+       - Stock rallied >= 40% (up to 100%) from the lowest low in the base
+         to the breakout pivot resistance.
+         
+    Weinstein Swing Target:
+       - Measured upside target: Target = 2 * Pivot - Base_Low
+
+    Returns:
+        dict with:
+        - 'triple_confirmed': bool (True if all 3 pass)
+        - 'score': int (0 to 3)
+        - 'badge': str ('🏆 A+ Triple Confirmed', '🟢 Confirmed (2/3)', etc.)
+        - 'vol_condition': bool
+        - 'vol_ratio': float
+        - 'mrs_cross_condition': bool
+        - 'mrs_current': float
+        - 'base_crouch_pct': float
+        - 'base_crouch_condition': bool
+        - 'base_low': float
+        - 'breakout_pivot': float
+        - 'swing_target': float
+        - 'swing_target_upside_pct': float
+        - 'breakdown': dict
+    """
+    res = {
+        'triple_confirmed': False,
+        'score': 0,
+        'badge': '⚪ Standard S1->S2',
+        'vol_condition': False,
+        'vol_ratio': 1.0,
+        'mrs_cross_condition': False,
+        'mrs_current': 0.0,
+        'base_crouch_pct': 0.0,
+        'base_crouch_condition': False,
+        'base_low': 0.0,
+        'breakout_pivot': 0.0,
+        'swing_target': 0.0,
+        'swing_target_upside_pct': 0.0,
+        'breakdown': {}
+    }
+
+    if stock_df is None or stock_df.empty or len(stock_df) < 30:
+        return res
+
+    close_col = 'close' if 'close' in stock_df.columns else ('Close' if 'Close' in stock_df.columns else None)
+    high_col = 'high' if 'high' in stock_df.columns else ('High' if 'High' in stock_df.columns else None)
+    low_col = 'low' if 'low' in stock_df.columns else ('Low' if 'Low' in stock_df.columns else None)
+    vol_col = 'volume' if 'volume' in stock_df.columns else ('Volume' if 'Volume' in stock_df.columns else None)
+
+    if not close_col or not high_col or not low_col or not vol_col:
+        return res
+
+    close = stock_df[close_col]
+    high = stock_df[high_col]
+    low = stock_df[low_col]
+    vol = stock_df[vol_col]
+
+    curr_p = float(close.iloc[-1])
+    curr_vol = float(vol.iloc[-1])
+
+    # 1. Volume Condition: Breakout volume >= 2.0x 20-day average volume & high in base
+    eff_lookback = min(lookback_base, len(stock_df))
+    prior_vol_20 = vol.iloc[-21:-1] if len(vol) >= 22 else vol.iloc[:-1]
+    avg_vol_20 = float(prior_vol_20.mean()) if len(prior_vol_20) > 0 and prior_vol_20.mean() > 0 else 1.0
+    vol_ratio = curr_vol / avg_vol_20 if avg_vol_20 > 0 else 1.0
+    
+    prior_base_vol = vol.iloc[-eff_lookback:-1] if len(vol) > 1 else vol
+    max_base_vol = float(prior_base_vol.max()) if len(prior_base_vol) > 0 else curr_vol
+    
+    vol_condition = bool(vol_ratio >= 2.0 and (curr_vol >= max_base_vol * 0.90 or curr_vol >= max_base_vol))
+    if vol_ratio >= 2.5:
+        vol_condition = True
+
+    # 2. Base Crouch (High-Jumper Run-Up)
+    base_low = float(low.iloc[-eff_lookback:].min())
+    prior_highs = high.iloc[-eff_lookback:-1] if len(high) > 1 else high
+    breakout_pivot = float(prior_highs.max()) if len(prior_highs) > 0 else curr_p
+    
+    if base_low > 0:
+        base_crouch_pct = ((breakout_pivot - base_low) / base_low) * 100.0
+    else:
+        base_crouch_pct = 0.0
+
+    base_crouch_condition = bool(base_crouch_pct >= 40.0)
+
+    # 3. Mansfield Relative Strength Zero-Line Cross
+    mrs_cross_condition = False
+    mrs_current = 0.0
+    if benchmark_df is not None:
+        bench_close = benchmark_df['close'] if isinstance(benchmark_df, pd.DataFrame) and 'close' in benchmark_df.columns else (
+            benchmark_df['Close'] if isinstance(benchmark_df, pd.DataFrame) and 'Close' in benchmark_df.columns else benchmark_df
+        )
+        if isinstance(bench_close, pd.Series) and len(bench_close) >= 20:
+            mrs_series = calculate_mansfield_rs(close, bench_close, period=252)
+            if not mrs_series.empty and len(mrs_series.dropna()) >= 10:
+                clean_mrs = mrs_series.dropna()
+                mrs_current = float(clean_mrs.iloc[-1])
+                recent_10 = clean_mrs.tail(10)
+                prior_mrs = clean_mrs.tail(20).iloc[:10] if len(clean_mrs) >= 20 else pd.Series(dtype=float)
+                
+                crossed_zero = (recent_10 > 0).any() and (not prior_mrs.empty and (prior_mrs <= 0).any())
+                sustained_positive = mrs_current > 0 and len(clean_mrs) >= 5 and (mrs_current >= clean_mrs.iloc[-5])
+                if crossed_zero or sustained_positive:
+                    mrs_cross_condition = True
+    
+    # Fallback if no benchmark available
+    if not mrs_cross_condition and benchmark_df is None:
+        sma_50 = close.rolling(50).mean()
+        if len(sma_50) >= 50 and curr_p > sma_50.iloc[-1]:
+            mrs_cross_condition = True
+            mrs_current = 10.0
+
+    # 4. Weinstein Swing Rule Target: T = 2 * Pivot - Base_Low
+    if breakout_pivot > 0 and base_low > 0:
+        swing_target = round(2.0 * breakout_pivot - base_low, 2)
+        swing_target_upside_pct = round(((swing_target - curr_p) / curr_p) * 100.0, 1) if curr_p > 0 else 0.0
+    else:
+        swing_target = round(curr_p * 1.3, 2)
+        swing_target_upside_pct = 30.0
+
+    score = int(vol_condition) + int(mrs_cross_condition) + int(base_crouch_condition)
+    triple_confirmed = (score == 3)
+
+    if triple_confirmed:
+        badge = "🏆 A+ Triple Confirmed"
+    elif score == 2:
+        badge = "🟢 Confirmed (2/3)"
+    elif score == 1:
+        badge = "🟡 Developing (1/3)"
+    else:
+        badge = "⚪ Standard S1->S2"
+
+    breakdown = {
+        'Volume Surge (>=2.0x & Base High)': f"{'✅ Pass' if vol_condition else '❌ Fail'} ({vol_ratio:.1f}x vol)",
+        'Mansfield RS Outperformance': f"{'✅ Pass' if mrs_cross_condition else '❌ Fail'} (MRS {mrs_current:+.1f})",
+        'Base Crouch (>=40% Run-up)': f"{'✅ Pass' if base_crouch_condition else '❌ Fail'} (+{base_crouch_pct:.1f}%)",
+        'Weinstein Swing Target': f"₹{swing_target:.1f} (+{swing_target_upside_pct:.1f}%)"
+    }
+
+    return {
+        'triple_confirmed': triple_confirmed,
+        'score': score,
+        'badge': badge,
+        'vol_condition': vol_condition,
+        'vol_ratio': round(vol_ratio, 2),
+        'mrs_cross_condition': mrs_cross_condition,
+        'mrs_current': round(mrs_current, 1),
+        'base_crouch_pct': round(base_crouch_pct, 1),
+        'base_crouch_condition': base_crouch_condition,
+        'base_low': round(base_low, 2),
+        'breakout_pivot': round(breakout_pivot, 2),
+        'swing_target': round(swing_target, 2),
+        'swing_target_upside_pct': swing_target_upside_pct,
+        'breakdown': breakdown
+    }
+
+
+def evaluate_love_expandable_pe(
+    ticker: str,
+    current_price: float,
+    fundamentals_data: dict = None,
+    triple_conf_passed: bool = False
+) -> dict:
+    """
+    Evaluates Richard Love's 1977 Superperformance findings:
+    - 70% of 300%+ superperformers launched with P/E <= 15-20 (Twin Engine: ΔEPS * ΔP/E expansion).
+    - 34% of superperformers had NO correlation with trailing reported earnings
+      (launched out of Stage 1 bases while trailing EPS was flat/negative, discounting turnaround).
+
+    Returns:
+        dict with:
+        - 'pe': float
+        - 'pe_tier': str
+        - 'is_expandable': bool
+        - 'is_turnaround_candidate': bool
+        - 'twin_engine_rating': str
+        - 'badge': str
+    """
+    if fundamentals_data is None:
+        fundamentals_data = {}
+
+    pe = fundamentals_data.get('trailing_pe')
+    if pe is None or pe == 0.0 or pd.isna(pe):
+        pe = fundamentals_data.get('pe_ratio')
+    if pe is None or pd.isna(pe):
+        pe = 0.0
+    else:
+        try:
+            pe = float(pe)
+        except Exception:
+            pe = 0.0
+
+    eps_growth = fundamentals_data.get('eps_growth', 0.0)
+    try:
+        eps_growth = float(eps_growth) if eps_growth is not None else 0.0
+    except Exception:
+        eps_growth = 0.0
+
+    is_expandable = False
+    is_turnaround_candidate = False
+
+    if pe <= 0 or (eps_growth is not None and eps_growth <= 5.0 and pe > 0 and pe < 25):
+        if triple_conf_passed:
+            pe_tier = "Turnaround Rocket"
+            is_turnaround_candidate = True
+            twin_engine_rating = "🔄 Turnaround Rocket (Richard Love 34% Rule: Stage 1 breakout discounting future earnings)"
+            badge = "🔄 Turnaround Rocket"
+        else:
+            pe_tier = "Turnaround / Negative EPS"
+            is_turnaround_candidate = True
+            twin_engine_rating = "Speculative Turnaround (Needs Stage 1 breakout confirmation)"
+            badge = "Turnaround (Speculative)"
+    elif pe <= 15.0:
+        pe_tier = "Expandable P/E (<=15x)"
+        is_expandable = True
+        twin_engine_rating = "🚀 Maximum Twin-Engine (P/E Multiple Expansion + EPS Growth)"
+        badge = f"💎 Expandable ({pe:.1f}x)"
+    elif pe <= 25.0:
+        pe_tier = "Moderate P/E (15-25x)"
+        is_expandable = True
+        twin_engine_rating = "🟢 Strong Twin-Engine Potential"
+        badge = f"💎 Expandable ({pe:.1f}x)"
+    elif pe <= 50.0:
+        pe_tier = "High P/E (25-50x)"
+        twin_engine_rating = "⚖️ Normal Growth Multiple (EPS-Driven only)"
+        badge = f"Growth ({pe:.1f}x)"
+    else:
+        pe_tier = "Glamour P/E (>50x)"
+        twin_engine_rating = "⚠️ Multiple Compression Risk (Richard Love 'Glamour Trap')"
+        badge = f"⚠️ Glamour ({pe:.1f}x)"
+
+    return {
+        'pe': round(pe, 1) if pe > 0 else None,
+        'pe_tier': pe_tier,
+        'is_expandable': is_expandable,
+        'is_turnaround_candidate': is_turnaround_candidate,
+        'twin_engine_rating': twin_engine_rating,
+        'badge': badge
+    }
+
+
+# =============================================================================
 # MAIN ANALYSIS ORCHESTRATOR
 # =============================================================================
 
@@ -808,11 +1069,30 @@ def analyze_multibagger_stocks(tickers: list, progress_callback=None, pre_fetche
         avg_vol_50d = df['volume'].tail(50).mean() if 'volume' in df.columns else 0
         adtv_cr = (avg_vol_50d * close_price) / 10000000 if not pd.isna(avg_vol_50d) else 0
 
+        # Sortino Ratio & Downside Risk
+        sortino_3m = 0.0
+        sortino_6m = 0.0
+        downside_dev_3m = 0.0
+        if df is not None and 'close' in df.columns:
+            c_series = df['close'].dropna()
+            if len(c_series) >= 63:
+                sortino_3m = calculate_sortino_ratio(c_series, window=63, mar_annual=0.065)
+                downside_dev_3m = calculate_downside_deviation(c_series, window=63, mar=0.065, annualize=True)
+            if len(c_series) >= 126:
+                sortino_6m = calculate_sortino_ratio(c_series, window=126, mar_annual=0.065)
+
+        # Superperformer Launchpad: Triple Confirmation & Love Expandable P/E
+        triple_conf = check_weinstein_triple_confirmation(df)
+        love_pe = evaluate_love_expandable_pe(ticker, close_price, last_row_dict, triple_conf.get('triple_confirmed', False))
+
         results.append({
             'ticker': ticker,
             'close_price': close_price,
             'adtv_cr': adtv_cr,
             'rs_score': rs_score,
+            'sortino_3m': sortino_3m,
+            'sortino_6m': sortino_6m,
+            'downside_dev_3m': downside_dev_3m,
             'trend_state': trend_state,
             'hits_52w_1m': hits_1m,
             'hits_52w_3m': hits_3m,
@@ -825,6 +1105,8 @@ def analyze_multibagger_stocks(tickers: list, progress_callback=None, pre_fetche
             'vol_dryup': vol_dryup,
             'ema_stack': ema_stack,
             'buy_readiness': buy_readiness,
+            'triple_confirmation': triple_conf,
+            'love_pe': love_pe,
         })
 
     # Sort by buy readiness score descending
