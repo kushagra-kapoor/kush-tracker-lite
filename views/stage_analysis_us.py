@@ -247,13 +247,110 @@ def load_and_compute_us_internals():
         
     df_segments = pd.DataFrame(segment_stats)
     
+    # 4b. Relative Alpha Breadth: % of Stocks Outperforming Benchmark (SPY) across 1W, 1M, 3M, 6M, 1Y
+    windows_config = {
+        '1 Week': 5,
+        '1 Month': 21,
+        '3 Months': 63,
+        '6 Months': 126,
+        '1 Year': 250
+    }
+    
+    bench_close = None
+    bench_name = "S&P 500 (SPY)"
+    if 'SPY' in df.columns.get_level_values(0):
+        bench_close = df['SPY']['Close'].dropna()
+    elif 'SPY' in close_df.columns:
+        bench_close = close_df['SPY'].dropna()
+    elif len(close_df.columns) > 0:
+        bench_close = close_df.mean(axis=1).dropna()
+        bench_name = "US Equities Equal-Weight"
+        
+    # Precompute Vectorized RS Rating (CANSLIM Percentile 1-99) and Mansfield RS (MRS)
+    c0 = close_df.iloc[-1]
+    n_bars = len(close_df)
+    c_1m = close_df.iloc[max(0, n_bars - 22)].replace(0, np.nan)
+    c_3m = close_df.iloc[max(0, n_bars - 64)].replace(0, np.nan)
+    c_6m = close_df.iloc[max(0, n_bars - 127)].replace(0, np.nan)
+    
+    ret_1m = ((c0 - c_1m) / c_1m) * 100.0
+    ret_3m = ((c0 - c_3m) / c_3m) * 100.0
+    ret_6m = ((c0 - c_6m) / c_6m) * 100.0
+    
+    rs_raw = (0.40 * ret_1m.fillna(0)) + (0.40 * ret_3m.fillna(0)) + (0.20 * ret_6m.fillna(0))
+    rs_pct = rs_raw.rank(pct=True, na_option='bottom')
+    rs_rating = (rs_pct * 98.0 + 1.0).round().clip(lower=1, upper=99).fillna(50).astype(int)
+    
+    if bench_close is not None and len(bench_close) >= 20:
+        r_mat = close_df.div(bench_close, axis=0).dropna(how='all')
+        sma_r = r_mat.rolling(window=250, min_periods=min(50, len(r_mat))).mean()
+        mrs_series = ((r_mat.iloc[-1] / sma_r.iloc[-1]) - 1.0) * 100.0
+    else:
+        mrs_series = pd.Series(0.0, index=close_df.columns)
+
+    outperformance_data = {}
+    outperf_segments = dict(segments)
+    outperf_segments["All Stocks (All Universe)"] = list(close_df.columns)
+    for horizon_label, days_back in windows_config.items():
+        if bench_close is not None and len(bench_close) > days_back:
+            bench_ret = float((bench_close.iloc[-1] / bench_close.iloc[-days_back-1]) - 1) * 100.0
+        else:
+            bench_ret = 0.0
+            
+        horizon_segments = {}
+        for seg_name, seg_symbols in outperf_segments.items():
+            valid_syms = [s for s in seg_symbols if s in close_df.columns]
+            if not valid_syms:
+                continue
+            seg_closes = close_df[valid_syms].dropna(how='all')
+            if len(seg_closes) > days_back:
+                stk_rets = ((seg_closes.iloc[-1] / seg_closes.iloc[-days_back-1]) - 1) * 100.0
+                valid_rets = stk_rets.dropna()
+                tot_count = len(valid_rets)
+                outperf_mask = valid_rets > bench_ret
+                outperf_count = int(outperf_mask.sum())
+                outperf_pct = (outperf_count / tot_count * 100.0) if tot_count > 0 else 0.0
+                
+                outperf_tickers = [s for s in valid_rets[outperf_mask].index]
+                underperf_tickers = [s for s in valid_rets[~outperf_mask].index]
+                
+                stock_details = []
+                for s in valid_rets.index:
+                    s_ret = float(valid_rets[s])
+                    is_out = bool(s_ret > bench_ret)
+                    stock_details.append({
+                        'symbol': s,
+                        'raw_symbol': s,
+                        'return': round(s_ret, 2),
+                        'excess_return': round(s_ret - bench_ret, 2),
+                        'is_outperforming': is_out,
+                        'rs_rating': int(rs_rating.get(s, 50)),
+                        'mrs': round(float(mrs_series.get(s, 0.0)), 2) if not pd.isna(mrs_series.get(s, np.nan)) else 0.0,
+                        'stage': str(latest_stages.get(s, 'S1')),
+                        'industry': str(industry_map.get(s, 'Other')),
+                        'close': round(float(latest_close.get(s, 0.0)), 2)
+                    })
+                
+                horizon_segments[seg_name] = {
+                    'pct': round(outperf_pct, 1),
+                    'outperf_count': outperf_count,
+                    'total_count': tot_count,
+                    'avg_return': round(float(valid_rets.mean()), 2) if tot_count else 0.0,
+                    'median_return': round(float(valid_rets.median()), 2) if tot_count else 0.0,
+                    'outperforming_tickers': outperf_tickers,
+                    'underperforming_tickers': underperf_tickers,
+                    'stock_details': stock_details,
+                }
+        
+        outperformance_data[horizon_label] = {
+            'benchmark_name': bench_name,
+            'benchmark_return': round(bench_ret, 2),
+            'segments': horizon_segments
+        }
+
     # 5. Superperformer Launchpad Engine: Stan Weinstein Triple Confirmation + Richard Love Twin-Engine vs SPY
     launchpad_dict = {}
     try:
-        bench_close = None
-        if 'SPY' in df.columns.get_level_values(0):
-            bench_close = df['SPY']['Close'].dropna()
-            
         fund_cache = get_all_fundamentals_cache()
         
         # Scan weekly ignitions plus coiled Stage 1 setups within 5% of 50 SMA
@@ -303,17 +400,23 @@ def load_and_compute_us_internals():
     except Exception as e:
         print(f"Error computing US launchpad dict: {e}")
 
-    return momentum_metrics, historical_counts, df_latest, df_segments, stage_migration_df, migration_syms_dict, launchpad_dict
+    return momentum_metrics, historical_counts, df_latest, df_segments, stage_migration_df, migration_syms_dict, launchpad_dict, outperformance_data
 
 st.title("🗽 US Market Internals & Stage Analysis")
 st.markdown("Quantifying true institutional money flow across the **US Equities Universe** (1,300+ Stocks). Filtered for liquidity.")
 
 with st.spinner("Calculating quantitative internal metrics for US Equities..."):
-    momentum_metrics, historical_counts, df_latest, df_segments, stage_migration_df, migration_syms_dict, launchpad_dict = load_and_compute_us_internals()
+    internals_res = load_and_compute_us_internals()
 
-if momentum_metrics is None:
+if internals_res is None or internals_res[0] is None:
     st.warning("Historical data not found. Please verify historical_prices_matrix.pkl.")
     st.stop()
+
+if len(internals_res) >= 8:
+    momentum_metrics, historical_counts, df_latest, df_segments, stage_migration_df, migration_syms_dict, launchpad_dict, outperformance_data = internals_res[:8]
+else:
+    momentum_metrics, historical_counts, df_latest, df_segments, stage_migration_df, migration_syms_dict, launchpad_dict = internals_res[:7]
+    outperformance_data = {}
 
 # --- CUSTOM HTML GENERATORS ---
 def format_num(num):
@@ -553,6 +656,485 @@ if df_segments is not None and not df_segments.empty:
     html_matrix += "</div>"
     st.markdown(html_matrix, unsafe_allow_html=True)
 
+    # --- RELATIVE ALPHA BREADTH: % OF STOCKS OUTPERFORMING BENCHMARK (DATAWRAPPER STYLE) ---
+    def render_outperformance_chart(outperf_data, default_bench_name="S&P 500 (SPY)"):
+        if not outperf_data:
+            return
+
+        horizons = ["1 Week", "1 Month", "3 Months", "6 Months", "1 Year"]
+        available_horizons = [h for h in horizons if h in outperf_data]
+        if not available_horizons:
+            return
+
+        key_suffix = default_bench_name.lower().replace(" ", "_").replace("(", "").replace(")", "").replace("&", "")
+        default_horizon = "6 Months" if "6 Months" in available_horizons else available_horizons[0]
+
+        st.markdown("""
+        <div style="background: linear-gradient(135deg, rgba(18, 18, 28, 0.75) 0%, rgba(12, 12, 18, 0.85) 100%); backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 20px; padding: 22px 24px 20px 24px; margin-bottom: 24px; box-shadow: 0 20px 50px rgba(0,0,0,0.45), inset 0 1px 0 rgba(255,255,255,0.06);">
+            <div style="display: flex; justify-content: space-between; align-items: flex-start; flex-wrap: wrap; gap: 14px; margin-bottom: 12px;">
+                <div>
+                    <div style="display: flex; align-items: center; gap: 10px;">
+                        <h3 style="margin: 0; font-family: 'Outfit', sans-serif; font-size: 21px; font-weight: 700; color: #f8fafc; letter-spacing: -0.3px;">
+                            % of Stocks Outperforming Benchmark
+                        </h3>
+                        <span style="background: rgba(249, 115, 22, 0.15); color: #f97316; border: 1px solid rgba(249, 115, 22, 0.35); font-size: 10px; font-weight: 800; padding: 2px 8px; border-radius: 6px; letter-spacing: 0.5px; text-transform: uppercase;">Relative Alpha Breadth</span>
+                    </div>
+                    <div style="color: #94a3b8; font-size: 13px; margin-top: 5px;">
+                        Relative alpha breadth across capitalization tiers. Highlights where institutional capital is actively outperforming the index.
+                    </div>
+                </div>
+            </div>
+        """, unsafe_allow_html=True)
+
+        try:
+            selected_horizon = st.segmented_control(
+                "Timeframe Horizon",
+                available_horizons,
+                default=default_horizon,
+                key=f"outperf_tf_{key_suffix}",
+                label_visibility="collapsed"
+            )
+        except Exception:
+            selected_horizon = st.radio(
+                "Timeframe Horizon",
+                available_horizons,
+                index=available_horizons.index(default_horizon) if default_horizon in available_horizons else 0,
+                horizontal=True,
+                label_visibility="collapsed",
+                key=f"outperf_tf_{key_suffix}"
+            )
+        if not selected_horizon:
+            selected_horizon = default_horizon
+
+        h_data = outperf_data[selected_horizon]
+        bench_name = h_data.get('benchmark_name', default_bench_name)
+        bench_ret = h_data.get('benchmark_return', 0.0)
+        seg_map = h_data.get('segments', {})
+
+        preferred_order = [
+            "Mega-Cap ($200B+)", "Large-Cap ($10B-$200B)", "Mid & Small (<$10B)", "Tech & Growth Leaders", "Tech Leaders", "S&P Top 100 Leaders", "All Stocks (All Universe)"
+        ]
+        ordered_segs = [s for s in preferred_order if s in seg_map]
+        if not ordered_segs:
+            ordered_segs = list(seg_map.keys())
+
+        x_labels = []
+        y_pcts = []
+        hover_texts = []
+        text_labels = []
+        bar_colors = []
+        border_colors = []
+
+        for seg in ordered_segs:
+            s_info = seg_map[seg]
+            pct = s_info['pct']
+            cnt = s_info['outperf_count']
+            tot = s_info['total_count']
+            med_ret = s_info['median_return']
+
+            x_labels.append(seg)
+            y_pcts.append(pct)
+
+            if pct >= 50.0:
+                # Outperforming tier: High-contrast glowing signature Datawrapper orange
+                bar_colors.append("#f97316")
+                border_colors.append("#fed7aa")
+                text_labels.append(f"<b>{int(round(pct))}%</b><br><span style='font-size:10px; color:#fed7aa;'>{cnt}/{tot}</span>")
+            else:
+                # Underperforming tier: Muted smoked amber (instant visual contrast for alpha expansion)
+                bar_colors.append("rgba(234, 88, 12, 0.42)")
+                border_colors.append("rgba(255, 255, 255, 0.18)")
+                text_labels.append(f"<b>{int(round(pct))}%</b><br><span style='font-size:10px; color:#94a3b8;'>{cnt}/{tot}</span>")
+
+            excess = med_ret - bench_ret
+            excess_sign = "+" if excess > 0 else ""
+            hover_texts.append(
+                f"<b>{seg}</b><br>"
+                f"────────────────────────<br>"
+                f"Outperforming Benchmark: <b>{pct:.1f}%</b> ({cnt}/{tot} stocks)<br>"
+                f"Segment Median Return: <b>{med_ret:+.2f}%</b><br>"
+                f"Benchmark ({bench_name}): <b>{bench_ret:+.2f}%</b><br>"
+                f"Alpha Spread: <b>{excess_sign}{excess:.2f}%</b><extra></extra>"
+            )
+
+        fig = go.Figure()
+
+        fig.add_trace(go.Bar(
+            x=x_labels,
+            y=y_pcts,
+            text=text_labels,
+            textposition='outside',
+            textfont=dict(size=13, color='#ffffff', family='Outfit, Inter, sans-serif', weight=700),
+            marker=dict(
+                color=bar_colors,
+                line=dict(color=border_colors, width=1.4),
+                cornerradius=8
+            ),
+            hovertext=hover_texts,
+            hoverinfo='text',
+            cliponaxis=False
+        ))
+
+        fig.add_hline(
+            y=50,
+            line_dash="dot",
+            line_color="rgba(255, 255, 255, 0.35)",
+            line_width=1.5,
+            annotation_text="⚡ 50% ALPHA BREAKEVEN",
+            annotation_position="top right",
+            annotation_font=dict(size=10, color="#cbd5e1", family="Outfit, sans-serif", weight=700)
+        )
+
+        max_y = max(y_pcts) if y_pcts else 50
+        y_upper = min(116, max(100, max_y + 16))
+
+        fig.update_layout(
+            template='plotly_dark',
+            height=340,
+            bargap=0.38,
+            margin=dict(l=10, r=10, t=28, b=25),
+            paper_bgcolor='rgba(0,0,0,0)',
+            plot_bgcolor='rgba(0,0,0,0)',
+            xaxis=dict(
+                showgrid=False,
+                zeroline=False,
+                showline=True,
+                linecolor='rgba(255,255,255,0.15)',
+                tickfont=dict(color='#f1f5f9', size=12, family='Outfit, sans-serif', weight=700)
+            ),
+            yaxis=dict(
+                range=[0, y_upper],
+                showgrid=True,
+                gridcolor='rgba(255,255,255,0.04)',
+                zeroline=False,
+                showline=False,
+                ticksuffix="%",
+                tickfont=dict(color='#94a3b8', size=11, family='Outfit, sans-serif')
+            ),
+            hoverlabel=dict(
+                bgcolor="#0f172a",
+                font_size=12,
+                font_family="Outfit, sans-serif",
+                bordercolor="rgba(255,255,255,0.2)"
+            )
+        )
+        st.plotly_chart(fig, use_container_width=True, config={'displayModeBar': False})
+
+        # Dynamic Regime diagnosis
+        large_cap_key = "Mega-Cap ($200B+)" if "Mega-Cap ($200B+)" in seg_map else ("Large-Cap ($10B-$200B)" if "Large-Cap ($10B-$200B)" in seg_map else None)
+        mid_cap_key = "Mid & Small (<$10B)" if "Mid & Small (<$10B)" in seg_map else None
+        
+        regime_msg = "Rotational market phase across US tiers. Leadership is distributed without strong capitalization bias."
+        regime_badge = "BALANCED ALPHA"
+        regime_icon = "⚖️"
+        regime_color = "#38bdf8"
+        regime_bg = "rgba(56, 189, 248, 0.12)"
+
+        if large_cap_key and mid_cap_key:
+            l_pct = seg_map[large_cap_key]['pct']
+            m_pct = seg_map[mid_cap_key]['pct']
+            if m_pct - l_pct >= 8.0:
+                regime_msg = f"Mid & Small caps ({m_pct:.0f}%) significantly outpace Mega Caps ({l_pct:.0f}%). Broad institutional risk-appetite is active."
+                regime_badge = "BETA EXPANSION"
+                regime_icon = "🚀"
+                regime_color = "#10b981"
+                regime_bg = "rgba(16, 185, 129, 0.15)"
+            elif l_pct - m_pct >= 8.0:
+                regime_msg = f"Mega caps ({l_pct:.0f}%) outperform broad market. Capital is seeking liquidity shelter while mid/small caps lag."
+                regime_badge = "DEFENSIVE FLIGHT"
+                regime_icon = "🛡️"
+                regime_color = "#f43f5e"
+                regime_bg = "rgba(244, 63, 94, 0.15)"
+            elif all(seg_map[k]['pct'] >= 60.0 for k in seg_map):
+                regime_msg = f"Over 60% of stocks across every tier are beating {bench_name}. Highly favorable for breakout continuation."
+                regime_badge = "MAX BULL SPONSORSHIP"
+                regime_icon = "🟢"
+                regime_color = "#10b981"
+                regime_bg = "rgba(16, 185, 129, 0.15)"
+            elif all(seg_map[k]['pct'] < 45.0 for k in seg_map):
+                regime_msg = f"Fewer than 45% of stocks are outperforming. The S&P 500 headline is masking widespread individual stock weakness."
+                regime_badge = "INDEX DISTORTION"
+                regime_icon = "🔴"
+                regime_color = "#f43f5e"
+                regime_bg = "rgba(244, 63, 94, 0.15)"
+
+        b_color = "#10b981" if bench_ret >= 0 else "#f43f5e"
+        b_sign = "+" if bench_ret >= 0 else ""
+        st.markdown((
+            f'<div style="display: flex; justify-content: space-between; align-items: center; background: rgba(255, 255, 255, 0.025); border: 1px solid rgba(255, 255, 255, 0.06); border-radius: 12px; padding: 12px 18px; margin-top: -6px; flex-wrap: wrap; gap: 12px;">'
+            f'<div style="display: flex; align-items: center; gap: 12px; font-size: 13px; color: #cbd5e1; flex: 1; min-width: 280px;">'
+            f'<span style="background: {regime_bg}; color: {regime_color}; border: 1px solid {regime_color}50; font-size: 10px; font-weight: 800; padding: 3px 10px; border-radius: 6px; letter-spacing: 0.6px; white-space: nowrap;">{regime_icon} {regime_badge}</span>'
+            f'<span style="line-height: 1.4;">{regime_msg}</span>'
+            f'</div>'
+            f'<div style="display: flex; gap: 8px; align-items: center; background: rgba(0,0,0,0.3); padding: 5px 12px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.06);">'
+            f'<span style="font-size: 11px; color: #8b95a5; font-weight: 600; text-transform: uppercase;">Benchmark ({bench_name}):</span>'
+            f'<span style="color: {b_color}; font-weight: 800; font-family: monospace; font-size: 13px;">{b_sign}{bench_ret:.2f}%</span>'
+            f'</div>'
+            f'</div>'
+            f'</div>'
+        ), unsafe_allow_html=True)
+
+        # Inspect Outperforming Alpha Leaders with Relative Strength (RS) Filter
+        with st.expander("🔍 Inspect Outperforming Alpha Leaders by Segment & RS Filter", expanded=False):
+            ctrl_c1, ctrl_c2, ctrl_c3, ctrl_c4 = st.columns([1.1, 1.4, 1.1, 1.1])
+            with ctrl_c1:
+                inspect_seg = st.selectbox("Select Segment:", ordered_segs, key=f"inspect_seg_{key_suffix}")
+            with ctrl_c2:
+                rs_filter = st.selectbox(
+                    "Relative Strength Filter:",
+                    [
+                        "🌟 All Outperforming Stocks (Alpha > 0)",
+                        "🔥 RS 90+ (Elite Momentum Leaders)",
+                        "💎 RS 80+ (Institutional Core Leaders)",
+                        "🟢 RS 70+ (Above Average Momentum)",
+                        "🌊 Positive Mansfield RS (MRS > 0)",
+                        "⚡ Leading MRS (MRS > +5)"
+                    ],
+                    index=0,
+                    key=f"rs_filter_{key_suffix}"
+                )
+            with ctrl_c3:
+                sort_by = st.selectbox(
+                    "Sort Order:",
+                    [
+                        "Period Return (High → Low)",
+                        "RS Rating (High → Low)",
+                        "Mansfield RS (High → Low)",
+                        "Alpha Spread (High → Low)",
+                        "Ticker (A → Z)"
+                    ],
+                    index=0,
+                    key=f"sort_{key_suffix}"
+                )
+            with ctrl_c4:
+                search_q = st.text_input("Quick Filter Ticker / Sector:", placeholder="e.g. NVDA, Tech...", key=f"search_{key_suffix}")
+
+            if inspect_seg in seg_map:
+                seg_data = seg_map[inspect_seg]
+                stock_details = seg_data.get('stock_details', [])
+                out_tickers = seg_data.get('outperforming_tickers', [])
+                under_tickers = seg_data.get('underperforming_tickers', [])
+                
+                # Filter candidates: base pool is stocks outperforming benchmark
+                if stock_details:
+                    pool = [s for s in stock_details if s.get('is_outperforming', False)]
+                    
+                    if "RS 90+" in rs_filter:
+                        filtered_stocks = [s for s in pool if s['rs_rating'] >= 90]
+                    elif "RS 80+" in rs_filter:
+                        filtered_stocks = [s for s in pool if s['rs_rating'] >= 80]
+                    elif "RS 70+" in rs_filter:
+                        filtered_stocks = [s for s in pool if s['rs_rating'] >= 70]
+                    elif "MRS > +5" in rs_filter:
+                        filtered_stocks = [s for s in pool if s['mrs'] > 5.0]
+                    elif "MRS > 0" in rs_filter:
+                        filtered_stocks = [s for s in pool if s['mrs'] > 0.0]
+                    else:
+                        filtered_stocks = pool
+
+                    if search_q and search_q.strip():
+                        q = search_q.strip().lower()
+                        filtered_stocks = [s for s in filtered_stocks if q in s['symbol'].lower() or q in s.get('industry', '').lower()]
+
+                    # Sort candidates
+                    if "Period Return" in sort_by:
+                        filtered_stocks.sort(key=lambda x: x['return'], reverse=True)
+                    elif "RS Rating" in sort_by:
+                        filtered_stocks.sort(key=lambda x: (x['rs_rating'], x['return']), reverse=True)
+                    elif "Mansfield RS" in sort_by:
+                        filtered_stocks.sort(key=lambda x: (x['mrs'], x['return']), reverse=True)
+                    elif "Alpha Spread" in sort_by:
+                        filtered_stocks.sort(key=lambda x: (x['excess_return'], x['return']), reverse=True)
+                    else:
+                        filtered_stocks.sort(key=lambda x: x['symbol'])
+                else:
+                    filtered_stocks = [{'symbol': t, 'return': 0.0, 'excess_return': 0.0, 'rs_rating': 50, 'mrs': 0.0, 'stage': 'S1', 'industry': 'Other', 'close': 0.0} for t in out_tickers]
+                    if search_q and search_q.strip():
+                        q = search_q.strip().lower()
+                        filtered_stocks = [s for s in filtered_stocks if q in s['symbol'].lower()]
+
+                # Executive Mini-Stats Cards
+                total_tier = seg_data.get('total_count', len(stock_details))
+                total_outperf = len(out_tickers)
+                outperf_pct = seg_data.get('pct', 0.0)
+                filtered_cnt = len(filtered_stocks)
+                med_ret = seg_data.get('median_return', 0.0)
+                alpha_spread = med_ret - bench_ret
+
+                alpha_color = "#10b981" if alpha_spread >= 0 else "#f43f5e"
+                alpha_sign = "+" if alpha_spread >= 0 else ""
+                bar_w = min(100.0, max(0.0, outperf_pct))
+                
+                st.markdown((
+                    f'<div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 14px; margin: 16px 0 20px 0;">'
+                    f'<div style="background: linear-gradient(135deg, rgba(255, 255, 255, 0.04) 0%, rgba(255, 255, 255, 0.01) 100%); border: 1px solid rgba(255, 255, 255, 0.07); border-radius: 12px; padding: 14px 16px; box-shadow: 0 4px 16px rgba(0,0,0,0.2);">'
+                    f'<div style="display: flex; justify-content: space-between; align-items: center;">'
+                    f'<span style="font-size: 11px; color: #8b95a5; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px;">Tier Universe</span>'
+                    f'<span style="font-size: 14px; opacity: 0.6;">🌐</span>'
+                    f'</div>'
+                    f'<div style="font-size: 22px; font-weight: 800; color: #f8fafc; font-family: monospace; margin-top: 4px;">{total_tier} <span style="font-size: 12px; color: #64748b; font-weight: 500; font-family: sans-serif;">Stocks</span></div>'
+                    f'<div style="font-size: 11px; color: #64748b; margin-top: 2px;">{inspect_seg}</div>'
+                    f'</div>'
+
+                    f'<div style="background: linear-gradient(135deg, rgba(249, 115, 22, 0.08) 0%, rgba(255, 255, 255, 0.02) 100%); border: 1px solid rgba(249, 115, 22, 0.25); border-radius: 12px; padding: 14px 16px; box-shadow: 0 4px 16px rgba(0,0,0,0.2);">'
+                    f'<div style="display: flex; justify-content: space-between; align-items: center;">'
+                    f'<span style="font-size: 11px; color: #fdba74; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px;">Beating Benchmark</span>'
+                    f'<span style="font-size: 14px; opacity: 0.8;">🚀</span>'
+                    f'</div>'
+                    f'<div style="display: flex; align-items: baseline; gap: 8px; margin-top: 4px;">'
+                    f'<span style="font-size: 22px; font-weight: 800; color: #f97316; font-family: monospace;">{total_outperf}</span>'
+                    f'<span style="font-size: 13px; font-weight: 700; color: #fdba74; background: rgba(249, 115, 22, 0.15); padding: 1px 6px; border-radius: 4px;">{outperf_pct:.1f}%</span>'
+                    f'</div>'
+                    f'<div style="width: 100%; height: 4px; background: rgba(255,255,255,0.06); border-radius: 2px; margin-top: 6px; overflow: hidden;">'
+                    f'<div style="width: {bar_w:.1f}%; height: 100%; background: linear-gradient(90deg, #ea580c, #f97316); border-radius: 2px;"></div>'
+                    f'</div>'
+                    f'</div>'
+
+                    f'<div style="background: linear-gradient(135deg, rgba(16, 185, 129, 0.08) 0%, rgba(255, 255, 255, 0.02) 100%); border: 1px solid rgba(16, 185, 129, 0.25); border-radius: 12px; padding: 14px 16px; box-shadow: 0 4px 16px rgba(0,0,0,0.2);">'
+                    f'<div style="display: flex; justify-content: space-between; align-items: center;">'
+                    f'<span style="font-size: 11px; color: #6ee7b7; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px;">Matching RS Filter</span>'
+                    f'<span style="font-size: 14px; opacity: 0.8;">💎</span>'
+                    f'</div>'
+                    f'<div style="font-size: 22px; font-weight: 800; color: #10b981; font-family: monospace; margin-top: 4px;">{filtered_cnt} <span style="font-size: 12px; color: #64748b; font-weight: 500; font-family: sans-serif;">Qualified</span></div>'
+                    f'<div style="font-size: 11px; color: #6ee7b7; margin-top: 2px;">{(filtered_cnt/total_tier*100 if total_tier>0 else 0):.1f}% of tier universe</div>'
+                    f'</div>'
+
+                    f'<div style="background: linear-gradient(135deg, rgba(255, 255, 255, 0.04) 0%, rgba(255, 255, 255, 0.01) 100%); border: 1px solid rgba(255, 255, 255, 0.07); border-radius: 12px; padding: 14px 16px; box-shadow: 0 4px 16px rgba(0,0,0,0.2);">'
+                    f'<div style="display: flex; justify-content: space-between; align-items: center;">'
+                    f'<span style="font-size: 11px; color: #8b95a5; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px;">Tier Median vs Bench</span>'
+                    f'<span style="font-size: 14px; opacity: 0.6;">⚡</span>'
+                    f'</div>'
+                    f'<div style="display: flex; align-items: baseline; gap: 8px; margin-top: 4px;">'
+                    f'<span style="font-size: 22px; font-weight: 800; color: #f8fafc; font-family: monospace;">{med_ret:+.2f}%</span>'
+                    f'<span style="font-size: 12px; font-weight: 700; color: {alpha_color}; background: {alpha_color}18; padding: 1px 6px; border-radius: 4px; font-family: monospace;">{alpha_sign}{alpha_spread:+.2f}% Spread</span>'
+                    f'</div>'
+                    f'<div style="font-size: 11px; color: #64748b; margin-top: 2px;">Bench: {bench_ret:+.2f}%</div>'
+                    f'</div>'
+                    f'</div>'
+                ), unsafe_allow_html=True)
+
+                is_us = True
+                tv_prefix = ""
+
+                if filtered_stocks:
+                    # Interactive Leaderboard Table
+                    css_block = (
+                        '<style>'
+                        '.alpha-table-wrap::-webkit-scrollbar { width: 6px; height: 6px; }'
+                        '.alpha-table-wrap::-webkit-scrollbar-track { background: rgba(10, 10, 18, 0.6); }'
+                        '.alpha-table-wrap::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.15); border-radius: 4px; }'
+                        '.alpha-table-wrap::-webkit-scrollbar-thumb:hover { background: rgba(56, 189, 248, 0.4); }'
+                        '.alpha-table tbody tr { transition: all 0.15s ease; border-bottom: 1px solid rgba(255,255,255,0.035); }'
+                        '.alpha-table tbody tr:nth-child(even) { background: rgba(255, 255, 255, 0.012); }'
+                        '.alpha-table tbody tr:hover { background: rgba(56, 189, 248, 0.08) !important; }'
+                        '.tv-link-pill { display: inline-flex; align-items: center; gap: 4px; padding: 2px 7px; border-radius: 6px; background: rgba(56, 189, 248, 0.08); border: 1px solid rgba(56, 189, 248, 0.25); color: #38bdf8 !important; text-decoration: none !important; font-weight: 700; font-family: monospace; font-size: 12px; transition: all 0.15s ease; }'
+                        '.tv-link-pill:hover { background: rgba(56, 189, 248, 0.22); border-color: #38bdf8; box-shadow: 0 0 10px rgba(56, 189, 248, 0.3); }'
+                        '</style>'
+                    )
+
+                    table_rows = []
+                    for idx, s in enumerate(filtered_stocks, 1):
+                        sym = s['symbol']
+                        tv_link = f"https://www.tradingview.com/chart/?symbol={tv_prefix}{sym}"
+                        ret_val = s['return']
+                        ret_color = "#10b981" if ret_val >= 0 else "#f43f5e"
+                        excess_val = s['excess_return']
+                        excess_color = "#34d399" if excess_val >= 0 else "#fb7185"
+                        excess_sign = "+" if excess_val >= 0 else ""
+                        
+                        rs_val = s['rs_rating']
+                        if rs_val >= 90:
+                            rs_badge = f'<span style="background: rgba(16,185,129,0.18); color: #34d399; border: 1px solid rgba(16,185,129,0.45); padding: 3px 8px; border-radius: 8px; font-weight: 800; font-size: 11px; letter-spacing: 0.3px; box-shadow: 0 0 8px rgba(16,185,129,0.2);">🔥 {rs_val}</span>'
+                        elif rs_val >= 80:
+                            rs_badge = f'<span style="background: rgba(2,132,199,0.18); color: #38bdf8; border: 1px solid rgba(2,132,199,0.45); padding: 3px 8px; border-radius: 8px; font-weight: 800; font-size: 11px; letter-spacing: 0.3px;">💎 {rs_val}</span>'
+                        elif rs_val >= 70:
+                            rs_badge = f'<span style="background: rgba(234,179,8,0.18); color: #fbbf24; border: 1px solid rgba(234,179,8,0.45); padding: 3px 8px; border-radius: 8px; font-weight: 800; font-size: 11px; letter-spacing: 0.3px;">🟢 {rs_val}</span>'
+                        else:
+                            rs_badge = f'<span style="background: rgba(148,163,184,0.12); color: #94a3b8; border: 1px solid rgba(148,163,184,0.25); padding: 3px 8px; border-radius: 8px; font-weight: 700; font-size: 11px;">⚪ {rs_val}</span>'
+                        
+                        mrs_val = s['mrs']
+                        if mrs_val > 0:
+                            mrs_display = f'<span style="color: #38bdf8; font-weight: 700; font-family: monospace;">+{mrs_val:.1f}% <span style="font-size: 9px; opacity: 0.8;">↗</span></span>'
+                        else:
+                            mrs_display = f'<span style="color: #94a3b8; font-weight: 600; font-family: monospace;">{mrs_val:.1f}% <span style="font-size: 9px; opacity: 0.8;">↘</span></span>'
+                        
+                        stage_val = s.get('stage', 'S1')
+                        if stage_val == 'S2':
+                            stage_badge = '<span style="background: rgba(16,185,129,0.18); color: #10b981; border: 1px solid rgba(16,185,129,0.4); padding: 3px 8px; border-radius: 6px; font-size: 10.5px; font-weight: 700; letter-spacing: 0.3px; white-space: nowrap;">🚀 S2 Markup</span>'
+                        elif stage_val == 'S1':
+                            stage_badge = '<span style="background: rgba(56,189,248,0.18); color: #38bdf8; border: 1px solid rgba(56,189,248,0.4); padding: 3px 8px; border-radius: 6px; font-size: 10.5px; font-weight: 700; letter-spacing: 0.3px; white-space: nowrap;">🛡️ S1 Base</span>'
+                        elif stage_val == 'S3':
+                            stage_badge = '<span style="background: rgba(251,191,36,0.18); color: #fbbf24; border: 1px solid rgba(251,191,36,0.4); padding: 3px 8px; border-radius: 6px; font-size: 10.5px; font-weight: 700; letter-spacing: 0.3px; white-space: nowrap;">⚠️ S3 Top</span>'
+                        else:
+                            stage_badge = '<span style="background: rgba(244,63,94,0.18); color: #f43f5e; border: 1px solid rgba(244,63,94,0.4); padding: 3px 8px; border-radius: 6px; font-size: 10.5px; font-weight: 700; letter-spacing: 0.3px; white-space: nowrap;">🛑 S4 Decline</span>'
+
+                        currency = "$"
+                        price_str = f"{currency}{s['close']:,.2f}" if s['close'] > 0 else "—"
+
+                        row_html = (
+                            f'<tr>'
+                            f'<td style="padding: 11px 14px; color: #64748b; font-size: 11px; font-weight: 600; text-align: center;">{idx}</td>'
+                            f'<td style="padding: 11px 14px;">'
+                            f'<a href="{tv_link}" target="_blank" class="tv-link-pill">'
+                            f'{sym} <span style="font-size: 10px; opacity: 0.7;">↗</span>'
+                            f'</a></td>'
+                            f'<td style="padding: 11px 14px; color: #cbd5e1; font-size: 11.5px; max-width: 170px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">{s["industry"]}</td>'
+                            f'<td style="padding: 11px 14px; color: #f8fafc; font-weight: 600; font-family: monospace; font-size: 12.5px; text-align: right;">{price_str}</td>'
+                            f'<td style="padding: 11px 14px; color: {ret_color}; font-weight: 700; font-family: monospace; font-size: 12.5px; text-align: right;">{ret_val:+.2f}%</td>'
+                            f'<td style="padding: 11px 14px; color: {excess_color}; font-weight: 700; font-family: monospace; font-size: 12px; text-align: right;">{excess_sign}{excess_val:.2f}%</td>'
+                            f'<td style="padding: 11px 14px; text-align: center;">{rs_badge}</td>'
+                            f'<td style="padding: 11px 14px; text-align: right;">{mrs_display}</td>'
+                            f'<td style="padding: 11px 14px; text-align: center;">{stage_badge}</td>'
+                            f'</tr>'
+                        )
+                        table_rows.append(row_html)
+
+                    rows_joined = "".join(table_rows)
+                    table_html = (
+                        f'{css_block}'
+                        '<div class="alpha-table-wrap" style="border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 14px; overflow: hidden; background: rgba(12, 13, 20, 0.75); backdrop-filter: blur(12px); margin-bottom: 20px; box-shadow: 0 10px 30px rgba(0,0,0,0.35);">'
+                        '<div style="max-height: 440px; overflow-y: auto;">'
+                        '<table class="alpha-table" style="width: 100%; border-collapse: collapse; text-align: left; font-family: -apple-system, BlinkMacSystemFont, \'Segoe UI\', Roboto, sans-serif;">'
+                        '<thead style="position: sticky; top: 0; background: #131622; border-bottom: 1px solid rgba(255,255,255,0.09); z-index: 2;">'
+                        '<tr>'
+                        '<th style="padding: 12px 14px; color: #8b95a5; font-size: 10px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.8px; text-align: center;">#</th>'
+                        '<th style="padding: 12px 14px; color: #8b95a5; font-size: 10px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.8px;">Ticker</th>'
+                        '<th style="padding: 12px 14px; color: #8b95a5; font-size: 10px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.8px;">Industry / Sector</th>'
+                        '<th style="padding: 12px 14px; color: #8b95a5; font-size: 10px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.8px; text-align: right;">Price</th>'
+                        f'<th style="padding: 12px 14px; color: #8b95a5; font-size: 10px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.8px; text-align: right;">Return ({selected_horizon})</th>'
+                        '<th style="padding: 12px 14px; color: #8b95a5; font-size: 10px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.8px; text-align: right;">Alpha Spread</th>'
+                        '<th style="padding: 12px 14px; color: #8b95a5; font-size: 10px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.8px; text-align: center;">CANSLIM RS</th>'
+                        '<th style="padding: 12px 14px; color: #8b95a5; font-size: 10px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.8px; text-align: right;">Mansfield RS</th>'
+                        '<th style="padding: 12px 14px; color: #8b95a5; font-size: 10px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.8px; text-align: center;">Stage</th>'
+                        '</tr>'
+                        '</thead>'
+                        f'<tbody>{rows_joined}</tbody>'
+                        '</table>'
+                        '</div>'
+                        '</div>'
+                    )
+                    st.markdown(table_html, unsafe_allow_html=True)
+
+                    # Quick-copy TradingView Watchlist Box
+                    filtered_symbols = [s['symbol'] for s in filtered_stocks]
+                    filtered_tv_list = [f"{tv_prefix}{s}" for s in filtered_symbols]
+                    
+                    st.markdown((
+                        f'<div style="display: flex; justify-content: space-between; align-items: center; margin-top: 8px; margin-bottom: 6px;">'
+                        f'<div style="display: flex; align-items: center; gap: 8px;">'
+                        f'<span style="font-size: 12px; color: #f1f5f9; font-weight: 700;">📋 TradingView Watchlist</span>'
+                        f'<span style="background: rgba(56, 189, 248, 0.15); color: #38bdf8; font-size: 10.5px; font-weight: 800; padding: 2px 7px; border-radius: 10px;">{len(filtered_symbols)} Tickers</span>'
+                        f'</div>'
+                        f'<span style="font-size: 11px; color: #8b95a5;">Copy and paste into TradingView Watchlist window</span>'
+                        f'</div>'
+                    ), unsafe_allow_html=True)
+                    st.code(", ".join(filtered_tv_list), language="text")
+                else:
+                    st.info(f"No stocks in **{inspect_seg}** match the selected RS filter ({rs_filter}) for {selected_horizon}.")
+
+    render_outperformance_chart(outperformance_data, default_bench_name="S&P 500 (SPY)")
+
+
 
 # --- 2-COLUMN COMMAND CENTER: MOMENTUM RADAR & US TACTICAL PLAYBOOK ---
 mom_col1, mom_col2 = st.columns([1, 1], gap="medium")
@@ -635,11 +1217,46 @@ with mom_col2:
             <div style="text-align: right;">
                 <div style="font-size: 11px; color: #8b95a5; font-weight: 600;">BENCHMARK (SPY)</div>
                 <div style="font-size: 14px; font-weight: 700; color: #38bdf8;">S&P 500</div>
-            </div>
         </div>
     </div>
     """.replace('\n', '')
     st.markdown(playbook_html, unsafe_allow_html=True)
+
+with st.expander("ℹ️ Understanding US Breadth Matrix Tags ('Chilled' / 'Washout') & US Tactical Playbook Rules", expanded=False):
+    st.markdown(f"""
+    ### 🧭 1. What Does "CHILLED" / "WASHOUT" / "MARKUP" Mean?
+    The **US Market Cap Segments Breadth Matrix** acts as an institutional temperature check across US capitalization tiers (Mega-Cap, Large-Cap, Mid/Small, Tech Leaders, S&P 100). Each segment is evaluated on the percentage of constituent stocks trading above their **50-day Simple Moving Average (SMA)**:
+
+    | Segment Breadth (>50d SMA) | Status Tag | Institutional Meaning | Action Directive |
+    | :--- | :--- | :--- | :--- |
+    | **< 20.0%** | `🔴 WASHOUT` | **Capitulation Exhaustion:** Deep institutional liquidation. Most stocks broken below 50 SMA. | Do not short. Prepare for violent mean-reversion snapbacks. |
+    | **20.0% – 44.9%** | `⚠️ DEFENSIVE / CHILLED` | **Defensive Distribution:** Under 45% of stocks can hold their 50 SMA. Breakouts have high failure rates. | High caution. Defensive posture. Raise cash (50% – 70%). |
+    | **45.0% – 64.9%** | `🧭 HEALTHY / WARMING` | **Selective Markup:** Healthy intermediate uptrend with constructive sector rotation. | Trade high-conviction A+ setups with pilot sizing. |
+    | **≥ 65.0%** | `🟢 MARKUP` | **Broad Bull Sponsorship:** Broad institutional participation with powerful breakout follow-through. | Aggressive buy & hold. Full position sizing. |
+
+    ---
+
+    ### ⚡ 2. The Key Matrix Metrics Explained
+    - **Brutal Strength (25>50>200):** Measures the elite group of US stocks whose moving averages are in stacked bullish alignment (`Price > 25 SMA > 50 SMA > 200 SMA`). Indicates sustained institutional trend strength.
+    - **Above 50 SMA:** Percentage of stocks in that segment above their 50-day moving average (medium-term institutional dividing line).
+    - **Advance / Decline Flow:** Net 5-day directional price flow across the capitalization tier.
+
+    ---
+
+    ### 📖 3. How the "US Tactical Playbook" is Defined
+    The Playbook translates broad US market stage leadership and intraday volume thrust into an actionable operating plan:
+
+    1. **Regime Assessment & Target Cash Buffer:**
+       - `🔴 SEVERE WASHOUT (< 15% S2):` Recommends **70%–100% Cash Buffer** (extreme oversold condition).
+       - `⚠️ DEFENSIVE DISTRIBUTION (15%–30% S2):` Current regime. Recommends **50%–70% Cash Buffer** to protect capital during distribution churn.
+       - `🧭 SELECTIVE ACCUMULATION (30%–55% S2):` Recommends **20%–40% Cash Buffer** with selective swing sizing (10–12%).
+       - `🚀 MAXIMUM BULL MARKUP (≥ 55% S2):` Recommends **0%–15% Cash Buffer** (stay 85–100% invested in leading Stage 2 runners).
+    
+    2. **Intraday Flow & Volume Radar:**
+       - **Up from Open:** Measures holding conviction (institutions supporting prices after the opening bell vs. fading gap-ups).
+       - **Up on Volume:** Institutional accumulation vs. distribution flow volume.
+       - **Power Thrust (+4% vs -4%):** Pure expansion velocity across US equities.
+    """)
 
 st.markdown("<br>", unsafe_allow_html=True)
 
@@ -780,6 +1397,8 @@ if s4_pct >= 30:
     what_to_do = "100% Capital Preservation. Hold 80–100% cash or trade selective short hedges. Let the market complete its capitulation before looking for bottoms."
     what_not_to_do = "DO NOT BUY ANYTHING LONG. 'Bottom-fishing' during active Stage 4 liquidation is financial suicide. Never average down on losing positions."
     action_badge = "100% CASH / FORBIDDEN LONGS"
+    trigger_rule = f"Stage 4 Declining = {s4_pct:.1f}% (Triggered: S4 ≥ 30.0%)"
+    regime_reason = "Over 30% of the entire universe is in active Stage 4 markdown below declining 50 & 200 SMAs. Market structure is in active institutional distribution/liquidation."
 elif s3_pct >= 40 or (s3_pct >= 30 and s2_pct <= 15):
     regime_status = "⚠️ YELLOW/RED ALERT: HEAVY DISTRIBUTION & TOPPING CHURN"
     regime_theme = "#f59e0b"
@@ -788,6 +1407,8 @@ elif s3_pct >= 40 or (s3_pct >= 30 and s2_pct <= 15):
     what_to_do = f"Protect Capital & Tighten Stops. Over half the market ({s3_pct:.1f}%) is in Stage 3 Topping while Stage 2 is down to {s2_pct:.1f}%. Sell into rallies, take quick profits (10–15%), and raise cash to 60–80%."
     what_not_to_do = "DO NOT BUY NEW BREAKOUTS. Breakout failure/squat rate exceeds 80% during heavy Stage 3 distribution. Do not hold through earnings without a +10% cushion."
     action_badge = "PROTECT PROFITS / STOP BUYING"
+    trigger_rule = f"Stage 3 Topping = {s3_pct:.1f}% (Triggered: S3 ≥ 40.0% or S3 ≥ 30% with S2 ≤ 15%)"
+    regime_reason = "Distribution churn is rampant across institutional leaders. Breakouts have extreme squat/failure rates (>80%)."
 elif s2_pct >= 40 and s4_pct < 15:
     regime_status = "🟢 GREEN LIGHT: AGGRESSIVE BULL MARKET MARKUP"
     regime_theme = "#10b981"
@@ -796,6 +1417,8 @@ elif s2_pct >= 40 and s4_pct < 15:
     what_to_do = "Aggressively Buy & Hold. Buy fresh breakouts from Base 1 & 2. Pyramid winners on 21 EMA pullbacks. Deploy maximum position sizing (20–25% per stock). Stay 90–100% invested."
     what_not_to_do = "Do not sell leading winners prematurely. Do not bottom-fish in Stage 4 laggards. Follow your trailing stops (21 EMA / 50 SMA)."
     action_badge = "MAX RISK-ON / AGGRESSIVE BUY"
+    trigger_rule = f"Stage 2 Advancing = {s2_pct:.1f}% & Stage 4 = {s4_pct:.1f}% (Triggered: S2 ≥ 40.0% & S4 < 15.0%)"
+    regime_reason = "Aggressive institutional markup is widespread with high breakout follow-through and strong market breadth."
 elif s1_pct >= 40 and s4_pct < 20:
     regime_status = "🌱 BLUE LIGHT: CYCLE BOTTOM ACCUMULATION"
     regime_theme = "#6366f1"
@@ -804,6 +1427,8 @@ elif s1_pct >= 40 and s4_pct < 20:
     what_to_do = "Stalk Bases & Build Primary Watchlists. Smart money is quietly absorbing supply in Stage 1. Look for Volume Dry-Up (VDU) and VCPs. Take small pilot positions (5% risk)."
     what_not_to_do = "Do not deploy 100% size until confirmed Stage 1 ➔ Stage 2 ignition breakouts appear on heavy volume."
     action_badge = "STALK BASES / PILOT BUYS"
+    trigger_rule = f"Stage 1 Basing = {s1_pct:.1f}% & Stage 4 = {s4_pct:.1f}% (Triggered: S1 ≥ 40.0% & S4 < 20.0%)"
+    regime_reason = "Market is forming an institutional cycle bottom with widespread volume dry-up and stealth accumulation."
 else:
     regime_status = "🧭 NEUTRAL / SELECTIVE TRANSITIONAL REGIME"
     regime_theme = "#38bdf8"
@@ -812,10 +1437,12 @@ else:
     what_to_do = "Trade Only High-Conviction A+ Setups. Use smaller position sizes (10–12%) with tight 4–6% stops. Keep a 40–60% cash buffer."
     what_not_to_do = "Do not chase extended stocks (>5% above 50 SMA). Do not overtrade or force setups."
     action_badge = "SELECTIVE RISK / TIGHT STOPS"
+    trigger_rule = f"Balanced / Mixed Market: S1={s1_pct:.1f}%, S2={s2_pct:.1f}%, S3={s3_pct:.1f}%, S4={s4_pct:.1f}%"
+    regime_reason = "No single stage exhibits extreme dominance. Selective individual leadership may work, but broad index tailwinds are absent."
 
 # Real-Time Action Directive Banner
 st.markdown(f"""
-<div style="background: {regime_bg}; border: 1px solid {regime_border}; border-left: 6px solid {regime_theme}; border-radius: 14px; padding: 20px 24px; margin-bottom: 24px; box-shadow: 0 8px 30px rgba(0,0,0,0.3); font-family: 'Inter', sans-serif;">
+<div style="background: {regime_bg}; border: 1px solid {regime_border}; border-left: 6px solid {regime_theme}; border-radius: 14px; padding: 20px 24px; margin-bottom: 14px; box-shadow: 0 8px 30px rgba(0,0,0,0.3); font-family: 'Inter', sans-serif;">
     <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px; flex-wrap: wrap; gap: 10px;">
         <div style="display: flex; align-items: center; gap: 10px;">
             <span style="font-size: 18px; font-weight: 800; color: {regime_theme}; font-family: 'Outfit', sans-serif; letter-spacing: 0.5px;">{regime_status}</span>
@@ -834,6 +1461,42 @@ st.markdown(f"""
     </div>
 </div>
 """, unsafe_allow_html=True)
+
+with st.expander("ℹ️ How This Action Directive & Cash Allocation is Calculated (Quantitative Rules Engine)", expanded=False):
+    st.markdown(f"""
+    ### 🎯 Current Live Quantitative Diagnosis
+    - **Active Regime:** <b style="color: {regime_theme};">{regime_status}</b>
+    - **Trigger Condition Met:** `{trigger_rule}`
+    - **Why This Action is Mandated:** {regime_reason}
+    - **Live Universe Breakdown ({total_stocks:,} US Equities):**
+      - 🛡️ **Stage 1 (Basing):** **{s1_pct:.1f}%** ({s1_count:,} stocks)
+      - 🚀 **Stage 2 (Advancing):** **{s2_pct:.1f}%** ({s2_count:,} stocks)
+      - ⚠️ **Stage 3 (Topping):** **{s3_pct:.1f}%** ({s3_count:,} stocks)
+      - 🛑 **Stage 4 (Declining):** **{s4_pct:.1f}%** ({s4_count:,} stocks)
+    - **Current Directive:** <span style="background: {regime_theme}; color: #000; font-weight: 800; padding: 3px 10px; border-radius: 6px; font-size: 11px;">{action_badge}</span>
+
+    ---
+
+    ### 📐 The Stan Weinstein & Mark Minervini 5-Regime Decision Matrix
+    The action directive banner and recommended cash allocation are calculated dynamically from the aggregate stage distribution across the entire equity universe:
+
+    | Regime & Traffic Light | Mathematical Trigger Condition | Cash Allocation Target | Max Position Size | Actionable Playbook |
+    | :--- | :--- | :--- | :--- | :--- |
+    | 🔴 **Red Light: Bear Liquidation** | `S4_% ≥ 30.0%` | **80% – 100% Cash** | 0% (Forbidden) / Short Hedges only | **Capital Preservation.** >30% of stocks in Stage 4 signals systemic institutional liquidation. Bottom-fishing is account suicide. Stay in cash. |
+    | ⚠️ **Yellow/Red Alert: Distribution** | `S3_% ≥ 40.0%` OR `(S3_% ≥ 30.0% & S2_% ≤ 15.0%)` | **60% – 80% Cash** | 5% – 8% (Max 2–3 positions) | **Protect Profits & Cease Buying.** Breakout failure rate exceeds 80%. Tighten stops to breakeven, take quick 10–15% gains, raise cash. |
+    | 🟢 **Green Light: Bull Markup** | `S2_% ≥ 40.0% & S4_% < 15.0%` | **0% – 10% Cash (90–100% Invested)** | 20% – 25% (Concentrated) | **Aggressive Buy & Hold.** High institutional tailwind. Buy Stage 2 breakouts & 21 EMA pullbacks. Pyramid winning trades. |
+    | 🌱 **Blue Light: Bottom Basing** | `S1_% ≥ 40.0% & S4_% < 20.0%` | **50% – 70% Cash** | 5% – 10% (Pilot positions) | **Stalk Bases.** Smart money is accumulating supply in quiet bases (VDU/VCP). Prepare buy stops above base resistance. |
+    | 🧭 **Neutral / Selective Regime** | All other intermediate conditions | **40% – 60% Cash** | 10% – 12% (Strict A+ only) | **Selective Risk.** No broad market tailwind. Trade only high-conviction leadership setups with tight 4–6% stops. |
+
+    ---
+
+    ### 💡 Core Institutional Principles: Why Cash is an Active Weapon
+    1. **The 30% Stage 4 Rule (Stan Weinstein Chapter 8):** When 30%+ of the market breaks down into Stage 4 (price < 50 SMA < 200 SMA with falling 200 SMA), systemic correlation pulls down even high-quality stocks. Institutional bids vanish, support levels fail, and rallies turn into bull traps.
+    2. **Breakout Failure Asymmetry (Mark Minervini Chapter 10):** In Stage 2 bull markets, 70–80% of sound breakouts follow through to 20%+ gains. In Stage 3/4 distribution regimes, 80%+ of breakouts fail immediately ("squat"). Buying breakouts during distribution guarantees churn and account drawdown.
+    3. **Cash as a Position:** Holding 80–100% cash is not "missing out"—it is an active risk-management stance that protects purchasing power and mental capital. When the market completes capitulation and enters Stage 1 Basing ➔ Stage 2 Ignitions, traders in cash can deploy maximum size into the true generational market leaders.
+    """)
+
+st.markdown("<br>", unsafe_allow_html=True)
 
 cc1, cc2, cc3, cc4 = st.columns(4)
 cc1.markdown(f"""
@@ -1384,7 +2047,7 @@ if stage_migration_df is not None and not stage_migration_df.empty:
     
     if a_plus or confirmed_2 or turnaround_rockets:
         cards_html = ""
-        top_picks = a_plus + [s for s in turnaround_rockets if s not in a_plus] + [s for s in confirmed_2 if s not in a_plus]
+        top_picks = list(dict.fromkeys(a_plus + turnaround_rockets + confirmed_2))
         for sym in top_picks[:6]:
             info = launchpad_dict.get(sym, {})
             t_clean = sym

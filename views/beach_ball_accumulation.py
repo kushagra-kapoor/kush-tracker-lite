@@ -1262,27 +1262,6 @@ with tab_horizon:
                 height=500
             )
 
-        st.dataframe(
-            disp_div_view,
-            column_config={
-                "Clean_Ticker": st.column_config.TextColumn("Symbol", width=95),
-                "Return_Window": st.column_config.NumberColumn("Window Gain %", format="%+.1f%%", width=110),
-                "Alpha_Delta": st.column_config.NumberColumn("Alpha Delta (α)", format="%+.1f%%", width=115, help="Stock Return minus Benchmark Return"),
-                "Down_Day_Win_Rate": st.column_config.ProgressColumn("Down-Day Win Rate", min_value=0, max_value=100, format="%.1f%%", width=130, help="% of days stock closed green when market was red"),
-                "BB_Badge": st.column_config.TextColumn("Beach Ball Footprint", width=140),
-                "Dist_52W_High": st.column_config.NumberColumn("Dist 52W High", format="%+.1f%%", width=105),
-                "Volume_Mult": st.column_config.NumberColumn("Vol Ratio", format="%.2fx", width=95),
-                "Close": st.column_config.NumberColumn(f"Close ({cs})", format=f"{cs}%.2f", width=100),
-                "Turnover_Cr": st.column_config.NumberColumn(f"Turnover ({cs}M/Cr)", format="%.1f", width=105),
-                "Industry": st.column_config.TextColumn("Industry Group", width=180),
-                "Ind_Grade": st.column_config.TextColumn("IBD Grade", width=90),
-                "Sister_Role": st.column_config.TextColumn("Sister Role", width=140)
-            },
-            use_container_width=True,
-            hide_index=True,
-            height=460
-        )
-
         # Group-Level Alpha Decoupling
         if not df_group_alpha.empty:
             st.markdown("##### 🌊 Decoupled Industry Groups (Top Alpha Clusters)")
