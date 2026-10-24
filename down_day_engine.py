@@ -806,13 +806,61 @@ def compute_multi_horizon_correction_analytics(
     try:
         from industry_group_engine import get_stock_group_intelligence
         intel = get_stock_group_intelligence(universe_scope="US (S&P 500 / Nasdaq)" if is_us else "India (NSE/BSE)")
-        df['Industry'] = df['Clean_Ticker'].apply(lambda t: intel.get(t, {}).get('group_name', 'General'))
-        df['Ind_Grade'] = df['Clean_Ticker'].apply(lambda t: intel.get(t, {}).get('group_grade_badge', '—'))
-        df['Sister_Role'] = df['Clean_Ticker'].apply(lambda t: intel.get(t, {}).get('stock_role', '—'))
     except Exception:
-        df['Industry'] = 'General'
-        df['Ind_Grade'] = '—'
-        df['Sister_Role'] = '—'
+        intel = {}
+
+    try:
+        from database import get_all_fundamentals_cache
+        fc = get_all_fundamentals_cache()
+    except Exception:
+        fc = {}
+
+    us_gics = {}
+    if is_us and os.path.exists('data/sp500_gics_map.json'):
+        try:
+            import json
+            with open('data/sp500_gics_map.json', 'r') as f:
+                us_gics = json.load(f)
+        except Exception:
+            pass
+
+    ind_list = []
+    grd_list = []
+    role_list = []
+    for _, r in df.iterrows():
+        ct = r['Clean_Ticker']
+        rt = r['Ticker']
+        info = intel.get(ct) or intel.get(rt)
+        f_info = fc.get(rt) or fc.get(ct) or {}
+        if info:
+            ind_list.append(info.get('group_name', 'General'))
+            grd_list.append(info.get('group_grade_badge', '—'))
+            role_list.append(info.get('stock_role', '—'))
+        elif ct in us_gics:
+            ind_list.append(us_gics[ct].get('industry', 'General'))
+            grd_list.append('—')
+            role_list.append('—')
+        elif f_info and f_info.get('industry'):
+            ind_list.append(f_info.get('industry', 'General'))
+            grd_list.append('—')
+            role_list.append('—')
+        else:
+            ind_list.append('General')
+            grd_list.append('—')
+            role_list.append('—')
+
+    df['Industry'] = ind_list
+    df['Ind_Grade'] = grd_list
+    df['Sister_Role'] = role_list
+
+    # Map Point-in-Time CANSLIM RS Rating as of horizon end date
+    try:
+        rs_series = get_point_in_time_rs_series(t_end.strftime('%Y-%m-%d'), market=mkt_tag)
+        df['RS_Rating'] = df['Ticker'].map(rs_series)
+        df['RS_Rating'] = df['RS_Rating'].fillna(df['Clean_Ticker'].map(rs_series)).fillna(80.0).round(1)
+    except Exception as e:
+        print(f"[DownDay Engine] Horizon RS map error: {e}")
+        df['RS_Rating'] = 80.0
 
     # Map Cumulative Beach Ball Count
     thrust_map = get_cumulative_thrust_map(market=market, lookback_days=horizon_days * 2)

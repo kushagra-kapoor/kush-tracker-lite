@@ -918,6 +918,35 @@ with tab_horizon:
     st.markdown("#### 🔬 Multi-Horizon Correction & Counter-Trend Divergence Matrix")
     st.caption("When the broad market is bad over 1 Month (21D) or 3 Months (63D), uncover the true leaders generating positive absolute returns and massive Alpha Delta.")
 
+    # Quantitative Metrics Glossary Box
+    st.markdown("""
+    <div style="background: linear-gradient(135deg, rgba(15, 23, 42, 0.88) 0%, rgba(30, 41, 59, 0.75) 100%); border: 1px solid rgba(56, 189, 248, 0.18); border-left: 4px solid #10b981; border-radius: 10px; padding: 12px 18px; margin-bottom: 16px; box-shadow: 0 4px 16px rgba(0,0,0,0.25);">
+        <div style="font-size: 0.72rem; font-weight: 800; text-transform: uppercase; letter-spacing: 0.9px; color: #10b981; margin-bottom: 8px; display: flex; align-items: center; gap: 6px;">
+            <span>💡</span> Quantitative Metrics Glossary & Interpretation (CANSLIM Counter-Trend Framework)
+        </div>
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 10px 18px; font-size: 0.77rem; color: #94a3b8; line-height: 1.45;">
+            <div>
+                <b style="color: #f8fafc;">📈 Window Gain %:</b> Total percentage return over the selected lookback horizon (21D / 63D / 126D). Captures absolute momentum while the broader market corrected.
+            </div>
+            <div>
+                <b style="color: #f8fafc;">⚡ Alpha Delta (α):</b> <code>Stock Return − Benchmark Return</code>. The pure counter-trend excess performance generated above the index (e.g., +44% stock − (−5% market) = +49% excess α).
+            </div>
+            <div>
+                <b style="color: #f8fafc;">🛡️ Down-Day Win Rate %:</b> <code>(Days Closed Green on Market Red Days ÷ Total Market Down Days) × 100</code>. Win rates >50% prove institutions used index sell-offs to quietly absorb and accumulate shares.
+            </div>
+            <div>
+                <b style="color: #f8fafc;">👑 RS Rating (1–99):</b> William J. O'Neil CANSLIM percentile Relative Strength vs all 4,000+ equities across 1M, 3M, and 6M momentum. Scores ≥80 denote true market generals.
+            </div>
+            <div>
+                <b style="color: #f8fafc;">🏖️ Beach Ball Footprint:</b> Number of institutional volume-thrust power plays (≥ +3.8% on ≥ 1.0x ADTV) printed during severe breadth compressions (&lt; 35% 50-SMA breadth).
+            </div>
+            <div>
+                <b style="color: #f8fafc;">🏭 IBD Grade & Sister Role:</b> Industry group letter rank (A+ to E) and Livermore constituent hierarchy (👑 Alpha #1, 👯 Sister Tandem #2, 🐺 Pack Leader) isolating leading group rotation.
+            </div>
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
+
     hz_col1, hz_col2 = st.columns([1.5, 1.0])
     with hz_col1:
         horizon_preset = st.radio(
@@ -958,39 +987,171 @@ with tab_horizon:
     if df_divergent.empty:
         st.info("ℹ️ No divergent leaders found for this horizon.")
     else:
-        # Quality Filters for Multi-Horizon Divergence
-        hz_f1, hz_f2 = st.columns(2)
-        with hz_f1:
-            chk_top20_hz = st.checkbox("🏆 Top 20% Leading Groups Only (A+ & A)", key="hz_chk_top20", help="Filter to only counter-trend alpha stocks in top 20% industry groups.")
-        with hz_f2:
-            chk_alpha_sister_hz = st.checkbox("👑 Alpha Leaders & Sister Tandems Only", key="hz_chk_alpha_sister", help="Filter to only #1 Alpha leaders and #2 Sister Tandems.")
+        # 1. Extract Valid Decoupled Industries & Top Theme
+        ind_counts_hz = df_divergent['Industry'].value_counts()
+        valid_inds_hz = ind_counts_hz[~ind_counts_hz.index.isin(['General', 'Unknown', '—', 'None', 'nan'])]
+        top_theme_name = valid_inds_hz.index[0] if not valid_inds_hz.empty else None
+        top_theme_count = valid_inds_hz.iloc[0] if not valid_inds_hz.empty else 0
 
+        tot_div_count = len(df_divergent)
+        elite_div_count = len(df_divergent[(df_divergent['Alpha_Delta'] >= 25.0) & (df_divergent['Down_Day_Win_Rate'] >= 50.0)])
+
+        # 2. Leading Decoupled Themes Banner
+        cluster_pills_hz = " ".join([
+            f"<span style='background: rgba(16, 185, 129, 0.12); color: #10b981; border: 1px solid rgba(16, 185, 129, 0.28); padding: 3px 10px; border-radius: 6px; font-size: 0.76rem; font-weight: 700;'>🏭 {ind} ({cnt})</span>"
+            for ind, cnt in valid_inds_hz.head(5).items()
+        ]) if not valid_inds_hz.empty else "<span style='color: #94a3b8; font-size: 0.78rem;'>Broad Market Dispersion</span>"
+
+        horizon_label = horizon_preset.split('(')[0].strip()
+        st.markdown(f"""
+        <div style="background: rgba(15, 23, 42, 0.75); border: 1px solid rgba(16, 185, 129, 0.16); border-radius: 10px; padding: 10px 16px; margin-top: 14px; margin-bottom: 12px; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 10px; box-shadow: 0 4px 14px rgba(0,0,0,0.25);">
+            <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+                <span style="font-size: 0.72rem; font-weight: 800; text-transform: uppercase; letter-spacing: 0.9px; color: #94a3b8;">Top Decoupled Themes ({horizon_label}):</span>
+                {cluster_pills_hz}
+            </div>
+            <div style="font-size: 0.78rem; color: #94a3b8;">
+                Decoupled Universe: <b style="color: #f8fafc;">{tot_div_count}</b> &nbsp;|&nbsp; Elite Generals (α≥25% & Win Rate≥50%): <b style="color: #10b981;">{elite_div_count}</b>
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
+
+        # 3. Quick Filter Preset Pills
+        preset_opts_hz = [
+            f"⭐ All Decoupled ({tot_div_count})",
+            "🔥 Elite Generals (Alpha ≥ +25% & Win Rate ≥ 50%)",
+            "👑 Alpha Leaders & Sister Tandems",
+            "🏆 Top 20% Leading Groups (A+ & A)"
+        ]
+        if top_theme_name:
+            preset_opts_hz.append(f"🌊 Top Theme: {top_theme_name} ({top_theme_count})")
+        preset_opts_hz.extend([
+            "🏖️ Repeat Beach Balls (≥2x Thrusts)",
+            "🎯 Coiling Near 52W High (≤10% Gap)"
+        ])
+
+        quick_preset_hz = st.pills(
+            "⚡ Rapid Filter Presets:",
+            options=preset_opts_hz,
+            default=f"⭐ All Decoupled ({tot_div_count})",
+            key="hz_quick_preset_pills"
+        )
+
+        # 4. Interactive Fine-Tuning Controls
+        # Row 1: Checkboxes & Industry Multi-select
+        hz_chk1, hz_chk2, hz_ind_col = st.columns([1.1, 1.1, 1.8])
+        with hz_chk1:
+            chk_top20_hz = st.checkbox(
+                "🏆 Top 20% Groups (A+ & A)",
+                value=("Top 20%" in quick_preset_hz),
+                key="hz_chk_top20",
+                help="Filter to stocks belonging strictly to top 20% industry groups."
+            )
+        with hz_chk2:
+            chk_alpha_sister_hz = st.checkbox(
+                "👑 Alpha & Sister Tandems",
+                value=("Alpha Leaders" in quick_preset_hz),
+                key="hz_chk_alpha_sister",
+                help="Filter to only #1 Alpha leaders and #2 Sister Tandems."
+            )
+        with hz_ind_col:
+            default_ind_sel = [top_theme_name] if ("Top Theme" in quick_preset_hz and top_theme_name) else []
+            sel_industry_hz = st.multiselect(
+                "🏭 Filter by Industry Group(s):",
+                options=list(valid_inds_hz.index),
+                default=default_ind_sel,
+                placeholder="All Decoupled Industries (e.g. Select Luxury Goods...)",
+                key="hz_sel_industry",
+                help="Isolate one or more industry groups to inspect leaders and export 1-click TradingView watchlists."
+            )
+
+        # Row 2: IBD Letter Grade & Sister Role
         hz_g1, hz_g2 = st.columns(2)
         with hz_g1:
             sel_grades_hz = st.multiselect(
-                "🏷️ Filter by IBD Group Grade:",
-                ["A+ (Top 10%)", "A (Top 20%)", "B (Above Avg)", "C (Average)", "D (Below Avg)", "E (Bottom 20%)"],
+                "🏷️ Filter by Specific IBD Group Grade:",
+                options=["A+ (Top 10%)", "A (Top 20%)", "B (Above Avg)", "C (Average)", "D (Below Avg)", "E (Bottom 20%)"],
                 default=[],
                 placeholder="All IBD Grades (e.g. Select A+, A for Top 20%)",
-                key="hz_sel_grades"
+                key="hz_sel_grades",
+                help="Filter by constituent's industry group grade"
             )
         with hz_g2:
             sel_roles_hz = st.multiselect(
-                "👯 Filter by Livermore Sister Role:",
-                ["👑 Alpha Leader #1", "👯 Sister Tandem #2", "🐺 Pack Leader (RS ≥ 80)", "🥉 Leader #3"],
+                "👯 Filter by Specific Livermore Sister Role:",
+                options=[
+                    "👑 Alpha Leader #1",
+                    "👯 Sister Tandem #2",
+                    "🐺 Pack Leader (RS ≥ 80)",
+                    "🥉 Leader #3"
+                ],
                 default=[],
                 placeholder="All Sister Roles (e.g. Select Alpha Leader #1, Sister Tandem #2)",
-                key="hz_sel_roles"
+                key="hz_sel_roles",
+                help="Filter by constituent hierarchy in its industry group"
             )
 
-        # Apply Filters to df_divergent
+        # Row 3: Sliders & Search
+        hz_s1, hz_s2, hz_s3, hz_s4 = st.columns([1.1, 1.1, 1.1, 1.5])
+        with hz_s1:
+            preset_rs_hz = 80 if ("Elite" in quick_preset_hz) else 0
+            min_rs_hz = st.slider(
+                "Min Relative Strength (RS):",
+                min_value=0, max_value=99,
+                value=preset_rs_hz,
+                step=1,
+                key="hz_min_rs_slider",
+                help="CANSLIM Percentile Relative Strength Rating (1-99)"
+            )
+        with hz_s2:
+            preset_alpha_hz = 25.0 if ("Elite" in quick_preset_hz) else 0.0
+            min_alpha_hz = st.slider(
+                "Min Alpha Delta (α %):",
+                min_value=0.0, max_value=60.0,
+                value=preset_alpha_hz,
+                step=5.0,
+                key="hz_min_alpha_slider",
+                help="Excess return above the benchmark"
+            )
+        with hz_s3:
+            preset_winrate_hz = 50.0 if ("Elite" in quick_preset_hz) else 0.0
+            min_winrate_hz = st.slider(
+                "Min Down-Day Win Rate %:",
+                min_value=0.0, max_value=100.0,
+                value=preset_winrate_hz,
+                step=5.0,
+                key="hz_min_winrate_slider",
+                help="% of market red days the stock held green"
+            )
+        with hz_s4:
+            search_query_hz = st.text_input(
+                "🔍 Search Ticker / Theme:",
+                placeholder="e.g. DPABHUSHAN, Luxury Goods...",
+                key="hz_search_query"
+            )
+
+        # 5. Filter Execution
         disp_div = df_divergent.copy()
-        if chk_top20_hz:
+
+        # Checkbox & Preset Filters
+        if chk_top20_hz or "Top 20%" in quick_preset_hz:
             disp_div = disp_div[disp_div['Ind_Grade'].apply(lambda g: any(str(g).startswith(p) for p in ['A+', 'A ']))].copy()
 
-        if chk_alpha_sister_hz:
+        if chk_alpha_sister_hz or "Alpha Leaders" in quick_preset_hz:
             disp_div = disp_div[disp_div['Sister_Role'].apply(lambda r: any(k in str(r) for k in ['Alpha Leader', 'Sister Tandem']))].copy()
 
+        if "Repeat Beach Balls" in quick_preset_hz:
+            disp_div = disp_div[disp_div['Beach_Ball_Count'] >= 2].copy()
+
+        if "Coiling Near 52W High" in quick_preset_hz:
+            disp_div = disp_div[disp_div['Dist_52W_High'] >= -10.0].copy()
+
+        # Industry Multi-Select
+        if sel_industry_hz:
+            disp_div = disp_div[disp_div['Industry'].isin(sel_industry_hz)].copy()
+        elif "Top Theme" in quick_preset_hz and top_theme_name:
+            disp_div = disp_div[disp_div['Industry'] == top_theme_name].copy()
+
+        # Grade Multi-Select
         if sel_grades_hz:
             prefixes_hz = []
             for g_lbl in sel_grades_hz:
@@ -1002,6 +1163,7 @@ with tab_horizon:
                 elif "E" in g_lbl: prefixes_hz.append("E")
             disp_div = disp_div[disp_div['Ind_Grade'].apply(lambda g: any(str(g).startswith(p) for p in prefixes_hz))].copy()
 
+        # Role Multi-Select
         if sel_roles_hz:
             roles_hz = []
             for r_lbl in sel_roles_hz:
@@ -1011,24 +1173,46 @@ with tab_horizon:
                 elif "Leader #3" in r_lbl: roles_hz.append("Leader #3")
             disp_div = disp_div[disp_div['Sister_Role'].apply(lambda r: any(k in str(r) for k in roles_hz))].copy()
 
-        # Actionable Exports
+        # Numeric Sliders Filter
+        disp_div = disp_div[disp_div['RS_Rating'] >= min_rs_hz]
+        disp_div = disp_div[disp_div['Alpha_Delta'] >= min_alpha_hz]
+        disp_div = disp_div[disp_div['Down_Day_Win_Rate'] >= min_winrate_hz]
+
+        # Search Query Filter
+        if search_query_hz:
+            sq = search_query_hz.strip().lower()
+            m_tick = disp_div['Clean_Ticker'].str.lower().str.contains(sq)
+            m_ind = disp_div['Industry'].str.lower().str.contains(sq)
+            m_role = disp_div['Sister_Role'].str.lower().str.contains(sq)
+            m_grd = disp_div['Ind_Grade'].str.lower().str.contains(sq)
+            disp_div = disp_div[m_tick | m_ind | m_role | m_grd]
+
+        # 6. Actionable Exports with Dynamic Theme Naming
         st.markdown("---")
+        if sel_industry_hz:
+            tv_tag = ", ".join(sel_industry_hz[:2]) + ("..." if len(sel_industry_hz) > 2 else "")
+        elif "Top Theme" in quick_preset_hz and top_theme_name:
+            tv_tag = top_theme_name
+        else:
+            tv_tag = f"{len(disp_div)} Leaders"
+
         hz_tv, hz_notion, hz_csv = st.columns([1.5, 1.5, 1.0])
-        tv_div_str = dde.format_tradingview_watchlist(disp_div['Clean_Ticker'].head(30).tolist(), market=mkt_tag)
+        tv_div_str = dde.format_tradingview_watchlist(disp_div['Clean_Ticker'].head(40).tolist(), market=mkt_tag)
         
         with hz_tv:
-            with st.popover(f"📋 TradingView Divergent Watchlist ({len(disp_div)})"):
+            with st.popover(f"📋 TradingView Watchlist ({tv_tag})"):
                 st.code(tv_div_str, language="text")
 
         with hz_notion:
             with st.popover("📓 Copy for Notion (Divergence Table)"):
                 lines = [
                     f"### 🔬 Multi-Horizon Counter-Trend Divergence ({horizon_preset})",
-                    "| Symbol | Window Return % | Alpha Delta % | Down-Day Win Rate | Beach Ball Thrusts | Industry | Sister Role |",
-                    "| :--- | :--- | :--- | :--- | :--- | :--- | :--- |"
+                    "| Symbol | RS Rating | Window Return % | Alpha Delta % | Down-Day Win Rate | Beach Ball Thrusts | Industry & Grade | Sister Role |",
+                    "| :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |"
                 ]
-                for _, r in disp_div.head(25).iterrows():
-                    lines.append(f"| **{r['Clean_Ticker']}** | {r['Return_Window']:+.1f}% | {r['Alpha_Delta']:+.1f}% | {r['Down_Day_Win_Rate']:.1f}% | {r['BB_Badge']} | {r['Industry']} | {r['Sister_Role']} |")
+                for _, r in disp_div.head(30).iterrows():
+                    rs_val = f"{r.get('RS_Rating', 80):.0f}"
+                    lines.append(f"| **{r['Clean_Ticker']}** | {rs_val} | {r['Return_Window']:+.1f}% | {r['Alpha_Delta']:+.1f}% | {r['Down_Day_Win_Rate']:.1f}% | {r['BB_Badge']} | {r['Industry']} ({r['Ind_Grade']}) | {r['Sister_Role']} |")
                 st.code("\n".join(lines), language="markdown")
 
         with hz_csv:
@@ -1042,12 +1226,41 @@ with tab_horizon:
 
         st.markdown(f"##### 🚀 Counter-Trend Alpha Leaders ({len(disp_div)} Stocks Decoupled from Benchmark)")
         
-        div_table_cols = [
-            'Clean_Ticker', 'Return_Window', 'Alpha_Delta', 'Down_Day_Win_Rate',
-            'BB_Badge', 'Dist_52W_High', 'Volume_Mult', 'Close', 'Turnover_Cr',
-            'Industry', 'Ind_Grade', 'Sister_Role'
-        ]
-        disp_div_view = disp_div[[c for c in div_table_cols if c in disp_div.columns]].copy()
+        if disp_div.empty:
+            st.info("⚠️ No leaders match the current filter criteria. Adjust the sliders or industry filters.")
+        else:
+            disp_div = disp_div.reset_index(drop=True)
+            disp_div['Rank'] = disp_div.index + 1
+
+            div_table_cols = [
+                'Rank', 'Clean_Ticker', 'RS_Rating', 'Return_Window', 'Alpha_Delta', 'Down_Day_Win_Rate',
+                'BB_Badge', 'Dist_52W_High', 'Volume_Mult', 'Close', 'Turnover_Cr',
+                'Industry', 'Ind_Grade', 'Sister_Role'
+            ]
+            disp_div_view = disp_div[[c for c in div_table_cols if c in disp_div.columns]].copy()
+
+            st.dataframe(
+                disp_div_view,
+                column_config={
+                    "Rank": st.column_config.NumberColumn("Rank", width=60),
+                    "Clean_Ticker": st.column_config.TextColumn("Symbol", width=95),
+                    "RS_Rating": st.column_config.ProgressColumn("RS Rating", min_value=0, max_value=99, format="%.0f", width=110, help="CANSLIM Percentile Relative Strength Rating (1-99)"),
+                    "Return_Window": st.column_config.NumberColumn("Window Gain %", format="%+.1f%%", width=110, help="Total stock return over the lookback horizon"),
+                    "Alpha_Delta": st.column_config.NumberColumn("Alpha Delta (α)", format="%+.1f%%", width=115, help="Stock Return minus Benchmark Return"),
+                    "Down_Day_Win_Rate": st.column_config.ProgressColumn("Down-Day Win Rate", min_value=0, max_value=100, format="%.1f%%", width=135, help="% of days stock closed green when market was red"),
+                    "BB_Badge": st.column_config.TextColumn("Beach Ball Footprint", width=140),
+                    "Dist_52W_High": st.column_config.NumberColumn("Dist 52W High", format="%+.1f%%", width=105),
+                    "Volume_Mult": st.column_config.NumberColumn("Vol Ratio", format="%.2fx", width=95),
+                    "Close": st.column_config.NumberColumn(f"Close ({cs})", format=f"{cs}%.2f", width=100),
+                    "Turnover_Cr": st.column_config.NumberColumn(f"Turnover ({cs}M/Cr)", format="%.1f", width=100),
+                    "Industry": st.column_config.TextColumn("Industry Group", width=180),
+                    "Ind_Grade": st.column_config.TextColumn("IBD Grade", width=90),
+                    "Sister_Role": st.column_config.TextColumn("Sister Role", width=140)
+                },
+                use_container_width=True,
+                hide_index=True,
+                height=500
+            )
 
         st.dataframe(
             disp_div_view,
