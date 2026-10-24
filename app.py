@@ -163,6 +163,7 @@ pages = {
     ],
     "👑 Institutional Leaders": [
         st.Page("views/new_highs.py", title="New Highs & Blue Sky", icon="🌟"),
+        st.Page("views/down_day_resilience.py", title="Down-Day Resilience & Beach Balls", icon="🏖️"),
         st.Page("views/true_market_leader.py", title="True Market Leaders (India)", icon="👑"),
         st.Page("views/industry_group_matrix.py", title="Industry Group Matrix (197 Themes)", icon="🌊"),
         st.Page("views/true_market_leader_us.py", title="True Market Leaders (US)", icon="🦅")

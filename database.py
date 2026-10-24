@@ -416,9 +416,35 @@ def init_database():
         )
     ''')
     safe_execute(cursor, '''
-        CREATE INDEX IF NOT EXISTS idx_sessions_hash ON app_sessions(token_hash)
-    ''')
-
+        CREATE INDEX IF NOT EXISTS idx_sessions_hash ON app_sessions(token_hash)
+    ''')
+
+    # Down-Day Resilient Leaders & Beach Ball Accumulation History
+    safe_execute(cursor, '''
+        CREATE TABLE IF NOT EXISTS down_day_resilience_events (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            date TEXT NOT NULL,
+            market TEXT NOT NULL,
+            ticker TEXT NOT NULL,
+            clean_ticker TEXT NOT NULL,
+            archetype TEXT NOT NULL,
+            resilience_score REAL DEFAULT 0.0,
+            return_1d REAL DEFAULT 0.0,
+            dist_52w_high REAL DEFAULT 0.0,
+            volume_mult REAL DEFAULT 1.0,
+            close_price REAL DEFAULT 0.0,
+            turnover_cr REAL DEFAULT 0.0,
+            industry TEXT DEFAULT 'General',
+            ind_grade TEXT DEFAULT 'B',
+            sister_role TEXT DEFAULT 'Independent',
+            breadth_pct REAL DEFAULT 0.0,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE(date, market, ticker)
+        )
+    ''')
+    safe_execute(cursor, 'CREATE INDEX IF NOT EXISTS idx_ddr_date_mkt ON down_day_resilience_events(date, market)')
+    safe_execute(cursor, 'CREATE INDEX IF NOT EXISTS idx_ddr_archetype ON down_day_resilience_events(archetype)')
+
     conn.commit()
     conn.close()
     print("Database initialized successfully")
@@ -1777,3 +1803,85 @@ def classify_etf_asset_class(ticker: str) -> tuple:
 
     return 'US Thematic & Sector', t, 'US'
 
+
+
+def save_down_day_resilience_events(events: list) -> int:
+    """
+    Batch inserts or replaces down-day resilience events.
+    Compatible across SQLite and LibSQL (Turso).
+    """
+    if not events:
+        return 0
+    conn = get_connection()
+    c = conn.cursor()
+    inserted = 0
+    try:
+        for ev in events:
+            safe_execute(c, '''
+                INSERT OR REPLACE INTO down_day_resilience_events (
+                    date, market, ticker, clean_ticker, archetype,
+                    resilience_score, return_1d, dist_52w_high, volume_mult,
+                    close_price, turnover_cr, industry, ind_grade, sister_role,
+                    breadth_pct
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ''', (
+                ev['date'], ev.get('market', 'INDIA'), ev['ticker'],
+                ev.get('clean_ticker', ev['ticker'].replace('.NS', '').replace('.BO', '')),
+                ev.get('archetype', 'Resilient Leader'),
+                float(ev.get('resilience_score', 0.0)),
+                float(ev.get('return_1d', 0.0)),
+                float(ev.get('dist_52w_high', 0.0)),
+                float(ev.get('volume_mult', 1.0)),
+                float(ev.get('close_price', 0.0)),
+                float(ev.get('turnover_cr', 0.0)),
+                ev.get('industry', 'General'),
+                ev.get('ind_grade', 'B'),
+                ev.get('sister_role', 'Independent'),
+                float(ev.get('breadth_pct', 0.0))
+            ))
+            inserted += 1
+        conn.commit()
+    except Exception as e:
+        print(f"[DB Error] save_down_day_resilience_events: {e}")
+    finally:
+        conn.close()
+    return inserted
+
+def get_saved_down_day_resilience_events(date_str: str, market: str = 'INDIA') -> list:
+    """
+    Queries saved down-day resilience events for a specific date and market.
+    """
+    conn = get_connection()
+    c = conn.cursor()
+    try:
+        safe_execute(c, '''
+            SELECT * FROM down_day_resilience_events
+            WHERE date = ? AND market = ?
+            ORDER BY resilience_score DESC, return_1d DESC
+        ''', (date_str, market))
+        return _fetch_all_dicts(c)
+    except Exception as e:
+        print(f"[DB Error] get_saved_down_day_resilience_events: {e}")
+        return []
+    finally:
+        conn.close()
+
+def get_available_resilience_dates(market: str = 'INDIA') -> list:
+    """
+    Returns sorted list of distinct dates present in down_day_resilience_events.
+    """
+    conn = get_connection()
+    c = conn.cursor()
+    try:
+        safe_execute(c, '''
+            SELECT DISTINCT date FROM down_day_resilience_events
+            WHERE market = ?
+            ORDER BY date DESC
+        ''', (market,))
+        rows = c.fetchall()
+        return [r[0] for r in rows if r and r[0]]
+    except Exception as e:
+        print(f"[DB Error] get_available_resilience_dates: {e}")
+        return []
+    finally:
+        conn.close()
