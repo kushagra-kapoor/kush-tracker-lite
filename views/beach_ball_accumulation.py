@@ -478,6 +478,8 @@ with tab_session:
                 options=[
                     f"⭐ All Resilient ({tot_res_count})",
                     "🔥 Elite Leaders (RS ≥ 80 & Alpha ≥ 50)",
+                    "👑 Alpha Leaders & Sister Tandems",
+                    "🏆 Top 20% Leading Groups (A+ & A)",
                     "👑 Apex Relative Strength (RS ≥ 90)",
                     "🏖️ Pure Beach Balls (VB Thrust)",
                     "🚀 52W Highs on Red Day",
@@ -487,7 +489,7 @@ with tab_session:
                 key="pit_quick_filter_pills"
             )
 
-            # 4. Interactive Fine-Tuning Controls (Sliders & Search)
+            # 4. Interactive Fine-Tuning Controls (Sliders, Checkboxes, Dropdowns & Search)
             preset_rs = 80 if "Elite" in quick_preset else (90 if "Apex" in quick_preset else 0)
             preset_alpha = 50.0 if "Elite" in quick_preset else 0.0
 
@@ -526,6 +528,49 @@ with tab_session:
                     key="pit_search_query"
                 )
 
+            # IBD Grade & Livermore Sister Role Checkboxes and Dropdowns
+            q_chk1, q_chk2 = st.columns(2)
+            with q_chk1:
+                chk_top20 = st.checkbox(
+                    "🏆 Top 20% Leading Groups Only (A+ & A)",
+                    value=("Top 20%" in quick_preset),
+                    key="pit_chk_top20",
+                    help="William O'Neil CANSLIM rule: Leading monster stocks emerge almost exclusively from the top 20% industry groups."
+                )
+            with q_chk2:
+                chk_alpha_sister = st.checkbox(
+                    "👑 Alpha Leaders & Sister Tandems Only (Livermore Duopoly)",
+                    value=("Alpha Leaders" in quick_preset),
+                    key="pit_chk_alpha_sister",
+                    help="Jesse Livermore rule: Trade only the #1 Alpha stock or its #2 Sister Tandem in the group; avoid weaker sympathizers."
+                )
+
+            g_drop1, g_drop2 = st.columns(2)
+            with g_drop1:
+                selected_ibd_grades = st.multiselect(
+                    "🏷️ Filter by Specific IBD Group Grade:",
+                    options=["A+ (Top 10%)", "A (Top 20%)", "B (Above Avg)", "C (Average)", "D (Below Avg)", "E (Bottom 20%)"],
+                    default=[],
+                    placeholder="All IBD Letter Grades (e.g. Select A+, A for Top 20%)",
+                    key="pit_ibd_grades_multiselect",
+                    help="Filter by constituent's industry group grade"
+                )
+            with g_drop2:
+                selected_sister_roles = st.multiselect(
+                    "👯 Filter by Specific Livermore Sister Role:",
+                    options=[
+                        "👑 Alpha Leader #1",
+                        "👯 Sister Tandem #2",
+                        "🐺 Pack Leader (RS ≥ 80)",
+                        "🥉 Leader #3",
+                        "⚠️ Sympathy (Avoid)"
+                    ],
+                    default=[],
+                    placeholder="All Sister Roles (e.g. Select Alpha Leader #1, Sister Tandem #2)",
+                    key="pit_sister_roles_multiselect",
+                    help="Filter by stock's rank and role inside its industry group"
+                )
+
             # 5. Filter Execution
             df_disp = df_resilient.copy()
 
@@ -552,12 +597,42 @@ with tab_session:
             df_disp = df_disp[df_disp['Alpha_Score'] >= min_alpha]
             df_disp = df_disp[df_disp['Volume_Mult'] >= min_vol]
 
+            # IBD Grade Filters (Checkbox + Multiselect)
+            if chk_top20 or "Top 20%" in quick_preset:
+                df_disp = df_disp[df_disp['Ind_Grade'].apply(lambda g: any(str(g).startswith(p) for p in ['A+', 'A ']))].copy()
+
+            if selected_ibd_grades:
+                prefixes = []
+                for g_lbl in selected_ibd_grades:
+                    if "A+" in g_lbl: prefixes.append("A+")
+                    elif "A " in g_lbl or "A (" in g_lbl: prefixes.append("A ")
+                    elif "B" in g_lbl: prefixes.append("B")
+                    elif "C" in g_lbl: prefixes.append("C")
+                    elif "D" in g_lbl: prefixes.append("D")
+                    elif "E" in g_lbl: prefixes.append("E")
+                df_disp = df_disp[df_disp['Ind_Grade'].apply(lambda g: any(str(g).startswith(p) for p in prefixes))].copy()
+
+            # Livermore Sister Role Filters (Checkbox + Multiselect)
+            if chk_alpha_sister or "Alpha Leaders" in quick_preset:
+                df_disp = df_disp[df_disp['Sister_Role'].apply(lambda r: any(k in str(r) for k in ['Alpha Leader', 'Sister Tandem']))].copy()
+
+            if selected_sister_roles:
+                role_keywords = []
+                for r_lbl in selected_sister_roles:
+                    if "Alpha Leader" in r_lbl: role_keywords.append("Alpha Leader")
+                    elif "Sister Tandem" in r_lbl: role_keywords.append("Sister Tandem")
+                    elif "Pack Leader" in r_lbl: role_keywords.append("Pack Leader")
+                    elif "Leader #3" in r_lbl: role_keywords.append("Leader #3")
+                    elif "Sympathy" in r_lbl: role_keywords.append("Sympathy")
+                df_disp = df_disp[df_disp['Sister_Role'].apply(lambda r: any(k in str(r) for k in role_keywords))].copy()
+
             if search_query_pit:
                 sq = search_query_pit.strip().lower()
                 m_tick = df_disp['Clean_Ticker'].str.lower().str.contains(sq)
                 m_ind = df_disp['Industry'].str.lower().str.contains(sq)
                 m_role = df_disp['Sister_Role'].str.lower().str.contains(sq)
-                df_disp = df_disp[m_tick | m_ind | m_role]
+                m_grd = df_disp['Ind_Grade'].str.lower().str.contains(sq)
+                df_disp = df_disp[m_tick | m_ind | m_role | m_grd]
 
             # 6. Action Bar
             st.markdown("---")
@@ -712,6 +787,12 @@ with tab_leaderboard:
         with f_c4:
             max_dist_52w = st.slider("Max Distance to 52W High (%):", 2, 35, def_max_gap, 1, key="f_dist_slider")
 
+        f2_c1, f2_c2 = st.columns(2)
+        with f2_c1:
+            chk_top20_t2 = st.checkbox("🏆 Top 20% Leading Groups Only (A+ & A)", key="f_top20_chk_t2", help="Filter submerged leaders to those in top 20% industry groups.")
+        with f2_c2:
+            chk_alpha_sister_t2 = st.checkbox("👑 Alpha Leaders & Sister Tandems Only", key="f_alpha_sister_chk_t2", help="Filter to only Alpha leaders and Sister stocks.")
+
         sync_btn_col1, sync_btn_col2 = st.columns([3, 1])
         with sync_btn_col2:
             if st.button("🔄 Rescan All Thrusts", help="Forces incremental rescan for low-breadth power plays"):
@@ -729,11 +810,19 @@ with tab_leaderboard:
             filtered_df = filtered_df[filtered_df['power_plays_1m'] >= min_1m_filter]
         filtered_df = filtered_df[filtered_df['rs_score'] >= min_rs_filter]
         filtered_df = filtered_df[filtered_df['dist_52w_high'] <= max_dist_52w]
+
+        if chk_top20_t2 and 'ind_grade' in filtered_df.columns:
+            filtered_df = filtered_df[filtered_df['ind_grade'].apply(lambda g: any(str(g).startswith(p) for p in ['A+', 'A ']))]
+
+        if chk_alpha_sister_t2 and 'sister_role' in filtered_df.columns:
+            filtered_df = filtered_df[filtered_df['sister_role'].apply(lambda r: any(k in str(r) for k in ['Alpha Leader', 'Sister Tandem']))]
+
         if search_query.strip():
             q = search_query.strip().lower()
             filtered_df = filtered_df[
                 filtered_df['clean_ticker'].str.lower().str.contains(q) |
-                filtered_df['industry'].str.lower().str.contains(q)
+                filtered_df['industry'].str.lower().str.contains(q) |
+                filtered_df.get('sister_role', pd.Series(['']*len(filtered_df))).str.lower().str.contains(q)
             ]
 
     st.markdown(f"##### 🏆 Cumulative Submerged Leaderboard ({len(filtered_df)} Stocks)")
@@ -751,6 +840,8 @@ with tab_leaderboard:
                 "Rank": int(row['rank']),
                 "Ticker": row['clean_ticker'],
                 "Industry / Theme": str(row.get('industry', 'Broad Market'))[:28],
+                "IBD Grade": str(row.get('ind_grade', '—')),
+                "Sister Role": str(row.get('sister_role', '—')),
                 "Accumulation Tier": row['accumulation_tier'],
                 "3M Power Plays": f"🔥 {row['power_plays_3m']}x",
                 "1M Power Plays": f"⚡ {row['power_plays_1m']}x",
@@ -768,6 +859,8 @@ with tab_leaderboard:
                 "Rank": st.column_config.NumberColumn("Rank", width="small"),
                 "Ticker": st.column_config.TextColumn("Ticker", width="small"),
                 "Industry / Theme": st.column_config.TextColumn("Industry / Theme", width="medium"),
+                "IBD Grade": st.column_config.TextColumn("IBD Grade", width="small"),
+                "Sister Role": st.column_config.TextColumn("Sister Role", width="medium"),
                 "Accumulation Tier": st.column_config.TextColumn("Tier", width="small"),
                 "3M Power Plays": st.column_config.TextColumn("3M Power Plays", width="small"),
                 "1M Power Plays": st.column_config.TextColumn("1M Power Plays", width="small"),
@@ -865,13 +958,66 @@ with tab_horizon:
     if df_divergent.empty:
         st.info("ℹ️ No divergent leaders found for this horizon.")
     else:
+        # Quality Filters for Multi-Horizon Divergence
+        hz_f1, hz_f2 = st.columns(2)
+        with hz_f1:
+            chk_top20_hz = st.checkbox("🏆 Top 20% Leading Groups Only (A+ & A)", key="hz_chk_top20", help="Filter to only counter-trend alpha stocks in top 20% industry groups.")
+        with hz_f2:
+            chk_alpha_sister_hz = st.checkbox("👑 Alpha Leaders & Sister Tandems Only", key="hz_chk_alpha_sister", help="Filter to only #1 Alpha leaders and #2 Sister Tandems.")
+
+        hz_g1, hz_g2 = st.columns(2)
+        with hz_g1:
+            sel_grades_hz = st.multiselect(
+                "🏷️ Filter by IBD Group Grade:",
+                ["A+ (Top 10%)", "A (Top 20%)", "B (Above Avg)", "C (Average)", "D (Below Avg)", "E (Bottom 20%)"],
+                default=[],
+                placeholder="All IBD Grades (e.g. Select A+, A for Top 20%)",
+                key="hz_sel_grades"
+            )
+        with hz_g2:
+            sel_roles_hz = st.multiselect(
+                "👯 Filter by Livermore Sister Role:",
+                ["👑 Alpha Leader #1", "👯 Sister Tandem #2", "🐺 Pack Leader (RS ≥ 80)", "🥉 Leader #3"],
+                default=[],
+                placeholder="All Sister Roles (e.g. Select Alpha Leader #1, Sister Tandem #2)",
+                key="hz_sel_roles"
+            )
+
+        # Apply Filters to df_divergent
+        disp_div = df_divergent.copy()
+        if chk_top20_hz:
+            disp_div = disp_div[disp_div['Ind_Grade'].apply(lambda g: any(str(g).startswith(p) for p in ['A+', 'A ']))].copy()
+
+        if chk_alpha_sister_hz:
+            disp_div = disp_div[disp_div['Sister_Role'].apply(lambda r: any(k in str(r) for k in ['Alpha Leader', 'Sister Tandem']))].copy()
+
+        if sel_grades_hz:
+            prefixes_hz = []
+            for g_lbl in sel_grades_hz:
+                if "A+" in g_lbl: prefixes_hz.append("A+")
+                elif "A " in g_lbl or "A (" in g_lbl: prefixes_hz.append("A ")
+                elif "B" in g_lbl: prefixes_hz.append("B")
+                elif "C" in g_lbl: prefixes_hz.append("C")
+                elif "D" in g_lbl: prefixes_hz.append("D")
+                elif "E" in g_lbl: prefixes_hz.append("E")
+            disp_div = disp_div[disp_div['Ind_Grade'].apply(lambda g: any(str(g).startswith(p) for p in prefixes_hz))].copy()
+
+        if sel_roles_hz:
+            roles_hz = []
+            for r_lbl in sel_roles_hz:
+                if "Alpha Leader" in r_lbl: roles_hz.append("Alpha Leader")
+                elif "Sister Tandem" in r_lbl: roles_hz.append("Sister Tandem")
+                elif "Pack Leader" in r_lbl: roles_hz.append("Pack Leader")
+                elif "Leader #3" in r_lbl: roles_hz.append("Leader #3")
+            disp_div = disp_div[disp_div['Sister_Role'].apply(lambda r: any(k in str(r) for k in roles_hz))].copy()
+
         # Actionable Exports
         st.markdown("---")
         hz_tv, hz_notion, hz_csv = st.columns([1.5, 1.5, 1.0])
-        tv_div_str = dde.format_tradingview_watchlist(df_divergent['Clean_Ticker'].head(30).tolist(), market=mkt_tag)
+        tv_div_str = dde.format_tradingview_watchlist(disp_div['Clean_Ticker'].head(30).tolist(), market=mkt_tag)
         
         with hz_tv:
-            with st.popover(f"📋 TradingView Divergent Watchlist ({len(df_divergent)})"):
+            with st.popover(f"📋 TradingView Divergent Watchlist ({len(disp_div)})"):
                 st.code(tv_div_str, language="text")
 
         with hz_notion:
@@ -881,30 +1027,30 @@ with tab_horizon:
                     "| Symbol | Window Return % | Alpha Delta % | Down-Day Win Rate | Beach Ball Thrusts | Industry | Sister Role |",
                     "| :--- | :--- | :--- | :--- | :--- | :--- | :--- |"
                 ]
-                for _, r in df_divergent.head(25).iterrows():
+                for _, r in disp_div.head(25).iterrows():
                     lines.append(f"| **{r['Clean_Ticker']}** | {r['Return_Window']:+.1f}% | {r['Alpha_Delta']:+.1f}% | {r['Down_Day_Win_Rate']:.1f}% | {r['BB_Badge']} | {r['Industry']} | {r['Sister_Role']} |")
                 st.code("\n".join(lines), language="markdown")
 
         with hz_csv:
             st.download_button(
                 label="📊 Download CSV",
-                data=df_divergent.to_csv(index=False).encode('utf-8'),
+                data=disp_div.to_csv(index=False).encode('utf-8'),
                 file_name=f"multi_horizon_alpha_{mkt_tag}_{h_days}d.csv",
                 mime="text/csv",
                 use_container_width=True
             )
 
-        st.markdown(f"##### 🚀 Counter-Trend Alpha Leaders ({len(df_divergent)} Stocks Decoupled from Benchmark)")
+        st.markdown(f"##### 🚀 Counter-Trend Alpha Leaders ({len(disp_div)} Stocks Decoupled from Benchmark)")
         
         div_table_cols = [
             'Clean_Ticker', 'Return_Window', 'Alpha_Delta', 'Down_Day_Win_Rate',
             'BB_Badge', 'Dist_52W_High', 'Volume_Mult', 'Close', 'Turnover_Cr',
             'Industry', 'Ind_Grade', 'Sister_Role'
         ]
-        disp_div = df_divergent[[c for c in div_table_cols if c in df_divergent.columns]].copy()
+        disp_div_view = disp_div[[c for c in div_table_cols if c in disp_div.columns]].copy()
 
         st.dataframe(
-            disp_div,
+            disp_div_view,
             column_config={
                 "Clean_Ticker": st.column_config.TextColumn("Symbol", width=95),
                 "Return_Window": st.column_config.NumberColumn("Window Gain %", format="%+.1f%%", width=110),
