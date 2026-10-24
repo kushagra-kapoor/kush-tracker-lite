@@ -133,6 +133,150 @@ def get_historical_market_down_dates(
     return washout_df.sort_values('date', ascending=False)
 
 @st.cache_data(ttl=1800, show_spinner=False)
+def get_point_in_time_rs_series(target_date_str: str, market: str = 'INDIA') -> pd.Series:
+    """
+    Computes Point-in-Time CANSLIM Relative Strength Rating (1-99) for all tickers
+    as of target_date_str using 1M (40%), 3M (35%), and 6M (25%) momentum.
+    """
+    is_us = market.upper() in ['US', 'USA']
+    matrix = load_price_matrix()
+    if matrix is None:
+        return pd.Series(dtype=float)
+    try:
+        close_panel = matrix.xs('Close', level=1, axis=1)
+    except Exception:
+        return pd.Series(dtype=float)
+
+    target_dt = pd.to_datetime(target_date_str)
+    valid_dates = close_panel.index[close_panel.index <= target_dt]
+    if len(valid_dates) < 2:
+        return pd.Series(dtype=float)
+
+    t_idx = close_panel.index.get_loc(valid_dates[-1])
+    c_t = close_panel.iloc[t_idx]
+    c_1m = close_panel.iloc[max(0, t_idx - 21)]
+    c_3m = close_panel.iloc[max(0, t_idx - 63)]
+    c_6m = close_panel.iloc[max(0, t_idx - 126)]
+
+    r_1m = (c_t / c_1m.replace(0, np.nan)) - 1.0
+    r_3m = (c_t / c_3m.replace(0, np.nan)) - 1.0
+    r_6m = (c_t / c_6m.replace(0, np.nan)) - 1.0
+
+    weighted_raw = (r_1m * 0.40) + (r_3m * 0.35) + (r_6m * 0.25)
+
+    if is_us:
+        mask = ~close_panel.columns.str.endswith('.NS') & ~close_panel.columns.str.endswith('.BO')
+    else:
+        mask = close_panel.columns.str.endswith('.NS')
+
+    sub_raw = weighted_raw[mask].dropna()
+    if sub_raw.empty:
+        return pd.Series(dtype=float)
+
+    # CANSLIM 1 to 99 percentile ranking
+    rs_ranked = (sub_raw.rank(pct=True) * 98.0 + 1.0).round(1)
+    return rs_ranked
+
+def enrich_down_day_resilience_records(df: pd.DataFrame, target_date_str: str, market: str = 'INDIA') -> pd.DataFrame:
+    """
+    Enriches resilience dataframe with:
+      - Point-in-Time RS Rating (0-99)
+      - Canonical Industry Group (resolving any 'Unknown')
+      - IBD Letter Grade ('A+', 'A', 'B', etc.)
+      - Livermore / O'Neil Sister Tandem Role ('Alpha Leader', 'Sister Tandem', etc.)
+      - Alpha Score alias
+    """
+    if df.empty:
+        return df
+
+    is_us = market.upper() in ['US', 'USA']
+    rs_series = get_point_in_time_rs_series(target_date_str, market)
+
+    try:
+        from industry_group_engine import get_stock_group_intelligence
+        intel = get_stock_group_intelligence(universe_scope="US (S&P 500 / Nasdaq)" if is_us else "India (NSE/BSE)")
+    except Exception:
+        intel = {}
+
+    try:
+        from database import get_all_fundamentals_cache
+        fc = get_all_fundamentals_cache()
+    except Exception:
+        fc = {}
+
+    us_gics = {}
+    if is_us and os.path.exists('data/sp500_gics_map.json'):
+        try:
+            import json
+            with open('data/sp500_gics_map.json', 'r') as f:
+                us_gics = json.load(f)
+        except Exception:
+            pass
+
+    rs_list = []
+    ind_list = []
+    grd_list = []
+    role_list = []
+
+    for _, row in df.iterrows():
+        raw_t = str(row.get('Ticker', row.get('ticker', '')))
+        clean_t = str(row.get('Clean_Ticker', row.get('clean_ticker', '')))
+        if not clean_t:
+            clean_t = raw_t.replace('.NS', '').replace('.BO', '')
+
+        # 1. RS Rating
+        rs_val = rs_series.get(raw_t, rs_series.get(clean_t, np.nan))
+        if pd.isna(rs_val) or rs_val is None:
+            f_info = fc.get(raw_t) or fc.get(clean_t) or {}
+            rs_val = float(f_info.get('rs_score', 80.0) or 80.0)
+        rs_list.append(round(float(rs_val), 1))
+
+        # 2. Industry, Grade, Role
+        existing_ind = str(row.get('Industry', row.get('industry', 'Unknown')) or '')
+        existing_grd = str(row.get('Ind_Grade', row.get('ind_grade', '—')) or '')
+        existing_role = str(row.get('Sister_Role', row.get('sister_role', '—')) or '')
+
+        if existing_ind not in ['Unknown', '—', '', 'None', 'nan'] and existing_grd != '—':
+            ind_list.append(existing_ind)
+            grd_list.append(existing_grd)
+            role_list.append(existing_role)
+            continue
+
+        info = intel.get(clean_t) or intel.get(raw_t)
+        f_info = fc.get(raw_t) or fc.get(clean_t) or {}
+
+        if info:
+            ind_list.append(info.get('group_name', 'Broad Market'))
+            grd_list.append(info.get('group_grade_badge', '—'))
+            role_list.append(info.get('stock_role', '—'))
+        elif clean_t in us_gics:
+            g_meta = us_gics[clean_t]
+            ind_list.append(g_meta.get('industry', 'Broad Market'))
+            grd_list.append('—')
+            role_list.append('—')
+        elif f_info and f_info.get('industry'):
+            ind_list.append(f_info.get('industry', 'Broad Market'))
+            grd_list.append('—')
+            role_list.append('—')
+        else:
+            ind_list.append('Broad Market')
+            grd_list.append('—')
+            role_list.append('—')
+
+    df['RS_Rating'] = rs_list
+    df['Industry'] = ind_list
+    df['Ind_Grade'] = grd_list
+    df['Sister_Role'] = role_list
+
+    if 'Resilience_Score' in df.columns:
+        df['Alpha_Score'] = df['Resilience_Score']
+    elif 'resilience_score' in df.columns:
+        df['Alpha_Score'] = df['resilience_score']
+        df['Resilience_Score'] = df['resilience_score']
+
+    return df
+
+@st.cache_data(ttl=1800, show_spinner=False)
 def compute_down_day_resilience(
     target_date_str: str,
     market: str = 'INDIA',
@@ -180,6 +324,8 @@ def compute_down_day_resilience(
             if 'Dist_52W_High' in df_saved.columns:
                 df_saved = df_saved[df_saved['Dist_52W_High'] >= -abs(max_dist_high)]
             
+            # Enrich with real RS Rating, Canonical Industry, IBD Grade, and Sister Role
+            df_saved = enrich_down_day_resilience_records(df_saved, target_date_str, mkt_tag)
             return df_saved.sort_values(['Resilience_Score', 'Return_1D'], ascending=[False, False])
     except Exception as e:
         print(f"[DownDay Engine] DB fetch error: {e}")
@@ -354,18 +500,20 @@ def format_notion_markdown_table(df_resilient: pd.DataFrame, target_date: str) -
     
     lines = [
         f"### 🏖️ Down-Day Resilient Leaders — {target_date}",
-        "| Ticker | Archetype | 1D Gain % | Dist 52W High | Volume (x ADTV) | Industry & Grade | Sister Role |",
-        "| :--- | :--- | :--- | :--- | :--- | :--- | :--- |"
+        "| Symbol | RS Rating | Alpha Score | Archetype | 1D Gain % | Dist 52W High | Volume Mult | Industry & Grade | Sister Role |",
+        "| :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |"
     ]
-    for _, r in df_resilient.head(25).iterrows():
-        t = r['Clean_Ticker']
-        arch = r['Archetype']
-        g = f"+{r['Return_1D']:.1f}%"
-        dh = f"{r['Dist_52W_High']:.1f}%"
-        vm = f"{r['Volume_Mult']:.1f}x"
-        ind = f"{r['Industry']} ({r['Ind_Grade']})"
-        role = r['Sister_Role']
-        lines.append(f"| **{t}** | {arch} | {g} | {dh} | {vm} | {ind} | {role} |")
+    for _, r in df_resilient.head(30).iterrows():
+        t = r.get('Clean_Ticker', '')
+        rs = f"{r.get('RS_Rating', 80):.0f}"
+        alpha = f"{r.get('Alpha_Score', r.get('Resilience_Score', 0)):.1f}"
+        arch = r.get('Archetype', '')
+        g = f"+{r.get('Return_1D', 0):.2f}%"
+        dh = f"{r.get('Dist_52W_High', 0):.1f}%"
+        vm = f"{r.get('Volume_Mult', 1.0):.2f}x"
+        ind = f"{r.get('Industry', 'Broad Market')} ({r.get('Ind_Grade', '—')})"
+        role = r.get('Sister_Role', '—')
+        lines.append(f"| **{t}** | {rs} | {alpha} | {arch} | {g} | {dh} | {vm} | {ind} | {role} |")
         
     return "\n".join(lines)
 
@@ -383,16 +531,21 @@ def format_telegram_alert(
         f"🚨 *CANSLIM MARKET DOWN-DAY BRIEFING* ({target_date})",
         f"🌊 *Breadth Washout*: {breadth_pct:.1f}% > 50-SMA | Net 52W Highs: {net_highs}",
         "",
-        "🏖️ *TOP RESILIENT LEADERS (Coiled Springs Holding Green)*:"
+        "🏖️ *TOP RESILIENT LEADERS (RS ≥ 80 & Alpha ≥ 50)*:"
     ]
-    for i, (_, r) in enumerate(df_resilient.head(7).iterrows()):
-        t = r['Clean_Ticker']
-        arch = r['Archetype'].split()[0] # Icon
-        g = f"+{r['Return_1D']:.1f}%"
-        vm = f"{r['Volume_Mult']:.1f}x Vol"
-        dh = f"{r['Dist_52W_High']:.1f}% from ATH"
-        ind = r['Industry']
-        lines.append(f"{i+1}. *{t}* ({arch} {g}, {vm}, {dh}) — _{ind}_")
+    for i, (_, r) in enumerate(df_resilient.head(8).iterrows()):
+        t = r.get('Clean_Ticker', '')
+        rs = r.get('RS_Rating', 80)
+        alpha = r.get('Alpha_Score', r.get('Resilience_Score', 0))
+        arch = str(r.get('Archetype', '')).split()[0] if r.get('Archetype') else '🏖️'
+        g = r.get('Return_1D', 0)
+        vm = r.get('Volume_Mult', 1.0)
+        ind = r.get('Industry', 'Broad Market')
+        lines.append(f"{i+1}. *{t}* (RS {rs:.0f} • Alpha {alpha:.1f}): {arch} +{g:.1f}% on {vm:.1f}x vol — _{ind}_")
+        
+    lines.append("")
+    lines.append(f"📋 *TradingView Watchlist*:\n`{tv_str}`")
+    return "\n".join(lines)
         
     lines.append("")
     lines.append(f"📋 *TradingView 1-Click Import*:\n`{tv_str}`")

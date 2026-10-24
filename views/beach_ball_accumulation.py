@@ -444,24 +444,122 @@ with tab_session:
         if df_resilient.empty:
             st.info(f"ℹ️ No resilient stocks matched the criteria on {selected_date}.")
         else:
-            # Archetype Filter
-            if "Beach Ball" in arch_filter:
-                df_disp = df_resilient[df_resilient['Archetype'].str.contains("Beach Ball")].copy()
-            elif "New 52W High" in arch_filter:
-                df_disp = df_resilient[df_resilient['Archetype'].str.contains("New 52W High")].copy()
-            elif "Institutional Accumulation" in arch_filter:
-                df_disp = df_resilient[df_resilient['Archetype'].str.contains("Institutional Accumulation")].copy()
-            elif "Green on Red" in arch_filter:
-                df_disp = df_resilient[df_resilient['Archetype'].str.contains("Green on Red")].copy()
-            else:
-                df_disp = df_resilient.copy()
-
-            # Enrich with Cumulative Power Play Badges
-            df_disp['Cumulative_Accumulation'] = df_disp['Clean_Ticker'].apply(
+            # 1. Enrich with Cumulative Power Play Badges
+            df_resilient['Cumulative_Accumulation'] = df_resilient['Clean_Ticker'].apply(
                 lambda t: thrust_badge_map.get(t, {}).get('badge', '1x (Single Session)')
             )
 
-            # Export Bar
+            # 2. Macro Washout Cluster & Breadth Intelligence Strip
+            top_ind_counts = df_resilient['Industry'].value_counts()
+            top_ind_counts = top_ind_counts[~top_ind_counts.index.isin(['Broad Market', 'Unknown', '—', 'None', 'nan'])].head(4)
+            cluster_badges_html = " ".join([
+                f"<span style='background: rgba(56, 189, 248, 0.12); color: #38bdf8; border: 1px solid rgba(56, 189, 248, 0.28); padding: 3px 10px; border-radius: 6px; font-size: 0.76rem; font-weight: 700;'>🏭 {ind} ({cnt})</span>"
+                for ind, cnt in top_ind_counts.items()
+            ]) if not top_ind_counts.empty else "<span style='color: #94a3b8; font-size: 0.78rem;'>Broad Market Dispersion</span>"
+
+            tot_res_count = len(df_resilient)
+            elite_count = len(df_resilient[(df_resilient['RS_Rating'] >= 80) & (df_resilient['Alpha_Score'] >= 50)])
+
+            st.markdown(f"""
+            <div style="background: rgba(15, 23, 42, 0.75); border: 1px solid rgba(56, 189, 248, 0.16); border-radius: 10px; padding: 10px 16px; margin-top: 14px; margin-bottom: 12px; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 10px; box-shadow: 0 4px 14px rgba(0,0,0,0.25);">
+                <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+                    <span style="font-size: 0.72rem; font-weight: 800; text-transform: uppercase; letter-spacing: 0.9px; color: #94a3b8;">Leading Washout Clusters:</span>
+                    {cluster_badges_html}
+                </div>
+                <div style="font-size: 0.78rem; color: #94a3b8;">
+                    Resilient Universe: <b style="color: #f8fafc;">{tot_res_count}</b> &nbsp;|&nbsp; Elite Leaders (RS ≥ 80 & α ≥ 50): <b style="color: #10b981;">{elite_count}</b>
+                </div>
+            </div>
+            """, unsafe_allow_html=True)
+
+            # 3. Quick Filter Preset Pills
+            quick_preset = st.pills(
+                "⚡ Rapid Filter Presets:",
+                options=[
+                    f"⭐ All Resilient ({tot_res_count})",
+                    "🔥 Elite Leaders (RS ≥ 80 & Alpha ≥ 50)",
+                    "👑 Apex Relative Strength (RS ≥ 90)",
+                    "🏖️ Pure Beach Balls (VB Thrust)",
+                    "🚀 52W Highs on Red Day",
+                    "⚡ Multi-Accumulated (≥2x History)"
+                ],
+                default=f"⭐ All Resilient ({tot_res_count})",
+                key="pit_quick_filter_pills"
+            )
+
+            # 4. Interactive Fine-Tuning Controls (Sliders & Search)
+            preset_rs = 80 if "Elite" in quick_preset else (90 if "Apex" in quick_preset else 0)
+            preset_alpha = 50.0 if "Elite" in quick_preset else 0.0
+
+            f_col1, f_col2, f_col3, f_col4 = st.columns([1.2, 1.2, 1.1, 1.5])
+            with f_col1:
+                min_rs = st.slider(
+                    "Min Relative Strength (RS Rating):",
+                    min_value=0, max_value=99,
+                    value=preset_rs,
+                    step=1,
+                    key="pit_min_rs_slider",
+                    help="CANSLIM Percentile Relative Strength Rating (1-99) as of this session"
+                )
+            with f_col2:
+                min_alpha = st.slider(
+                    "Min Alpha Score (0-100):",
+                    min_value=0.0, max_value=100.0,
+                    value=preset_alpha,
+                    step=5.0,
+                    key="pit_min_alpha_slider",
+                    help="Session resilience alpha score combining 1D return, volume expansion, and 52W high proximity"
+                )
+            with f_col3:
+                min_vol = st.slider(
+                    "Min Volume Ratio (x ADTV):",
+                    min_value=0.5, max_value=5.0,
+                    value=1.0,
+                    step=0.1,
+                    key="pit_min_vol_slider",
+                    help="Minimum volume multiple vs 20-day average daily volume"
+                )
+            with f_col4:
+                search_query_pit = st.text_input(
+                    "🔍 Search Ticker / Theme:",
+                    placeholder="e.g. SSWL, Auto Parts...",
+                    key="pit_search_query"
+                )
+
+            # 5. Filter Execution
+            df_disp = df_resilient.copy()
+
+            # Archetype Filter (from selectbox)
+            if "Beach Ball" in arch_filter:
+                df_disp = df_disp[df_disp['Archetype'].str.contains("Beach Ball")].copy()
+            elif "New 52W High" in arch_filter:
+                df_disp = df_disp[df_disp['Archetype'].str.contains("New 52W High")].copy()
+            elif "Institutional Accumulation" in arch_filter:
+                df_disp = df_disp[df_disp['Archetype'].str.contains("Institutional Accumulation")].copy()
+            elif "Green on Red" in arch_filter:
+                df_disp = df_disp[df_disp['Archetype'].str.contains("Green on Red")].copy()
+
+            # Preset Pills Filter
+            if "Beach Balls" in quick_preset:
+                df_disp = df_disp[df_disp['Archetype'].str.contains("Beach Ball")].copy()
+            elif "52W Highs" in quick_preset:
+                df_disp = df_disp[df_disp['Archetype'].str.contains("New 52W High")].copy()
+            elif "Multi-Accumulated" in quick_preset:
+                df_disp = df_disp[~df_disp['Cumulative_Accumulation'].str.contains(r"1x \(Single")].copy()
+
+            # Numeric & Search Filters
+            df_disp = df_disp[df_disp['RS_Rating'] >= min_rs]
+            df_disp = df_disp[df_disp['Alpha_Score'] >= min_alpha]
+            df_disp = df_disp[df_disp['Volume_Mult'] >= min_vol]
+
+            if search_query_pit:
+                sq = search_query_pit.strip().lower()
+                m_tick = df_disp['Clean_Ticker'].str.lower().str.contains(sq)
+                m_ind = df_disp['Industry'].str.lower().str.contains(sq)
+                m_role = df_disp['Sister_Role'].str.lower().str.contains(sq)
+                df_disp = df_disp[m_tick | m_ind | m_role]
+
+            # 6. Action Bar
             st.markdown("---")
             e_tv, e_notion, e_tg, e_csv = st.columns([1.3, 1.3, 1.3, 1.0])
             tv_string = dde.format_tradingview_watchlist(df_disp['Clean_Ticker'].head(30).tolist(), market=mkt_tag)
@@ -486,34 +584,66 @@ with tab_session:
                     use_container_width=True
                 )
 
+            # 7. Resilient Leaders Data Table
             st.markdown(f"##### 👑 Resilient Leaders on {selected_date} ({len(df_disp)} Stocks)")
-            table_cols = [
-                'Clean_Ticker', 'Archetype', 'Cumulative_Accumulation', 'Resilience_Score',
-                'Return_1D', 'Dist_52W_High', 'Volume_Mult', 'Close', 'Turnover_Cr',
-                'Industry', 'Ind_Grade', 'Sister_Role'
-            ]
-            disp_view = df_disp[[c for c in table_cols if c in df_disp.columns]].copy()
+            
+            if df_disp.empty:
+                st.info("⚠️ No stocks match the current filter criteria. Adjust the RS Rating or Alpha Score sliders.")
+            else:
+                df_disp = df_disp.reset_index(drop=True)
+                df_disp['Rank'] = df_disp.index + 1
 
-            st.dataframe(
-                disp_view,
-                column_config={
-                    "Clean_Ticker": st.column_config.TextColumn("Symbol", width=95),
-                    "Archetype": st.column_config.TextColumn("Resilience Archetype", width=200),
-                    "Cumulative_Accumulation": st.column_config.TextColumn("Cumulative Footprint", width=160),
-                    "Resilience_Score": st.column_config.ProgressColumn("Alpha Score", min_value=0, max_value=100, format="%.1f", width=105),
-                    "Return_1D": st.column_config.NumberColumn("1D Gain %", format="%+.2f%%", width=95),
-                    "Dist_52W_High": st.column_config.NumberColumn("Dist 52W High", format="%+.1f%%", width=110),
-                    "Volume_Mult": st.column_config.NumberColumn("Vol Ratio (x ADTV)", format="%.2fx", width=110),
-                    "Close": st.column_config.NumberColumn(f"Close ({cs})", format=f"{cs}%.2f", width=105),
-                    "Turnover_Cr": st.column_config.NumberColumn(f"Turnover ({cs}M/Cr)", format="%.1f", width=105),
-                    "Industry": st.column_config.TextColumn("Industry Group", width=180),
-                    "Ind_Grade": st.column_config.TextColumn("IBD Grade", width=90),
-                    "Sister_Role": st.column_config.TextColumn("Sister Role", width=140)
-                },
-                use_container_width=True,
-                hide_index=True,
-                height=520
-            )
+                table_cols = [
+                    'Rank', 'Clean_Ticker', 'RS_Rating', 'Alpha_Score', 'Archetype',
+                    'Cumulative_Accumulation', 'Return_1D', 'Dist_52W_High', 'Volume_Mult',
+                    'Close', 'Turnover_Cr', 'Industry', 'Ind_Grade', 'Sister_Role'
+                ]
+                disp_view = df_disp[[c for c in table_cols if c in df_disp.columns]].copy()
+
+                st.dataframe(
+                    disp_view,
+                    column_config={
+                        "Rank": st.column_config.NumberColumn("Rank", width=60),
+                        "Clean_Ticker": st.column_config.TextColumn("Symbol", width=95),
+                        "RS_Rating": st.column_config.ProgressColumn("RS Rating", min_value=0, max_value=99, format="%.0f", width=110, help="CANSLIM Relative Strength Rating (1-99)"),
+                        "Alpha_Score": st.column_config.ProgressColumn("Alpha Score", min_value=0, max_value=100, format="%.1f", width=110, help="Session resilience alpha score combining 1D return, volume expansion, and 52W proximity"),
+                        "Archetype": st.column_config.TextColumn("Resilience Archetype", width=195),
+                        "Cumulative_Accumulation": st.column_config.TextColumn("Cumulative Footprint", width=160),
+                        "Return_1D": st.column_config.NumberColumn("1D Gain %", format="%+.2f%%", width=95),
+                        "Dist_52W_High": st.column_config.NumberColumn("Dist 52W High", format="%+.1f%%", width=105),
+                        "Volume_Mult": st.column_config.NumberColumn("Vol Ratio", format="%.2fx", width=95),
+                        "Close": st.column_config.NumberColumn(f"Close ({cs})", format=f"{cs}%.2f", width=100),
+                        "Turnover_Cr": st.column_config.NumberColumn(f"Turnover ({cs}M/Cr)", format="%.1f", width=100),
+                        "Industry": st.column_config.TextColumn("Industry Group", width=180),
+                        "Ind_Grade": st.column_config.TextColumn("IBD Grade", width=90),
+                        "Sister_Role": st.column_config.TextColumn("Sister Role", width=140)
+                    },
+                    use_container_width=True,
+                    hide_index=True,
+                    height=520
+                )
+
+                # 8. Interactive Quadrant Scatter Chart (Expander)
+                with st.expander("🔬 View Institutional Alpha vs Relative Strength Quadrant (Scatter Chart)", expanded=False):
+                    fig_quad = px.scatter(
+                        df_disp,
+                        x='RS_Rating',
+                        y='Alpha_Score',
+                        size='Volume_Mult',
+                        color='Archetype',
+                        hover_name='Clean_Ticker',
+                        hover_data={'Industry': True, 'Return_1D': ':.2f%', 'Close': True, 'Sister_Role': True},
+                        labels={'RS_Rating': 'CANSLIM Relative Strength (RS Rating 0-99)', 'Alpha_Score': 'Session Alpha Score (0-100)'},
+                        title=f"Institutional Accumulation Quadrant on {selected_date} (Sweet Spot: Top Right)"
+                    )
+                    fig_quad.add_shape(
+                        type="rect",
+                        x0=80, y0=50, x1=100, y1=105,
+                        fillcolor="rgba(16, 185, 129, 0.12)",
+                        line=dict(color="#10b981", width=1.5, dash="dot")
+                    )
+                    fig_quad.update_layout(height=420, margin=dict(l=20, r=20, t=40, b=20))
+                    st.plotly_chart(fig_quad, use_container_width=True)
 
 # -------------------------------------------------------------------------
 # TAB 2: CUMULATIVE BEACH BALL LEADERBOARD (MULTI-DAY ACCUMULATION)
