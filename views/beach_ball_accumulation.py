@@ -477,23 +477,24 @@ with tab_session:
             quick_preset = st.pills(
                 "⚡ Rapid Filter Presets:",
                 options=[
-                    f"⭐ All Leaders (RS ≥ 80: {rs80_res_count})",
-                    f"🔥 Elite Leaders (RS ≥ 80 & Alpha ≥ 50: {elite_count})",
+                    "⭐ All Leaders (RS ≥ 80)",
+                    "🔥 Elite Leaders (RS ≥ 80 & Alpha ≥ 50)",
                     "👑 Alpha Leaders & Sister Tandems",
                     "🏆 Top 20% Leading Groups (A+ & A)",
                     "👑 Apex Relative Strength (RS ≥ 90)",
                     "🏖️ Pure Beach Balls (VB Thrust)",
                     "🚀 52W Highs on Red Day",
                     "⚡ Multi-Accumulated (≥2x History)",
-                    f"🌐 Full Resilient Universe ({tot_res_count})"
+                    "🌐 Full Resilient Universe (All RS)"
                 ],
-                default=f"⭐ All Leaders (RS ≥ 80: {rs80_res_count})",
+                default="⭐ All Leaders (RS ≥ 80)",
                 key="pit_quick_filter_pills"
             )
+            qp = str(quick_preset or "")
 
             # 4. Interactive Fine-Tuning Controls (Sliders, Checkboxes, Dropdowns & Search)
-            preset_rs = 0 if "Full Resilient" in quick_preset else (90 if "Apex" in quick_preset else 80)
-            preset_alpha = 50.0 if "Elite Leaders" in quick_preset else 0.0
+            preset_rs = 0 if "Full Resilient" in qp else (90 if "Apex" in qp else 80)
+            preset_alpha = 50.0 if "Elite" in qp else 0.0
 
             f_col1, f_col2, f_col3, f_col4 = st.columns([1.2, 1.2, 1.1, 1.5])
             with f_col1:
@@ -535,14 +536,14 @@ with tab_session:
             with q_chk1:
                 chk_top20 = st.checkbox(
                     "🏆 Top 20% Leading Groups Only (A+ & A)",
-                    value=("Top 20%" in quick_preset),
+                    value=("Top 20%" in qp),
                     key="pit_chk_top20",
                     help="William O'Neil CANSLIM rule: Leading monster stocks emerge almost exclusively from the top 20% industry groups."
                 )
             with q_chk2:
                 chk_alpha_sister = st.checkbox(
                     "👑 Alpha Leaders & Sister Tandems Only (Livermore Duopoly)",
-                    value=("Alpha Leaders" in quick_preset),
+                    value=("Alpha Leaders" in qp),
                     key="pit_chk_alpha_sister",
                     help="Jesse Livermore rule: Trade only the #1 Alpha stock or its #2 Sister Tandem in the group; avoid weaker sympathizers."
                 )
@@ -598,11 +599,11 @@ with tab_session:
                 df_disp = df_disp[df_disp['Archetype'].str.contains("Green on Red")].copy()
 
             # Preset Pills Filter
-            if "Beach Balls" in quick_preset:
+            if "Beach Balls" in qp:
                 df_disp = df_disp[df_disp['Archetype'].str.contains("Beach Ball")].copy()
-            elif "52W Highs" in quick_preset:
+            elif "52W Highs" in qp:
                 df_disp = df_disp[df_disp['Archetype'].str.contains("New 52W High")].copy()
-            elif "Multi-Accumulated" in quick_preset:
+            elif "Multi-Accumulated" in qp:
                 df_disp = df_disp[~df_disp['Cumulative_Accumulation'].str.contains(r"1x \(Single")].copy()
 
             # Numeric & Search Filters
@@ -611,7 +612,7 @@ with tab_session:
             df_disp = df_disp[df_disp['Volume_Mult'] >= min_vol]
 
             # IBD Grade Filters (Checkbox + Multiselect)
-            if chk_top20 or "Top 20%" in quick_preset:
+            if chk_top20 or "Top 20%" in qp:
                 df_disp = df_disp[df_disp['Ind_Grade'].apply(lambda g: any(str(g).startswith(p) for p in ['A+', 'A ']))].copy()
 
             if selected_ibd_grades:
@@ -626,7 +627,7 @@ with tab_session:
                 df_disp = df_disp[df_disp['Ind_Grade'].apply(lambda g: any(str(g).startswith(p) for p in prefixes))].copy()
 
             # Livermore Sister Role Filters (Checkbox + Multiselect)
-            if chk_alpha_sister or "Alpha Leaders" in quick_preset:
+            if chk_alpha_sister or "Alpha Leaders" in qp:
                 df_disp = df_disp[df_disp['Sister_Role'].apply(lambda r: any(k in str(r) for k in ['Alpha Leader', 'Sister Tandem']))].copy()
 
             if selected_sister_roles:
@@ -776,15 +777,16 @@ with tab_leaderboard:
             key="bb_search_input"
         )
 
-    if preset_choice == "👑 Apex Power (≥4x)":
+    pc = str(preset_choice or "")
+    if "Apex Power" in pc:
         def_min_3m, def_min_1m, def_min_rs, def_max_gap = 4, 0, 80, 25
-    elif preset_choice == "⚡ Recent Inflow (1M ≥ 1x)":
+    elif "Recent Inflow" in pc:
         def_min_3m, def_min_1m, def_min_rs, def_max_gap = 1, 1, 75, 25
-    elif preset_choice == "🎯 Near 52W High (≤15% Gap)":
+    elif "Near 52W High" in pc:
         def_min_3m, def_min_1m, def_min_rs, def_max_gap = 1, 0, 80, 15
-    elif preset_choice == "🔵 RS Blue-Chips (RS ≥ 85)":
+    elif "RS Blue-Chips" in pc:
         def_min_3m, def_min_1m, def_min_rs, def_max_gap = 1, 0, 85, 25
-    elif preset_choice == "⭐ All Submerged (≥1x)":
+    elif "All Submerged" in pc:
         def_min_3m, def_min_1m, def_min_rs, def_max_gap = 1, 0, 50, 30
     else:
         def_min_3m, def_min_1m, def_min_rs, def_max_gap = 2, 0, 80, 25
@@ -1036,25 +1038,26 @@ with tab_horizon:
 
         # 3. Quick Filter Preset Pills
         preset_opts_hz = [
-            f"⭐ All Leaders (RS ≥ 80: {rs80_count})",
-            f"🔥 Elite Generals ({elite_div_count})",
-            f"👑 Alpha Leaders & Sister Tandems ({alpha_sister_count})",
-            f"🏆 Top 20% Leading Groups ({top20_count})"
+            "⭐ All Leaders (RS ≥ 80)",
+            "🔥 Elite Generals (Alpha ≥ +25% & Win Rate ≥ 50%)",
+            "👑 Alpha Leaders & Sister Tandems",
+            "🏆 Top 20% Leading Groups (A+ & A)"
         ]
         if top_theme_name:
-            preset_opts_hz.append(f"🌊 Top Theme: {top_theme_name} ({theme_count})")
+            preset_opts_hz.append(f"🌊 Top Theme: {top_theme_name}")
         preset_opts_hz.extend([
-            f"🏖️ Repeat Beach Balls ({bb_count})",
-            f"🎯 Coiling Near 52W High ({high52_count})",
-            f"🌐 Full Decoupled Universe ({tot_div_count})"
+            "🏖️ Repeat Beach Balls (≥2x Thrusts)",
+            "🎯 Coiling Near 52W High (≤10% Gap)",
+            "🌐 Full Decoupled Universe (All RS)"
         ])
 
         quick_preset_hz = st.pills(
             "⚡ Rapid Filter Presets:",
             options=preset_opts_hz,
-            default=f"⭐ All Leaders (RS ≥ 80: {rs80_count})",
+            default="⭐ All Leaders (RS ≥ 80)",
             key="hz_quick_preset_pills"
         )
+        qph = str(quick_preset_hz or "")
 
         # 4. Interactive Fine-Tuning Controls
         # Row 1: Checkboxes & Industry Multi-select
@@ -1062,14 +1065,14 @@ with tab_horizon:
         with hz_chk1:
             chk_top20_hz = st.checkbox(
                 "🏆 Top 20% Groups (A+ & A)",
-                value=("Top 20%" in quick_preset_hz),
+                value=("Top 20%" in qph),
                 key="hz_chk_top20",
                 help="Filter to stocks belonging strictly to top 20% industry groups."
             )
         with hz_chk2:
             chk_alpha_sister_hz = st.checkbox(
                 "👑 Alpha & Sister Tandems",
-                value=("Alpha Leaders" in quick_preset_hz),
+                value=("Alpha Leaders" in qph),
                 key="hz_chk_alpha_sister",
                 help="Filter to only #1 Alpha leaders and #2 Sister Tandems."
             )
@@ -1086,7 +1089,7 @@ with tab_horizon:
                 st.session_state["hz_sel_roles"] = []
                 st.rerun()
 
-        default_ind_sel = [top_theme_name] if ("Top Theme" in quick_preset_hz and top_theme_name) else []
+        default_ind_sel = [top_theme_name] if ("Top Theme" in qph and top_theme_name) else []
         sel_industry_hz = st.multiselect(
             "🏭 Filter by Industry Group(s):",
             options=list(valid_inds_hz.index),
@@ -1125,7 +1128,7 @@ with tab_horizon:
         # Row 3: Sliders & Search
         hz_s1, hz_s2, hz_s3, hz_s4 = st.columns([1.1, 1.1, 1.1, 1.5])
         with hz_s1:
-            preset_rs_hz = 0 if ("Full Decoupled" in quick_preset_hz) else (90 if "Apex" in quick_preset_hz else 80)
+            preset_rs_hz = 0 if ("Full Decoupled" in qph) else (90 if "Apex" in qph else 80)
             min_rs_hz = st.slider(
                 "Min Relative Strength (RS):",
                 min_value=0, max_value=99,
@@ -1135,7 +1138,7 @@ with tab_horizon:
                 help="CANSLIM Percentile Relative Strength Rating (1-99). Default is 80 (O'Neil Market Leader threshold)."
             )
         with hz_s2:
-            preset_alpha_hz = 25.0 if ("Elite" in quick_preset_hz) else 0.0
+            preset_alpha_hz = 25.0 if ("Elite" in qph) else 0.0
             min_alpha_hz = st.slider(
                 "Min Alpha Delta (α %):",
                 min_value=0.0, max_value=60.0,
@@ -1145,7 +1148,7 @@ with tab_horizon:
                 help="Excess return above the benchmark"
             )
         with hz_s3:
-            preset_winrate_hz = 50.0 if ("Elite" in quick_preset_hz) else 0.0
+            preset_winrate_hz = 50.0 if ("Elite" in qph) else 0.0
             min_winrate_hz = st.slider(
                 "Min Down-Day Win Rate %:",
                 min_value=0.0, max_value=100.0,
@@ -1165,22 +1168,22 @@ with tab_horizon:
         disp_div = df_divergent.copy()
 
         # Checkbox & Preset Filters
-        if chk_top20_hz or "Top 20%" in quick_preset_hz:
+        if chk_top20_hz or "Top 20%" in qph:
             disp_div = disp_div[disp_div['Ind_Grade'].apply(lambda g: any(str(g).startswith(p) for p in ['A+', 'A ']))].copy()
 
-        if chk_alpha_sister_hz or "Alpha Leaders" in quick_preset_hz:
+        if chk_alpha_sister_hz or "Alpha Leaders" in qph:
             disp_div = disp_div[disp_div['Sister_Role'].apply(lambda r: any(k in str(r) for k in ['Alpha Leader', 'Sister Tandem']))].copy()
 
-        if "Repeat Beach Balls" in quick_preset_hz:
+        if "Repeat Beach Balls" in qph:
             disp_div = disp_div[disp_div['Beach_Ball_Count'] >= 2].copy()
 
-        if "Coiling Near 52W High" in quick_preset_hz:
+        if "Coiling Near 52W High" in qph:
             disp_div = disp_div[disp_div['Dist_52W_High'] >= -10.0].copy()
 
         # Industry Multi-Select
         if sel_industry_hz:
             disp_div = disp_div[disp_div['Industry'].isin(sel_industry_hz)].copy()
-        elif "Top Theme" in quick_preset_hz and top_theme_name:
+        elif "Top Theme" in qph and top_theme_name:
             disp_div = disp_div[disp_div['Industry'] == top_theme_name].copy()
 
         # Grade Multi-Select
@@ -1223,7 +1226,7 @@ with tab_horizon:
         st.markdown("---")
         if sel_industry_hz:
             tv_tag = ", ".join(sel_industry_hz[:2]) + ("..." if len(sel_industry_hz) > 2 else "")
-        elif "Top Theme" in quick_preset_hz and top_theme_name:
+        elif "Top Theme" in qph and top_theme_name:
             tv_tag = top_theme_name
         else:
             tv_tag = f"{len(disp_div)} Leaders"
