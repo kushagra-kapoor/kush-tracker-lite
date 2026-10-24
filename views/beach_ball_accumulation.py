@@ -458,6 +458,7 @@ with tab_session:
             ]) if not top_ind_counts.empty else "<span style='color: #94a3b8; font-size: 0.78rem;'>Broad Market Dispersion</span>"
 
             tot_res_count = len(df_resilient)
+            rs80_res_count = len(df_resilient[df_resilient['RS_Rating'] >= 80])
             elite_count = len(df_resilient[(df_resilient['RS_Rating'] >= 80) & (df_resilient['Alpha_Score'] >= 50)])
 
             st.markdown(f"""
@@ -467,7 +468,7 @@ with tab_session:
                     {cluster_badges_html}
                 </div>
                 <div style="font-size: 0.78rem; color: #94a3b8;">
-                    Resilient Universe: <b style="color: #f8fafc;">{tot_res_count}</b> &nbsp;|&nbsp; Elite Leaders (RS ≥ 80 & α ≥ 50): <b style="color: #10b981;">{elite_count}</b>
+                    Resilient Universe: <b style="color: #f8fafc;">{tot_res_count}</b> &nbsp;|&nbsp; RS ≥ 80 Leaders: <b style="color: #38bdf8;">{rs80_res_count}</b> &nbsp;|&nbsp; Elite Generals (RS ≥ 80 & α ≥ 50): <b style="color: #10b981;">{elite_count}</b>
                 </div>
             </div>
             """, unsafe_allow_html=True)
@@ -476,22 +477,23 @@ with tab_session:
             quick_preset = st.pills(
                 "⚡ Rapid Filter Presets:",
                 options=[
-                    f"⭐ All Resilient ({tot_res_count})",
-                    "🔥 Elite Leaders (RS ≥ 80 & Alpha ≥ 50)",
+                    f"⭐ All Leaders (RS ≥ 80: {rs80_res_count})",
+                    f"🔥 Elite Leaders (RS ≥ 80 & Alpha ≥ 50: {elite_count})",
                     "👑 Alpha Leaders & Sister Tandems",
                     "🏆 Top 20% Leading Groups (A+ & A)",
                     "👑 Apex Relative Strength (RS ≥ 90)",
                     "🏖️ Pure Beach Balls (VB Thrust)",
                     "🚀 52W Highs on Red Day",
-                    "⚡ Multi-Accumulated (≥2x History)"
+                    "⚡ Multi-Accumulated (≥2x History)",
+                    f"🌐 Full Resilient Universe ({tot_res_count})"
                 ],
-                default=f"⭐ All Resilient ({tot_res_count})",
+                default=f"⭐ All Leaders (RS ≥ 80: {rs80_res_count})",
                 key="pit_quick_filter_pills"
             )
 
             # 4. Interactive Fine-Tuning Controls (Sliders, Checkboxes, Dropdowns & Search)
-            preset_rs = 80 if "Elite" in quick_preset else (90 if "Apex" in quick_preset else 0)
-            preset_alpha = 50.0 if "Elite" in quick_preset else 0.0
+            preset_rs = 0 if "Full Resilient" in quick_preset else (90 if "Apex" in quick_preset else 80)
+            preset_alpha = 50.0 if "Elite Leaders" in quick_preset else 0.0
 
             f_col1, f_col2, f_col3, f_col4 = st.columns([1.2, 1.2, 1.1, 1.5])
             with f_col1:
@@ -501,7 +503,7 @@ with tab_session:
                     value=preset_rs,
                     step=1,
                     key="pit_min_rs_slider",
-                    help="CANSLIM Percentile Relative Strength Rating (1-99) as of this session"
+                    help="CANSLIM Percentile Relative Strength Rating (1-99). Default is 80 (O'Neil Market Leader threshold)."
                 )
             with f_col2:
                 min_alpha = st.slider(
@@ -529,7 +531,7 @@ with tab_session:
                 )
 
             # IBD Grade & Livermore Sister Role Checkboxes and Dropdowns
-            q_chk1, q_chk2 = st.columns(2)
+            q_chk1, q_chk2, q_rst = st.columns([1.4, 1.6, 0.8])
             with q_chk1:
                 chk_top20 = st.checkbox(
                     "🏆 Top 20% Leading Groups Only (A+ & A)",
@@ -544,6 +546,17 @@ with tab_session:
                     key="pit_chk_alpha_sister",
                     help="Jesse Livermore rule: Trade only the #1 Alpha stock or its #2 Sister Tandem in the group; avoid weaker sympathizers."
                 )
+            with q_rst:
+                if st.button("↺ Reset", key="pit_reset_btn", help="Reset all filters back to default (RS ≥ 80)"):
+                    st.session_state["pit_min_rs_slider"] = 80
+                    st.session_state["pit_min_alpha_slider"] = 0.0
+                    st.session_state["pit_min_vol_slider"] = 1.0
+                    st.session_state["pit_search_query"] = ""
+                    st.session_state["pit_chk_top20"] = False
+                    st.session_state["pit_chk_alpha_sister"] = False
+                    st.session_state["pit_ibd_grades_multiselect"] = []
+                    st.session_state["pit_sister_roles_multiselect"] = []
+                    st.rerun()
 
             g_drop1, g_drop2 = st.columns(2)
             with g_drop1:
@@ -637,8 +650,8 @@ with tab_session:
             # 6. Action Bar
             st.markdown("---")
             e_tv, e_notion, e_tg, e_csv = st.columns([1.3, 1.3, 1.3, 1.0])
-            tv_string = dde.format_tradingview_watchlist(df_disp['Clean_Ticker'].head(30).tolist(), market=mkt_tag)
-            notion_table = dde.format_notion_markdown_table(df_disp, selected_date)
+            tv_string = dde.format_tradingview_watchlist(df_disp['Clean_Ticker'].head(250).tolist(), market=mkt_tag)
+            notion_table = dde.format_notion_markdown_table(df_disp.head(50), selected_date)
             tg_alert = dde.format_telegram_alert(selected_date, date_meta['above_50_pct'], int(date_meta['net_new_highs']), df_disp, market=mkt_tag)
 
             with e_tv:
@@ -670,8 +683,8 @@ with tab_session:
 
                 table_cols = [
                     'Rank', 'Clean_Ticker', 'RS_Rating', 'Alpha_Score', 'Archetype',
-                    'Cumulative_Accumulation', 'Return_1D', 'Dist_52W_High', 'Volume_Mult',
-                    'Close', 'Turnover_Cr', 'Industry', 'Ind_Grade', 'Sister_Role'
+                    'Cumulative_Accumulation', 'Return_1D', 'Industry', 'Ind_Grade', 'Sister_Role',
+                    'Dist_52W_High', 'Volume_Mult', 'Close', 'Turnover_Cr'
                 ]
                 disp_view = df_disp[[c for c in table_cols if c in df_disp.columns]].copy()
 
@@ -685,13 +698,13 @@ with tab_session:
                         "Archetype": st.column_config.TextColumn("Resilience Archetype", width=195),
                         "Cumulative_Accumulation": st.column_config.TextColumn("Cumulative Footprint", width=160),
                         "Return_1D": st.column_config.NumberColumn("1D Gain %", format="%+.2f%%", width=95),
+                        "Industry": st.column_config.TextColumn("Industry Group", width=180),
+                        "Ind_Grade": st.column_config.TextColumn("IBD Grade", width=90),
+                        "Sister_Role": st.column_config.TextColumn("Sister Role", width=140),
                         "Dist_52W_High": st.column_config.NumberColumn("Dist 52W High", format="%+.1f%%", width=105),
                         "Volume_Mult": st.column_config.NumberColumn("Vol Ratio", format="%.2fx", width=95),
                         "Close": st.column_config.NumberColumn(f"Close ({cs})", format=f"{cs}%.2f", width=100),
-                        "Turnover_Cr": st.column_config.NumberColumn(f"Turnover ({cs}M/Cr)", format="%.1f", width=100),
-                        "Industry": st.column_config.TextColumn("Industry Group", width=180),
-                        "Ind_Grade": st.column_config.TextColumn("IBD Grade", width=90),
-                        "Sister_Role": st.column_config.TextColumn("Sister Role", width=140)
+                        "Turnover_Cr": st.column_config.NumberColumn(f"Turnover ({cs}M/Cr)", format="%.1f", width=100)
                     },
                     use_container_width=True,
                     hide_index=True,
@@ -764,17 +777,17 @@ with tab_leaderboard:
         )
 
     if preset_choice == "👑 Apex Power (≥4x)":
-        def_min_3m, def_min_1m, def_min_rs, def_max_gap = 4, 0, 70, 25
+        def_min_3m, def_min_1m, def_min_rs, def_max_gap = 4, 0, 80, 25
     elif preset_choice == "⚡ Recent Inflow (1M ≥ 1x)":
-        def_min_3m, def_min_1m, def_min_rs, def_max_gap = 1, 1, 65, 25
+        def_min_3m, def_min_1m, def_min_rs, def_max_gap = 1, 1, 75, 25
     elif preset_choice == "🎯 Near 52W High (≤15% Gap)":
-        def_min_3m, def_min_1m, def_min_rs, def_max_gap = 1, 0, 70, 15
+        def_min_3m, def_min_1m, def_min_rs, def_max_gap = 1, 0, 80, 15
     elif preset_choice == "🔵 RS Blue-Chips (RS ≥ 85)":
         def_min_3m, def_min_1m, def_min_rs, def_max_gap = 1, 0, 85, 25
     elif preset_choice == "⭐ All Submerged (≥1x)":
         def_min_3m, def_min_1m, def_min_rs, def_max_gap = 1, 0, 50, 30
     else:
-        def_min_3m, def_min_1m, def_min_rs, def_max_gap = 2, 0, 60, 25
+        def_min_3m, def_min_1m, def_min_rs, def_max_gap = 2, 0, 80, 25
 
     with st.expander("⚙️ Fine-Tune Radar Thresholds & Rescan", expanded=False):
         f_c1, f_c2, f_c3, f_c4 = st.columns(4)
@@ -783,7 +796,7 @@ with tab_leaderboard:
         with f_c2:
             min_1m_filter = st.slider("Min 1M Power Plays:", 0, 4, def_min_1m, 1, key="f_1m_slider")
         with f_c3:
-            min_rs_filter = st.slider("Min Relative Strength (RS):", 50, 99, def_min_rs, 5, key="f_rs_slider")
+            min_rs_filter = st.slider("Min Relative Strength (RS):", 50, 99, def_min_rs, 1, key="f_rs_slider", help="CANSLIM Relative Strength Rating (1-99). Default 80.")
         with f_c4:
             max_dist_52w = st.slider("Max Distance to 52W High (%):", 2, 35, def_max_gap, 1, key="f_dist_slider")
 
@@ -994,7 +1007,13 @@ with tab_horizon:
         top_theme_count = valid_inds_hz.iloc[0] if not valid_inds_hz.empty else 0
 
         tot_div_count = len(df_divergent)
-        elite_div_count = len(df_divergent[(df_divergent['Alpha_Delta'] >= 25.0) & (df_divergent['Down_Day_Win_Rate'] >= 50.0)])
+        rs80_count = len(df_divergent[df_divergent['RS_Rating'] >= 80])
+        elite_div_count = len(df_divergent[(df_divergent['RS_Rating'] >= 80) & (df_divergent['Alpha_Delta'] >= 25.0) & (df_divergent['Down_Day_Win_Rate'] >= 50.0)])
+        alpha_sister_count = len(df_divergent[(df_divergent['RS_Rating'] >= 80) & (df_divergent['Sister_Role'].apply(lambda r: any(k in str(r) for k in ['Alpha Leader', 'Sister Tandem'])))])
+        top20_count = len(df_divergent[(df_divergent['RS_Rating'] >= 80) & (df_divergent['Ind_Grade'].apply(lambda g: any(str(g).startswith(p) for p in ['A+', 'A '])))])
+        theme_count = len(df_divergent[(df_divergent['RS_Rating'] >= 80) & (df_divergent['Industry'] == top_theme_name)]) if top_theme_name else 0
+        bb_count = len(df_divergent[(df_divergent['RS_Rating'] >= 80) & (df_divergent['Beach_Ball_Count'] >= 2)])
+        high52_count = len(df_divergent[(df_divergent['RS_Rating'] >= 80) & (df_divergent['Dist_52W_High'] >= -10.0)])
 
         # 2. Leading Decoupled Themes Banner
         cluster_pills_hz = " ".join([
@@ -1010,35 +1029,36 @@ with tab_horizon:
                 {cluster_pills_hz}
             </div>
             <div style="font-size: 0.78rem; color: #94a3b8;">
-                Decoupled Universe: <b style="color: #f8fafc;">{tot_div_count}</b> &nbsp;|&nbsp; Elite Generals (α≥25% & Win Rate≥50%): <b style="color: #10b981;">{elite_div_count}</b>
+                Decoupled Universe: <b style="color: #f8fafc;">{tot_div_count}</b> &nbsp;|&nbsp; RS ≥ 80 Leaders: <b style="color: #38bdf8;">{rs80_count}</b> &nbsp;|&nbsp; Elite Generals (α≥25% & Win Rate≥50%): <b style="color: #10b981;">{elite_div_count}</b>
             </div>
         </div>
         """, unsafe_allow_html=True)
 
         # 3. Quick Filter Preset Pills
         preset_opts_hz = [
-            f"⭐ All Decoupled ({tot_div_count})",
-            "🔥 Elite Generals (Alpha ≥ +25% & Win Rate ≥ 50%)",
-            "👑 Alpha Leaders & Sister Tandems",
-            "🏆 Top 20% Leading Groups (A+ & A)"
+            f"⭐ All Leaders (RS ≥ 80: {rs80_count})",
+            f"🔥 Elite Generals ({elite_div_count})",
+            f"👑 Alpha Leaders & Sister Tandems ({alpha_sister_count})",
+            f"🏆 Top 20% Leading Groups ({top20_count})"
         ]
         if top_theme_name:
-            preset_opts_hz.append(f"🌊 Top Theme: {top_theme_name} ({top_theme_count})")
+            preset_opts_hz.append(f"🌊 Top Theme: {top_theme_name} ({theme_count})")
         preset_opts_hz.extend([
-            "🏖️ Repeat Beach Balls (≥2x Thrusts)",
-            "🎯 Coiling Near 52W High (≤10% Gap)"
+            f"🏖️ Repeat Beach Balls ({bb_count})",
+            f"🎯 Coiling Near 52W High ({high52_count})",
+            f"🌐 Full Decoupled Universe ({tot_div_count})"
         ])
 
         quick_preset_hz = st.pills(
             "⚡ Rapid Filter Presets:",
             options=preset_opts_hz,
-            default=f"⭐ All Decoupled ({tot_div_count})",
+            default=f"⭐ All Leaders (RS ≥ 80: {rs80_count})",
             key="hz_quick_preset_pills"
         )
 
         # 4. Interactive Fine-Tuning Controls
         # Row 1: Checkboxes & Industry Multi-select
-        hz_chk1, hz_chk2, hz_ind_col = st.columns([1.1, 1.1, 1.8])
+        hz_chk1, hz_chk2, hz_rst = st.columns([1.4, 1.6, 0.8])
         with hz_chk1:
             chk_top20_hz = st.checkbox(
                 "🏆 Top 20% Groups (A+ & A)",
@@ -1053,16 +1073,28 @@ with tab_horizon:
                 key="hz_chk_alpha_sister",
                 help="Filter to only #1 Alpha leaders and #2 Sister Tandems."
             )
-        with hz_ind_col:
-            default_ind_sel = [top_theme_name] if ("Top Theme" in quick_preset_hz and top_theme_name) else []
-            sel_industry_hz = st.multiselect(
-                "🏭 Filter by Industry Group(s):",
-                options=list(valid_inds_hz.index),
-                default=default_ind_sel,
-                placeholder="All Decoupled Industries (e.g. Select Luxury Goods...)",
-                key="hz_sel_industry",
-                help="Isolate one or more industry groups to inspect leaders and export 1-click TradingView watchlists."
-            )
+        with hz_rst:
+            if st.button("↺ Reset", key="hz_reset_btn", help="Reset all filters back to institutional default (RS ≥ 80)"):
+                st.session_state["hz_min_rs_slider"] = 80
+                st.session_state["hz_min_alpha_slider"] = 0.0
+                st.session_state["hz_min_winrate_slider"] = 0.0
+                st.session_state["hz_search_query"] = ""
+                st.session_state["hz_chk_top20"] = False
+                st.session_state["hz_chk_alpha_sister"] = False
+                st.session_state["hz_sel_industry"] = []
+                st.session_state["hz_sel_grades"] = []
+                st.session_state["hz_sel_roles"] = []
+                st.rerun()
+
+        default_ind_sel = [top_theme_name] if ("Top Theme" in quick_preset_hz and top_theme_name) else []
+        sel_industry_hz = st.multiselect(
+            "🏭 Filter by Industry Group(s):",
+            options=list(valid_inds_hz.index),
+            default=default_ind_sel,
+            placeholder="All Decoupled Industries (e.g. Select Luxury Goods...)",
+            key="hz_sel_industry",
+            help="Isolate one or more industry groups to inspect leaders and export 1-click TradingView watchlists."
+        )
 
         # Row 2: IBD Letter Grade & Sister Role
         hz_g1, hz_g2 = st.columns(2)
@@ -1093,14 +1125,14 @@ with tab_horizon:
         # Row 3: Sliders & Search
         hz_s1, hz_s2, hz_s3, hz_s4 = st.columns([1.1, 1.1, 1.1, 1.5])
         with hz_s1:
-            preset_rs_hz = 80 if ("Elite" in quick_preset_hz) else 0
+            preset_rs_hz = 0 if ("Full Decoupled" in quick_preset_hz) else (90 if "Apex" in quick_preset_hz else 80)
             min_rs_hz = st.slider(
                 "Min Relative Strength (RS):",
                 min_value=0, max_value=99,
                 value=preset_rs_hz,
                 step=1,
                 key="hz_min_rs_slider",
-                help="CANSLIM Percentile Relative Strength Rating (1-99)"
+                help="CANSLIM Percentile Relative Strength Rating (1-99). Default is 80 (O'Neil Market Leader threshold)."
             )
         with hz_s2:
             preset_alpha_hz = 25.0 if ("Elite" in quick_preset_hz) else 0.0
@@ -1197,7 +1229,7 @@ with tab_horizon:
             tv_tag = f"{len(disp_div)} Leaders"
 
         hz_tv, hz_notion, hz_csv = st.columns([1.5, 1.5, 1.0])
-        tv_div_str = dde.format_tradingview_watchlist(disp_div['Clean_Ticker'].head(40).tolist(), market=mkt_tag)
+        tv_div_str = dde.format_tradingview_watchlist(disp_div['Clean_Ticker'].head(250).tolist(), market=mkt_tag)
         
         with hz_tv:
             with st.popover(f"📋 TradingView Watchlist ({tv_tag})"):
@@ -1210,7 +1242,7 @@ with tab_horizon:
                     "| Symbol | RS Rating | Window Return % | Alpha Delta % | Down-Day Win Rate | Beach Ball Thrusts | Industry & Grade | Sister Role |",
                     "| :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |"
                 ]
-                for _, r in disp_div.head(30).iterrows():
+                for _, r in disp_div.head(50).iterrows():
                     rs_val = f"{r.get('RS_Rating', 80):.0f}"
                     lines.append(f"| **{r['Clean_Ticker']}** | {rs_val} | {r['Return_Window']:+.1f}% | {r['Alpha_Delta']:+.1f}% | {r['Down_Day_Win_Rate']:.1f}% | {r['BB_Badge']} | {r['Industry']} ({r['Ind_Grade']}) | {r['Sister_Role']} |")
                 st.code("\n".join(lines), language="markdown")
@@ -1234,8 +1266,8 @@ with tab_horizon:
 
             div_table_cols = [
                 'Rank', 'Clean_Ticker', 'RS_Rating', 'Return_Window', 'Alpha_Delta', 'Down_Day_Win_Rate',
-                'BB_Badge', 'Dist_52W_High', 'Volume_Mult', 'Close', 'Turnover_Cr',
-                'Industry', 'Ind_Grade', 'Sister_Role'
+                'BB_Badge', 'Industry', 'Ind_Grade', 'Sister_Role',
+                'Dist_52W_High', 'Volume_Mult', 'Close', 'Turnover_Cr'
             ]
             disp_div_view = disp_div[[c for c in div_table_cols if c in disp_div.columns]].copy()
 
@@ -1249,18 +1281,58 @@ with tab_horizon:
                     "Alpha_Delta": st.column_config.NumberColumn("Alpha Delta (α)", format="%+.1f%%", width=115, help="Stock Return minus Benchmark Return"),
                     "Down_Day_Win_Rate": st.column_config.ProgressColumn("Down-Day Win Rate", min_value=0, max_value=100, format="%.1f%%", width=135, help="% of days stock closed green when market was red"),
                     "BB_Badge": st.column_config.TextColumn("Beach Ball Footprint", width=140),
+                    "Industry": st.column_config.TextColumn("Industry Group", width=180),
+                    "Ind_Grade": st.column_config.TextColumn("IBD Grade", width=90),
+                    "Sister_Role": st.column_config.TextColumn("Sister Role", width=140),
                     "Dist_52W_High": st.column_config.NumberColumn("Dist 52W High", format="%+.1f%%", width=105),
                     "Volume_Mult": st.column_config.NumberColumn("Vol Ratio", format="%.2fx", width=95),
                     "Close": st.column_config.NumberColumn(f"Close ({cs})", format=f"{cs}%.2f", width=100),
-                    "Turnover_Cr": st.column_config.NumberColumn(f"Turnover ({cs}M/Cr)", format="%.1f", width=100),
-                    "Industry": st.column_config.TextColumn("Industry Group", width=180),
-                    "Ind_Grade": st.column_config.TextColumn("IBD Grade", width=90),
-                    "Sister_Role": st.column_config.TextColumn("Sister Role", width=140)
+                    "Turnover_Cr": st.column_config.NumberColumn(f"Turnover ({cs}M/Cr)", format="%.1f", width=100)
                 },
                 use_container_width=True,
                 hide_index=True,
                 height=500
             )
+
+            # Interactive Multi-Horizon Scatter Matrix (Expander)
+            with st.expander("🔬 View Counter-Trend Alpha vs Down-Day Win Rate Matrix (Scatter Chart)", expanded=False):
+                fig_div_scatter = px.scatter(
+                    disp_div,
+                    x='Down_Day_Win_Rate',
+                    y='Alpha_Delta',
+                    size='Volume_Mult',
+                    color='Ind_Grade' if 'Ind_Grade' in disp_div.columns else None,
+                    hover_name='Clean_Ticker',
+                    hover_data={
+                        'Industry': True,
+                        'Return_Window': ':.1f%',
+                        'Alpha_Delta': ':.1f%',
+                        'Down_Day_Win_Rate': ':.1f%',
+                        'RS_Rating': True,
+                        'Close': True,
+                        'Sister_Role': True
+                    },
+                    labels={
+                        'Down_Day_Win_Rate': 'Down-Day Win Rate (% Days Closed Green on Red Market)',
+                        'Alpha_Delta': 'Excess Alpha Delta (α % over Benchmark)'
+                    },
+                    title=f"Counter-Trend Matrix: Alpha Delta vs Down-Day Win Rate ({horizon_preset})"
+                )
+                max_alpha = float(disp_div['Alpha_Delta'].max()) if not disp_div.empty else 50.0
+                fig_div_scatter.add_shape(
+                    type="rect",
+                    x0=50, y0=25, x1=100, y1=max(max_alpha + 5, 30),
+                    fillcolor="rgba(16, 185, 129, 0.12)",
+                    line=dict(color="#10b981", width=1.5, dash="dot")
+                )
+                fig_div_scatter.add_annotation(
+                    x=75, y=max(max_alpha * 0.9, 26),
+                    text="🎯 Sweet Spot: Elite Generals (Win Rate ≥ 50% & α ≥ 25%)",
+                    showarrow=False,
+                    font=dict(color="#10b981", size=12)
+                )
+                fig_div_scatter.update_layout(height=440, margin=dict(l=20, r=20, t=40, b=20))
+                st.plotly_chart(fig_div_scatter, use_container_width=True)
 
         # Group-Level Alpha Decoupling
         if not df_group_alpha.empty:
@@ -1299,31 +1371,119 @@ with tab_playbook:
     </div>
     """, unsafe_allow_html=True)
 
-    st.markdown(r"""
-    ### 📖 The Law of Down-Day Resilience & Submerged Leaders
-    > *"During general market declines of 10% to 20%, 90% of all stocks decline with the averages. **The 10% that resist the decline, hold their ground, or actually advance to new highs are almost always the huge winners of the next market cycle.** Smart money uses market panic to quietly accumulate their highest-conviction ideas without pushing the price through the roof."*  
-    > — **William J. O'Neil**, *How to Make Money in Stocks*
+    st.markdown("""
+    <div style="background: linear-gradient(135deg, rgba(15, 23, 42, 0.95), rgba(30, 41, 59, 0.85)); border: 1px solid rgba(234, 179, 8, 0.25); border-left: 5px solid #eab308; border-radius: 12px; padding: 18px 24px; margin-bottom: 22px; box-shadow: 0 8px 24px rgba(0,0,0,0.35);">
+        <div style="font-size: 0.75rem; font-weight: 800; text-transform: uppercase; letter-spacing: 1px; color: #eab308; margin-bottom: 6px;">
+            📖 The Core Philosophy • William J. O'Neil & David Ryan
+        </div>
+        <div style="font-size: 1.05rem; font-weight: 600; color: #f8fafc; line-height: 1.6; font-style: italic;">
+            "During general market declines of 10% to 20%, 90% of all stocks decline with the averages. The 10% that resist the decline, hold their ground, or actually advance to new highs are almost always the huge winners of the next market cycle. Smart money uses market panic to quietly accumulate their highest-conviction ideas without pushing the price through the roof."
+        </div>
+        <div style="font-size: 0.80rem; color: #94a3b8; margin-top: 8px;">
+            — <b>William J. O'Neil</b>, <i>How to Make Money in Stocks</i> & 3-Time US Investing Champion <b>David Ryan</b>
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
 
-    ---
+    st.markdown("#### 📐 The 3 Quantitative Resilience Archetypes")
+    
+    arch1, arch2, arch3 = st.columns(3)
+    with arch1:
+        st.markdown("""
+        <div class="bb-hud-card" style="border-top: 4px solid #38bdf8; height: 100%;">
+            <div style="font-size: 1.15rem; font-weight: 800; color: #38bdf8; margin-bottom: 8px;">
+                🏖️ Beach Ball Accumulation
+            </div>
+            <div style="font-size: 0.72rem; font-weight: 800; text-transform: uppercase; color: #94a3b8; letter-spacing: 0.8px; margin-bottom: 6px;">
+                VB POWER PLAY
+            </div>
+            <div style="font-size: 0.82rem; color: #cbd5e1; line-height: 1.5; margin-bottom: 12px;">
+                <b>Criteria:</b> Daily gain ≥ +3.8% on Volume ≥ 1.0x 20D ADTV during severe breadth compression (< 35% 50-SMA breadth).
+            </div>
+            <div style="background: rgba(56, 189, 248, 0.08); border-radius: 8px; padding: 10px; font-size: 0.78rem; color: #94a3b8; line-height: 1.45;">
+                <b>Physics:</b> Systemic market selling holds the stock down like hands pushing a beach ball underwater. When selling pressure abates, it violently rockets upward.
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
 
-    ### The 3 Quantitative Resilience Archetypes:
-    1. 🏖️ **Beach Ball Accumulation (VB Power Play)**:
-       - **Criteria**: Daily Return $\ge +3.8\%$ on Volume $\ge 1.0\times$ 20D ADTV during severe breadth compression ($< 35\%$ 50-SMA breadth).
-       - **Physics**: Systemic market selling holds the stock down like hands holding a beach ball underwater. When selling abates, it violently explodes upward.
-    2. 🚀 **New 52-Week High on Down Day**:
-       - **Criteria**: Stock closes within $0.5\%$ of its absolute 52-week peak while the broad market is tumbling.
-       - **Physics**: True monster leaders absorb all supply and break into blue-sky territory while the averages roll over.
-    3. 🟢 **Green on Red (Relative Strength Anchor)**:
-       - **Criteria**: Stock closes firmly green ($> 0\%$) and sits within $15\%$ of its 52-week high.
-       - **Physics**: Coiled spring leaders that refuse to give up ground during market panic.
+    with arch2:
+        st.markdown("""
+        <div class="bb-hud-card" style="border-top: 4px solid #a855f7; height: 100%;">
+            <div style="font-size: 1.15rem; font-weight: 800; color: #c084fc; margin-bottom: 8px;">
+                🚀 New 52W High on Down Day
+            </div>
+            <div style="font-size: 0.72rem; font-weight: 800; text-transform: uppercase; color: #94a3b8; letter-spacing: 0.8px; margin-bottom: 6px;">
+                BLUE-SKY RESILIENCE
+            </div>
+            <div style="font-size: 0.82rem; color: #cbd5e1; line-height: 1.5; margin-bottom: 12px;">
+                <b>Criteria:</b> Stock closes within 0.5% of its absolute 52-week peak while the broad market averages are tumbling in distribution.
+            </div>
+            <div style="background: rgba(168, 85, 247, 0.08); border-radius: 8px; padding: 10px; font-size: 0.78rem; color: #94a3b8; line-height: 1.45;">
+                <b>Physics:</b> Supply has been completely soaked up by institutional sponsors. Without overhead resistance, these stocks become the primary generals of the next bull cycle.
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
 
-    ---
+    with arch3:
+        st.markdown("""
+        <div class="bb-hud-card" style="border-top: 4px solid #10b981; height: 100%;">
+            <div style="font-size: 1.15rem; font-weight: 800; color: #10b981; margin-bottom: 8px;">
+                🟢 Green on Red (Relative Anchor)
+            </div>
+            <div style="font-size: 0.72rem; font-weight: 800; text-transform: uppercase; color: #94a3b8; letter-spacing: 0.8px; margin-bottom: 6px;">
+                COILED SPRING
+            </div>
+            <div style="font-size: 0.82rem; color: #cbd5e1; line-height: 1.5; margin-bottom: 12px;">
+                <b>Criteria:</b> Stock closes positive (> 0.0%) on heavy market red days and sits within 15% of its 52-week high.
+            </div>
+            <div style="background: rgba(16, 185, 129, 0.08); border-radius: 8px; padding: 10px; font-size: 0.78rem; color: #94a3b8; line-height: 1.45;">
+                <b>Physics:</b> Buyers absorb every sell order without retreating. When the market stabilizes, even a mild bounce catapults the coiled base into an explosive breakout.
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
 
-    ### Master Execution Rules (David Ryan & Mark Minervini):
-    - **Rule 1: Never buy on down days themselves.** Use market washouts to build your focus list. Let smart money do the heavy lifting of absorbing supply.
-    - **Rule 2: Strike on the Follow-Through Day (FTD).** When the NIFTY or S&P confirms an institutional accumulation follow-through day (Day 4+ rally of $\ge 1.5\%$ on heavy volume), immediately execute buy stops on the top Beach Ball accumulators breaking out from tight bases.
-    - **Rule 3: Follow Industry Contagion.** When 3 or 4 stocks in the same niche industry group show repeated Beach Ball power plays, that entire group will lead the next bull market.
-    """)
+    st.markdown("<div style='height: 18px;'></div>", unsafe_allow_html=True)
+    st.markdown("#### 🎯 Master Execution Roadmap (Mark Minervini & David Ryan Rules)")
+
+    r1, r2, r3 = st.columns(3)
+    with r1:
+        st.markdown("""
+        <div style="background: rgba(15, 23, 42, 0.8); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 10px; padding: 16px; height: 100%;">
+            <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 8px;">
+                <span style="background: #ef4444; color: #fff; font-weight: 800; padding: 2px 8px; border-radius: 4px; font-size: 0.75rem;">RULE 1</span>
+                <span style="font-size: 0.95rem; font-weight: 700; color: #f8fafc;">Never Buy on Down Days</span>
+            </div>
+            <div style="font-size: 0.80rem; color: #94a3b8; line-height: 1.5;">
+                Do not front-run the market. Use down sessions strictly to build your high-priority focus list. Let institutional smart money do the heavy lifting of absorbing supply.
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
+
+    with r2:
+        st.markdown("""
+        <div style="background: rgba(15, 23, 42, 0.8); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 10px; padding: 16px; height: 100%;">
+            <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 8px;">
+                <span style="background: #10b981; color: #fff; font-weight: 800; padding: 2px 8px; border-radius: 4px; font-size: 0.75rem;">RULE 2</span>
+                <span style="font-size: 0.95rem; font-weight: 700; color: #f8fafc;">Strike on Follow-Through Day</span>
+            </div>
+            <div style="font-size: 0.80rem; color: #94a3b8; line-height: 1.5;">
+                When NIFTY or S&P prints an institutional Follow-Through Day (Day 4+ rally of ≥ +1.5% on higher volume), immediately execute buy stops on the top Beach Ball accumulators breaking out from sound bases.
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
+
+    with r3:
+        st.markdown("""
+        <div style="background: rgba(15, 23, 42, 0.8); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 10px; padding: 16px; height: 100%;">
+            <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 8px;">
+                <span style="background: #6366f1; color: #fff; font-weight: 800; padding: 2px 8px; border-radius: 4px; font-size: 0.75rem;">RULE 3</span>
+                <span style="font-size: 0.95rem; font-weight: 700; color: #f8fafc;">Follow Group Contagion</span>
+            </div>
+            <div style="font-size: 0.80rem; color: #94a3b8; line-height: 1.5;">
+                When 3 or 4 stocks in the same niche industry group show repeated Beach Ball footprints, that entire group will lead the new advance. Trade the #1 Alpha stock or its #2 Sister Tandem; avoid weak sympathizers.
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
 
 # Cleanup & Footer
 st.markdown("---")
