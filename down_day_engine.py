@@ -397,3 +397,239 @@ def format_telegram_alert(
     lines.append("")
     lines.append(f"📋 *TradingView 1-Click Import*:\n`{tv_str}`")
     return "\n".join(lines)
+
+def get_cumulative_thrust_map(market: str = 'INDIA', lookback_days: int = 90) -> dict:
+    """
+    Returns a dict {clean_ticker: {'count_3m': int, 'count_1m': int, 'badge': str}}
+    aggregating beach ball power plays across recent low-breadth sessions.
+    """
+    conn = get_connection()
+    c = conn.cursor()
+    mkt_tag = 'US' if market.upper() in ['US', 'USA'] else 'INDIA'
+    
+    cutoff_3m = (datetime.now() - timedelta(days=lookback_days)).strftime('%Y-%m-%d')
+    cutoff_1m = (datetime.now() - timedelta(days=30)).strftime('%Y-%m-%d')
+    
+    result = {}
+    try:
+        # Check beach_ball_events
+        c.execute('''
+            SELECT ticker, 
+                   COUNT(CASE WHEN event_date >= ? THEN 1 END) as c_3m,
+                   COUNT(CASE WHEN event_date >= ? THEN 1 END) as c_1m
+            FROM beach_ball_events
+            WHERE market = ? AND event_date >= ?
+            GROUP BY ticker
+        ''', (cutoff_3m, cutoff_1m, mkt_tag, cutoff_3m))
+        rows = c.fetchall()
+        for r in rows:
+            clean = r[0].replace('.NS', '').replace('.BO', '')
+            c3 = int(r[1] or 0)
+            c1 = int(r[2] or 0)
+            if c3 > 0:
+                result[clean] = {
+                    'count_3m': c3,
+                    'count_1m': c1,
+                    'badge': f"🏖️ {c3}x Power Plays" if c3 >= 2 else "🏖️ 1x Thrust"
+                }
+    except Exception as e:
+        print(f"[DownDay Engine] get_cumulative_thrust_map error: {e}")
+    finally:
+        conn.close()
+    return result
+
+@st.cache_data(ttl=1800, show_spinner=False)
+def compute_multi_horizon_correction_analytics(
+    market: str = 'INDIA',
+    horizon_days: int = 21,
+    min_price: float = 20.0
+) -> tuple:
+    """
+    Multi-Horizon Macro Correction & Counter-Trend Divergence Engine:
+    Evaluates market performance over the last N trading days (e.g. 1M / 21D, 3M / 63D, 6M / 126D).
+    Identifies stocks that decoupled from broad market weakness and generated positive excess alpha.
+    
+    Returns:
+      (df_divergent, bench_summary, df_group_alpha)
+    """
+    matrix = load_price_matrix()
+    if matrix is None:
+        return pd.DataFrame(), {}, pd.DataFrame()
+        
+    is_us = market.upper() in ['US', 'USA']
+    mkt_tag = 'US' if is_us else 'INDIA'
+    
+    try:
+        close_panel = matrix.xs('Close', level=1, axis=1)
+        vol_panel = matrix.xs('Volume', level=1, axis=1)
+    except Exception as e:
+        print(f"[DownDay Engine] Horizon matrix indexing error: {e}")
+        return pd.DataFrame(), {}, pd.DataFrame()
+
+    n_bars = len(close_panel)
+    if n_bars < horizon_days + 1:
+        return pd.DataFrame(), {}, pd.DataFrame()
+
+    # Universe tickers
+    if is_us:
+        tickers = [c for c in close_panel.columns if not c.endswith('.NS') and not c.endswith('.BO') and not c.startswith('^')]
+    else:
+        tickers = [c for c in close_panel.columns if c.endswith('.NS') and not c.startswith('^')]
+
+    if not tickers:
+        return pd.DataFrame(), {}, pd.DataFrame()
+
+    sub_close = close_panel[tickers]
+    sub_vol = vol_panel[tickers]
+
+    # Time window indices
+    start_idx = max(0, n_bars - horizon_days - 1)
+    t_start = close_panel.index[start_idx]
+    t_end = close_panel.index[-1]
+
+    # Determine Benchmark Series with clean fallback
+    bench_series = None
+    bench_name = "NIFTY 500 (^CRSLDX)" if not is_us else "S&P 500 (^GSPC)"
+    
+    if not is_us:
+        if '^CRSLDX' in close_panel.columns and close_panel['^CRSLDX'].dropna().index[-1] >= t_end:
+            bench_series = close_panel['^CRSLDX'].dropna()
+        elif 'NIFTYBEES.NS' in close_panel.columns and close_panel['NIFTYBEES.NS'].dropna().index[-1] >= t_end:
+            bench_series = close_panel['NIFTYBEES.NS'].dropna()
+            bench_name = "NIFTY 50 (NIFTYBEES)"
+        else:
+            bench_series = sub_close.median(axis=1).dropna()
+            bench_name = "NIFTY Broad Market Index (Equal-Weight)"
+    else:
+        if '^GSPC' in close_panel.columns and close_panel['^GSPC'].dropna().index[-1] >= t_end:
+            bench_series = close_panel['^GSPC'].dropna()
+        elif 'SPY' in close_panel.columns and close_panel['SPY'].dropna().index[-1] >= t_end:
+            bench_series = close_panel['SPY'].dropna()
+            bench_name = "SPY (S&P 500 ETF)"
+        else:
+            bench_series = sub_close.median(axis=1).dropna()
+            bench_name = "US Broad Market Index (Equal-Weight)"
+
+    # Benchmark metrics over horizon
+    b_window = bench_series.loc[t_start:t_end]
+    if len(b_window) < 2:
+        return pd.DataFrame(), {}, pd.DataFrame()
+        
+    bench_ret_pct = ((b_window.iloc[-1] / b_window.iloc[0]) - 1.0) * 100.0
+    
+    # Daily benchmark returns in window to identify down days
+    b_daily_rets = b_window.pct_change().dropna()
+    down_days_mask = b_daily_rets < 0.0
+    down_day_dates = b_daily_rets[down_days_mask].index
+    total_down_days = len(down_day_dates)
+
+    # Benchmark Max Drawdown in window
+    b_rolling_max = b_window.cummax()
+    b_drawdown = ((b_window - b_rolling_max) / b_rolling_max) * 100.0
+    b_max_dd = b_drawdown.min()
+
+    # Stock metrics over horizon
+    c_start = sub_close.loc[t_start]
+    c_end = sub_close.loc[t_end]
+    stock_rets = ((c_end / c_start) - 1.0) * 100.0
+    
+    # 52W High Proximity
+    window_252 = sub_close.iloc[max(0, n_bars - 252):]
+    high_252 = window_252.max()
+    dist_high = ((c_end / high_252) - 1.0) * 100.0
+
+    # 20D Volume Multiple
+    vol_latest = sub_vol.loc[t_end]
+    vol_20d_avg = sub_vol.iloc[max(0, n_bars - 21):-1].mean().replace(0, np.nan)
+    vol_mult = vol_latest / vol_20d_avg
+
+    # Down-Day Hit Rate (% of days stock was GREEN when Benchmark was RED)
+    if total_down_days > 0 and len(down_day_dates) > 0:
+        sub_window = sub_close.loc[t_start:t_end]
+        sub_daily_rets = sub_window.pct_change()
+        down_day_stock_rets = sub_daily_rets.loc[sub_daily_rets.index.isin(down_day_dates)]
+        green_on_down_count = (down_day_stock_rets > 0.0).sum(axis=0)
+        down_day_win_rate = (green_on_down_count / total_down_days) * 100.0
+    else:
+        down_day_win_rate = pd.Series(50.0, index=tickers)
+
+    # Turnover
+    turnover_cr = (c_end * vol_latest) / 10000000.0 if not is_us else (c_end * vol_latest) / 1000000.0
+
+    # Assemble DataFrame with clean handling
+    df = pd.DataFrame({
+        'Ticker': tickers,
+        'Close': c_end.values,
+        'Return_Window': stock_rets.values,
+        'Alpha_Delta': (stock_rets - bench_ret_pct).values,
+        'Down_Day_Win_Rate': down_day_win_rate.values,
+        'Dist_52W_High': dist_high.values,
+        'Volume_Mult': vol_mult.values,
+        'Turnover_Cr': turnover_cr.values
+    }).dropna(subset=['Close', 'Return_Window', 'Dist_52W_High'])
+
+    # Fill volume mult if missing
+    df['Volume_Mult'] = df['Volume_Mult'].fillna(1.0)
+    df['Turnover_Cr'] = df['Turnover_Cr'].fillna(0.0)
+
+    # Clean ticker display
+    df['Clean_Ticker'] = df['Ticker'].apply(lambda t: t.replace('.NS', '').replace('.BO', ''))
+
+    # Minimum liquidity and price floor
+    df = df[df['Close'] >= min_price]
+    min_to = 2.0 if not is_us else 3.0
+    df = df[df['Turnover_Cr'] >= min_to]
+
+    # Map Industry Intelligence
+    try:
+        from industry_group_engine import get_stock_group_intelligence
+        intel = get_stock_group_intelligence(universe_scope="US (S&P 500 / Nasdaq)" if is_us else "India (NSE/BSE)")
+        df['Industry'] = df['Clean_Ticker'].apply(lambda t: intel.get(t, {}).get('group_name', 'General'))
+        df['Ind_Grade'] = df['Clean_Ticker'].apply(lambda t: intel.get(t, {}).get('group_grade_badge', '—'))
+        df['Sister_Role'] = df['Clean_Ticker'].apply(lambda t: intel.get(t, {}).get('stock_role', '—'))
+    except Exception:
+        df['Industry'] = 'General'
+        df['Ind_Grade'] = '—'
+        df['Sister_Role'] = '—'
+
+    # Map Cumulative Beach Ball Count
+    thrust_map = get_cumulative_thrust_map(market=market, lookback_days=horizon_days * 2)
+    df['Beach_Ball_Count'] = df['Clean_Ticker'].apply(lambda t: thrust_map.get(t, {}).get('count_3m', 0))
+    df['BB_Badge'] = df['Clean_Ticker'].apply(lambda t: thrust_map.get(t, {}).get('badge', '—'))
+
+    # Filter for Decoupled / Counter-Trend Leaders:
+    # Stocks with positive return OR Excess Alpha >= +5.0%
+    divergent = df[(df['Return_Window'] > 0.0) | (df['Alpha_Delta'] >= 5.0)].copy()
+
+    # Sort by Alpha Delta (Excess Return) descending
+    divergent = divergent.sort_values(['Alpha_Delta', 'Down_Day_Win_Rate'], ascending=[False, False])
+
+    # Summary Stats
+    bench_summary = {
+        'bench_name': bench_name,
+        'start_date': t_start.strftime('%Y-%m-%d'),
+        'end_date': t_end.strftime('%Y-%m-%d'),
+        'horizon_bars': len(b_window),
+        'bench_return_pct': round(bench_ret_pct, 2),
+        'bench_max_dd_pct': round(b_max_dd, 2),
+        'total_down_days': total_down_days,
+        'outperforming_count': int((df['Alpha_Delta'] > 0.0).sum()),
+        'total_universe': len(df),
+        'positive_absolute_count': int((df['Return_Window'] > 0.0).sum())
+    }
+
+    # Group-Level Alpha Aggregates
+    if not divergent.empty:
+        group_stats = divergent.groupby('Industry').agg(
+            Avg_Alpha=('Alpha_Delta', 'mean'),
+            Leader_Count=('Clean_Ticker', 'count'),
+            Top_Stock=('Clean_Ticker', 'first'),
+            Top_Stock_Return=('Return_Window', 'first')
+        ).reset_index()
+        group_stats['Avg_Alpha'] = group_stats['Avg_Alpha'].round(1)
+        group_stats = group_stats[group_stats['Leader_Count'] >= 2].sort_values(['Leader_Count', 'Avg_Alpha'], ascending=[False, False])
+    else:
+        group_stats = pd.DataFrame()
+
+    return divergent, bench_summary, group_stats
+
