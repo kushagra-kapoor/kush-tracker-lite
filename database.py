@@ -416,35 +416,105 @@ def init_database():
         )
     ''')
     safe_execute(cursor, '''
-        CREATE INDEX IF NOT EXISTS idx_sessions_hash ON app_sessions(token_hash)
-    ''')
-
-    # Down-Day Resilient Leaders & Beach Ball Accumulation History
-    safe_execute(cursor, '''
-        CREATE TABLE IF NOT EXISTS down_day_resilience_events (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            date TEXT NOT NULL,
-            market TEXT NOT NULL,
-            ticker TEXT NOT NULL,
-            clean_ticker TEXT NOT NULL,
-            archetype TEXT NOT NULL,
-            resilience_score REAL DEFAULT 0.0,
-            return_1d REAL DEFAULT 0.0,
-            dist_52w_high REAL DEFAULT 0.0,
-            volume_mult REAL DEFAULT 1.0,
-            close_price REAL DEFAULT 0.0,
-            turnover_cr REAL DEFAULT 0.0,
-            industry TEXT DEFAULT 'General',
-            ind_grade TEXT DEFAULT 'B',
-            sister_role TEXT DEFAULT 'Independent',
-            breadth_pct REAL DEFAULT 0.0,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            UNIQUE(date, market, ticker)
-        )
-    ''')
-    safe_execute(cursor, 'CREATE INDEX IF NOT EXISTS idx_ddr_date_mkt ON down_day_resilience_events(date, market)')
-    safe_execute(cursor, 'CREATE INDEX IF NOT EXISTS idx_ddr_archetype ON down_day_resilience_events(archetype)')
-
+        CREATE INDEX IF NOT EXISTS idx_sessions_hash ON app_sessions(token_hash)
+
+    ''')
+
+
+
+    # Down-Day Resilient Leaders & Beach Ball Accumulation History
+
+    safe_execute(cursor, '''
+
+        CREATE TABLE IF NOT EXISTS down_day_resilience_events (
+
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+
+            date TEXT NOT NULL,
+
+            market TEXT NOT NULL,
+
+            ticker TEXT NOT NULL,
+
+            clean_ticker TEXT NOT NULL,
+
+            archetype TEXT NOT NULL,
+
+            resilience_score REAL DEFAULT 0.0,
+
+            return_1d REAL DEFAULT 0.0,
+
+            dist_52w_high REAL DEFAULT 0.0,
+
+            volume_mult REAL DEFAULT 1.0,
+
+            close_price REAL DEFAULT 0.0,
+
+            turnover_cr REAL DEFAULT 0.0,
+
+            industry TEXT DEFAULT 'General',
+
+            ind_grade TEXT DEFAULT 'B',
+
+            sister_role TEXT DEFAULT 'Independent',
+
+            breadth_pct REAL DEFAULT 0.0,
+
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+
+            UNIQUE(date, market, ticker)
+
+        )
+
+    ''')
+
+    safe_execute(cursor, 'CREATE INDEX IF NOT EXISTS idx_ddr_date_mkt ON down_day_resilience_events(date, market)')
+
+    safe_execute(cursor, 'CREATE INDEX IF NOT EXISTS idx_ddr_archetype ON down_day_resilience_events(archetype)')
+
+    # Beach Ball Under Water (Low-Breadth Institutional Power Plays)
+    safe_execute(cursor, """
+        CREATE TABLE IF NOT EXISTS beach_ball_events (
+            ticker TEXT NOT NULL,
+            event_date TEXT NOT NULL,
+            market TEXT NOT NULL DEFAULT 'INDIA',
+            daily_return_pct REAL NOT NULL,
+            volume_multiple REAL NOT NULL,
+            turnover_cr REAL NOT NULL,
+            close_location_val REAL NOT NULL,
+            market_breadth_50sma REAL NOT NULL,
+            close_price REAL NOT NULL,
+            is_stage2 INTEGER DEFAULT 1,
+            created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY (ticker, event_date, market)
+        )
+    """)
+    safe_execute(cursor, 'CREATE INDEX IF NOT EXISTS idx_bb_date ON beach_ball_events(event_date)')
+    safe_execute(cursor, 'CREATE INDEX IF NOT EXISTS idx_bb_mkt_date ON beach_ball_events(market, event_date)')
+    safe_execute(cursor, 'CREATE INDEX IF NOT EXISTS idx_bb_ticker_mkt ON beach_ball_events(ticker, market)')
+
+    # 2020 vs 2021 Market Execution Persona Daily History
+    safe_execute(cursor, """
+        CREATE TABLE IF NOT EXISTS market_persona_daily (
+            date TEXT NOT NULL,
+            market TEXT NOT NULL DEFAULT 'INDIA',
+            composite_score REAL NOT NULL,
+            persona_label TEXT NOT NULL,
+            trading_mandate TEXT NOT NULL,
+            sector_tenure_pct REAL,
+            breakout_health_pct REAL,
+            leader_21ema_pct REAL,
+            mega_cap_spread REAL,
+            details_json TEXT,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY (date, market)
+        )
+    """)
+    safe_execute(cursor, 'CREATE INDEX IF NOT EXISTS idx_persona_mkt_date ON market_persona_daily(market, date)')
+
+
+
+
     conn.commit()
     conn.close()
     print("Database initialized successfully")
@@ -1882,6 +1952,238 @@ def get_available_resilience_dates(market: str = 'INDIA') -> list:
         return [r[0] for r in rows if r and r[0]]
     except Exception as e:
         print(f"[DB Error] get_available_resilience_dates: {e}")
+        return []
+    finally:
+        conn.close()
+
+
+
+# =============================================================================
+# BEACH BALL UNDER WATER (LOW-BREADTH ACCUMULATION POWER PLAYS)
+# =============================================================================
+
+def save_beach_ball_events(events: list) -> int:
+    """Batch inserts beach ball accumulation power play records (idempotent)."""
+    if not events:
+        return 0
+    conn = get_connection()
+    c = conn.cursor()
+    inserted = 0
+    try:
+        for ev in events:
+            safe_execute(c, """
+                INSERT OR IGNORE INTO beach_ball_events (
+                    ticker, event_date, market, daily_return_pct, volume_multiple,
+                    turnover_cr, close_location_val, market_breadth_50sma, close_price, is_stage2
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, (
+                ev['ticker'], ev['event_date'], ev.get('market', 'INDIA'),
+                float(ev.get('daily_return_pct', 0.0)), float(ev.get('volume_multiple', 1.0)),
+                float(ev.get('turnover_cr', 0.0)), float(ev.get('close_location_val', 1.0)),
+                float(ev.get('market_breadth_50sma', 0.0)), float(ev.get('close_price', 0.0)),
+                int(ev.get('is_stage2', 1))
+            ))
+            if c.rowcount > 0:
+                inserted += 1
+        conn.commit()
+    except Exception as e:
+        print(f"[DB Error] Failed to save beach ball events: {e}")
+    finally:
+        conn.close()
+    return inserted
+
+def get_latest_beach_ball_sync_date(market: str = 'INDIA') -> str:
+    """Returns the latest event_date saved in beach_ball_events for market."""
+    conn = get_connection()
+    c = conn.cursor()
+    try:
+        safe_execute(c, 'SELECT MAX(event_date) FROM beach_ball_events WHERE market = ?', (market,))
+        row = c.fetchone()
+        return row[0] if row and row[0] else ''
+    except Exception as e:
+        print(f"[DB Error] get_latest_beach_ball_sync_date: {e}")
+        return ''
+    finally:
+        conn.close()
+
+def get_beach_ball_leaderboard(market: str = 'INDIA', breadth_threshold: float = 35.0, min_power_plays_3m: int = 1) -> list:
+    """
+    Returns aggregated beach ball leaderboard:
+    Ranked by 3M power plays (63 trading days) followed by 1M power plays (21 trading days).
+    """
+    conn = get_connection()
+    c = conn.cursor()
+    try:
+        safe_execute(c, """
+            SELECT 
+                ticker,
+                COUNT(*) as power_plays_3m,
+                SUM(CASE WHEN event_date >= date('now', '-30 days') THEN 1 ELSE 0 END) as power_plays_1m,
+                MAX(event_date) as last_power_play_date,
+                AVG(volume_multiple) as avg_vol_multiple,
+                MAX(daily_return_pct) as max_gain_pct,
+                MIN(market_breadth_50sma) as lowest_breadth_absorbed,
+                close_price
+            FROM beach_ball_events
+            WHERE market = ? 
+              AND event_date >= date('now', '-90 days')
+              AND market_breadth_50sma <= ?
+            GROUP BY ticker
+            HAVING power_plays_3m >= ?
+            ORDER BY power_plays_3m DESC, power_plays_1m DESC, avg_vol_multiple DESC
+        """, (market, breadth_threshold, min_power_plays_3m))
+        rows = c.fetchall()
+        leaderboard = []
+        for r in rows:
+            leaderboard.append({
+                'ticker': r[0],
+                'power_plays_3m': r[1],
+                'power_plays_1m': r[2],
+                'last_power_play_date': r[3],
+                'avg_vol_multiple': round(r[4], 2) if r[4] else 1.0,
+                'max_gain_pct': round(r[5], 2) if r[5] else 0.0,
+                'lowest_breadth_absorbed': round(r[6], 1) if r[6] else 0.0,
+                'last_close_price': round(r[7], 2) if r[7] else 0.0
+            })
+        return leaderboard
+    except Exception as e:
+        print(f"[DB Error] get_beach_ball_leaderboard: {e}")
+        return []
+    finally:
+        conn.close()
+
+def get_beach_ball_badge_map(market: str = 'INDIA') -> dict:
+    """
+    Returns an O(1) lookup dictionary of {ticker: {'3m': count_3m, '1m': count_1m, 'last_date': str}}
+    for instant badging across tables without multiple queries.
+    """
+    conn = get_connection()
+    c = conn.cursor()
+    try:
+        safe_execute(c, """
+            SELECT 
+                ticker,
+                COUNT(*) as power_plays_3m,
+                SUM(CASE WHEN event_date >= date('now', '-30 days') THEN 1 ELSE 0 END) as power_plays_1m,
+                MAX(event_date) as last_power_play_date
+            FROM beach_ball_events
+            WHERE market = ? AND event_date >= date('now', '-90 days')
+            GROUP BY ticker
+        """, (market,))
+        rows = c.fetchall()
+        badge_map = {}
+        for r in rows:
+            info = {
+                '3m': r[1],
+                '1m': r[2],
+                'last_date': r[3]
+            }
+            raw_t = r[0]
+            badge_map[raw_t] = info
+            badge_map[raw_t.replace('.NS', '')] = info
+        return badge_map
+    except Exception as e:
+        print(f"[DB Error] get_beach_ball_badge_map: {e}")
+        return {}
+    finally:
+        conn.close()
+
+# =============================================================================
+# 2020 VS 2021 MARKET EXECUTION PERSONA
+# =============================================================================
+
+def save_market_persona(data: dict) -> bool:
+    if not data or 'date' not in data:
+        return False
+    import json
+    conn = get_connection()
+    c = conn.cursor()
+    try:
+        details = data.get('details_json', '{}')
+        if isinstance(details, (dict, list)):
+            details = json.dumps(details)
+            
+        safe_execute(c, """
+            INSERT OR REPLACE INTO market_persona_daily (
+                date, market, composite_score, persona_label, trading_mandate,
+                sector_tenure_pct, breakout_health_pct, leader_21ema_pct,
+                mega_cap_spread, details_json
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """, (
+            data['date'],
+            data.get('market', 'INDIA'),
+            float(data.get('composite_score', 50.0)),
+            data.get('persona_label', 'Balanced Regime'),
+            data.get('trading_mandate', 'Hybrid Trading'),
+            float(data.get('sector_tenure_pct', 50.0)),
+            float(data.get('breakout_health_pct', 50.0)),
+            float(data.get('leader_21ema_pct', 50.0)),
+            float(data.get('mega_cap_spread', 0.0)),
+            details
+        ))
+        conn.commit()
+        return True
+    except Exception as e:
+        print(f"[DB Error] save_market_persona: {e}")
+        return False
+    finally:
+        conn.close()
+
+def get_latest_market_persona(market: str = 'INDIA') -> dict:
+    import json
+    conn = get_connection()
+    c = conn.cursor()
+    try:
+        safe_execute(c, """
+            SELECT * FROM market_persona_daily
+            WHERE market = ?
+            ORDER BY date DESC
+            LIMIT 1
+        """, (market,))
+        row = _fetch_one_dict(c)
+        if not row:
+            return None
+        res = dict(row)
+        if res.get('details_json'):
+            try:
+                res['details'] = json.loads(res['details_json'])
+            except Exception:
+                res['details'] = {}
+        else:
+            res['details'] = {}
+        return res
+    except Exception as e:
+        print(f"[DB Error] get_latest_market_persona: {e}")
+        return None
+    finally:
+        conn.close()
+
+def get_market_persona_history(market: str = 'INDIA', days: int = 60) -> list:
+    import json
+    conn = get_connection()
+    c = conn.cursor()
+    try:
+        safe_execute(c, """
+            SELECT * FROM market_persona_daily
+            WHERE market = ?
+            ORDER BY date DESC
+            LIMIT ?
+        """, (market, days))
+        rows = _fetch_all_dicts(c)
+        result = []
+        for r in rows:
+            item = dict(r)
+            if item.get('details_json'):
+                try:
+                    item['details'] = json.loads(item['details_json'])
+                except Exception:
+                    item['details'] = {}
+            else:
+                item['details'] = {}
+            result.append(item)
+        return result
+    except Exception as e:
+        print(f"[DB Error] get_market_persona_history: {e}")
         return []
     finally:
         conn.close()

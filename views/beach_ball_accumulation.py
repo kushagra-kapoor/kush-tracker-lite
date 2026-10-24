@@ -22,7 +22,22 @@ if not hasattr(database, 'save_beach_ball_events') or not hasattr(database, 'sav
     import importlib
     importlib.reload(database)
 
-from database import get_connection, get_latest_beach_ball_sync_date
+try:
+    from database import get_connection, get_latest_beach_ball_sync_date
+except ImportError:
+    from database import get_connection
+    def get_latest_beach_ball_sync_date(market: str = 'INDIA') -> str:
+        conn = get_connection()
+        c = conn.cursor()
+        try:
+            c.execute('SELECT MAX(event_date) FROM beach_ball_events WHERE market = ?', (market,))
+            row = c.fetchone()
+            return row[0] if row and row[0] else ''
+        except Exception:
+            return ''
+        finally:
+            conn.close()
+
 from beach_ball_engine import get_enriched_beach_ball_radar, get_low_breadth_dates
 import down_day_engine as dde
 
