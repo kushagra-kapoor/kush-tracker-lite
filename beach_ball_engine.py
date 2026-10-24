@@ -17,6 +17,7 @@ import sqlite3
 import pandas as pd
 import numpy as np
 from datetime import datetime, timedelta
+import streamlit as st
 
 import database
 if not hasattr(database, 'save_beach_ball_events') or not hasattr(database, 'get_beach_ball_badge_map'):
@@ -32,6 +33,7 @@ from database import (
     get_all_fundamentals_cache
 )
 
+@st.cache_data(ttl=1800, show_spinner=False)
 def get_low_breadth_dates(market: str = 'INDIA', breadth_threshold: float = 35.0, lookback_days: int = 180) -> dict:
     """
     Returns a dict of {date_str: above_50_pct} for sessions where 50-SMA breadth was below threshold.
@@ -255,6 +257,7 @@ def auto_sync_beach_ball_if_low_breadth(breadth_threshold: float = 35.0) -> dict
 
     return results
 
+@st.cache_data(ttl=1800, show_spinner=False)
 def get_enriched_beach_ball_radar(
     market: str = 'INDIA',
     breadth_threshold: float = 35.0,
@@ -286,14 +289,11 @@ def get_enriched_beach_ball_radar(
     industry_map = {}
     comp_name_map = {}
 
-    matrix_path = 'historical_prices_matrix.pkl'
-    df_matrix = None
-    if os.path.exists(matrix_path):
-        try:
-            with open(matrix_path, 'rb') as f:
-                df_matrix = pickle.load(f)
-        except Exception:
-            pass
+    try:
+        from down_day_engine import load_price_matrix
+        df_matrix = load_price_matrix()
+    except Exception:
+        df_matrix = None
 
     for t in df['ticker']:
         clean_t = t.replace('.NS', '')

@@ -379,12 +379,13 @@ with tab_session:
         )
 
     # Query Washout Sessions
-    df_washouts = dde.get_historical_market_down_dates(
-        market=mkt_tag,
-        min_drop_pct=0.75,
-        max_breadth_pct=35.0,
-        lookback_days=days_num
-    )
+    with st.spinner("🔍 Fetching historical market washout sessions..."):
+        df_washouts = dde.get_historical_market_down_dates(
+            market=mkt_tag,
+            min_drop_pct=0.75,
+            max_breadth_pct=35.0,
+            lookback_days=days_num
+        )
 
     if df_washouts.empty:
         st.warning(f"No qualifying market washout sessions found for {selected_market} in the selected lookback.")
@@ -397,8 +398,6 @@ with tab_session:
             badge = row['severity_badge']
             adv = int(row.get('advances', 0) or 0)
             dec = int(row.get('declines', 0) or 0)
-            if adv == 0 and dec == 0:
-                adv, dec = dde.get_session_advance_decline(d_str, market=mkt_tag)
             ad_str = f" • A/D: {adv}/{dec}" if (adv > 0 or dec > 0) else ""
             return f"{d_str}  ·  {badge}  (Breadth: {b_pct:.1f}% > 50SMA • Net Highs: {nnh:+d}{ad_str})"
 
@@ -434,12 +433,13 @@ with tab_session:
             render_metric_card("Advance / Decline", f"{adv} / {dec}", subtitle=f"Ratio: {ratio_str}")
 
         # Fetch Resilient Leaders for Date
-        df_resilient = dde.compute_down_day_resilience(
-            target_date_str=selected_date,
-            market=mkt_tag,
-            min_price=min_price_pit,
-            max_dist_high=15.0
-        )
+        with st.spinner(f"⏳ Analyzing institutional accumulation, Beach Ball footprints & CANSLIM RS leaders for {selected_date}... Please be patient while the engine processes 4,000+ equities."):
+            df_resilient = dde.compute_down_day_resilience(
+                target_date_str=selected_date,
+                market=mkt_tag,
+                min_price=min_price_pit,
+                max_dist_high=15.0
+            )
 
         if df_resilient.empty:
             st.info(f"ℹ️ No resilient stocks matched the criteria on {selected_date}.")
@@ -976,7 +976,7 @@ with tab_horizon:
     with hz_col2:
         min_price_hz = st.number_input(f"Min Price ({cs}):", value=20.0 if not is_us else 5.0, step=5.0, key="hz_min_price")
 
-    with st.spinner(f"Computing multi-horizon alpha divergence across {selected_market}..."):
+    with st.spinner(f"⏳ Computing {horizon_preset} Counter-Trend Divergence & Relative Alpha across {selected_market}... Please be patient while the engine analyzes excess returns."):
         df_divergent, bench_summary, df_group_alpha = dde.compute_multi_horizon_correction_analytics(
             market=mkt_tag,
             horizon_days=h_days,

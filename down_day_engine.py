@@ -551,6 +551,7 @@ def format_telegram_alert(
     lines.append(f"📋 *TradingView 1-Click Import*:\n`{tv_str}`")
     return "\n".join(lines)
 
+@st.cache_data(ttl=1800, show_spinner=False)
 def get_cumulative_thrust_map(market: str = 'INDIA', lookback_days: int = 90) -> dict:
     """
     Returns a dict {clean_ticker: {'count_3m': int, 'count_1m': int, 'badge': str}}
