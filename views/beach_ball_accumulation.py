@@ -553,17 +553,55 @@ with tab_session:
                     )
                     qpc = str(quick_preset_c or "")
 
+                    if "pit_prev_quick_preset_c" not in st.session_state:
+                        st.session_state["pit_prev_quick_preset_c"] = qpc
+
+                    if qpc != st.session_state["pit_prev_quick_preset_c"]:
+                        st.session_state["pit_prev_quick_preset_c"] = qpc
+                        if "Ironclad" in qpc:
+                            st.session_state["pit_cluster_min_rs_slider"] = 80
+                            st.session_state["pit_cluster_min_hit_slider"] = 60
+                            st.session_state["pit_cluster_chk_top20"] = False
+                            st.session_state["pit_cluster_chk_alpha_sister"] = False
+                        elif "Perfect Defiance" in qpc:
+                            st.session_state["pit_cluster_min_rs_slider"] = 80
+                            st.session_state["pit_cluster_min_hit_slider"] = 80
+                            st.session_state["pit_cluster_chk_top20"] = False
+                            st.session_state["pit_cluster_chk_alpha_sister"] = False
+                        elif "All Leaders" in qpc:
+                            st.session_state["pit_cluster_min_rs_slider"] = 80
+                            st.session_state["pit_cluster_min_hit_slider"] = 40
+                            st.session_state["pit_cluster_chk_top20"] = False
+                            st.session_state["pit_cluster_chk_alpha_sister"] = False
+                        elif "Full Universe" in qpc:
+                            st.session_state["pit_cluster_min_rs_slider"] = 0
+                            st.session_state["pit_cluster_min_hit_slider"] = 20
+                            st.session_state["pit_cluster_chk_top20"] = False
+                            st.session_state["pit_cluster_chk_alpha_sister"] = False
+                        elif "Alpha Leaders" in qpc:
+                            st.session_state["pit_cluster_min_rs_slider"] = 80
+                            st.session_state["pit_cluster_min_hit_slider"] = 40
+                            st.session_state["pit_cluster_chk_alpha_sister"] = True
+                        elif "Top 20%" in qpc:
+                            st.session_state["pit_cluster_min_rs_slider"] = 80
+                            st.session_state["pit_cluster_min_hit_slider"] = 40
+                            st.session_state["pit_cluster_chk_top20"] = True
+                        elif "Repeat Beach Balls" in qpc:
+                            st.session_state["pit_cluster_min_rs_slider"] = 0
+                            st.session_state["pit_cluster_min_hit_slider"] = 20
+                        st.rerun()
+
                     # 4. Interactive Sliders & Search
-                    preset_rs_c = 0 if "Full Universe" in qpc else 80
-                    preset_hit_c = 80 if "Perfect Defiance" in qpc else (60 if "Ironclad" in qpc else 40)
+                    if "pit_cluster_min_rs_slider" not in st.session_state:
+                        st.session_state["pit_cluster_min_rs_slider"] = 80
+                    if "pit_cluster_min_hit_slider" not in st.session_state:
+                        st.session_state["pit_cluster_min_hit_slider"] = 40
 
                     cf_col1, cf_col2, cf_col3, cf_col4 = st.columns([1.2, 1.2, 1.1, 1.5])
                     with cf_col1:
                         min_rs_c = st.slider(
                             "Min Relative Strength (RS Rating):",
                             min_value=0, max_value=99,
-                            value=preset_rs_c,
-                            step=1,
                             key="pit_cluster_min_rs_slider",
                             help="CANSLIM Percentile Relative Strength Rating (1-99). Default is 80 (O'Neil Market Leader threshold)."
                         )
@@ -571,7 +609,6 @@ with tab_session:
                         min_hit_c = st.slider(
                             "Min Down-Day Hit Rate %:",
                             min_value=20, max_value=100,
-                            value=preset_hit_c,
                             step=10,
                             key="pit_cluster_min_hit_slider",
                             help="Percentage of selected down sessions where the stock held green / positive return"
@@ -661,8 +698,22 @@ with tab_session:
                     if "Repeat Beach Balls" in qpc:
                         df_c_disp = df_c_disp[df_c_disp['Beach_Ball_Plays'] >= 2].copy()
 
-                    df_c_disp = df_c_disp[df_c_disp['RS_Rating'] >= min_rs_c]
-                    df_c_disp = df_c_disp[df_c_disp['Hit_Rate_Pct'] >= min_hit_c]
+                    # Explicit Preset Enforcement
+                    if "Ironclad" in qpc:
+                        eff_rs = max(int(min_rs_c), 80)
+                        eff_hit = max(int(min_hit_c), 60)
+                    elif "Perfect Defiance" in qpc:
+                        eff_rs = max(int(min_rs_c), 80)
+                        eff_hit = max(int(min_hit_c), 80)
+                    elif "All Leaders" in qpc:
+                        eff_rs = max(int(min_rs_c), 80)
+                        eff_hit = int(min_hit_c)
+                    else:
+                        eff_rs = int(min_rs_c)
+                        eff_hit = int(min_hit_c)
+
+                    df_c_disp = df_c_disp[df_c_disp['RS_Rating'] >= eff_rs]
+                    df_c_disp = df_c_disp[df_c_disp['Hit_Rate_Pct'] >= eff_hit]
                     df_c_disp = df_c_disp[df_c_disp['Avg_Alpha'] >= min_alpha_c]
 
                     if chk_top20_c or "Top 20%" in qpc:
@@ -882,17 +933,50 @@ with tab_session:
                 )
                 qp = str(quick_preset or "")
 
+                if "pit_prev_quick_preset" not in st.session_state:
+                    st.session_state["pit_prev_quick_preset"] = qp
+
+                if qp != st.session_state["pit_prev_quick_preset"]:
+                    st.session_state["pit_prev_quick_preset"] = qp
+                    if "Elite" in qp:
+                        st.session_state["pit_min_rs_slider"] = 80
+                        st.session_state["pit_min_alpha_slider"] = 50.0
+                        st.session_state["pit_chk_top20"] = False
+                        st.session_state["pit_chk_alpha_sister"] = False
+                    elif "Apex" in qp:
+                        st.session_state["pit_min_rs_slider"] = 90
+                        st.session_state["pit_min_alpha_slider"] = 0.0
+                        st.session_state["pit_chk_top20"] = False
+                        st.session_state["pit_chk_alpha_sister"] = False
+                    elif "All Leaders" in qp:
+                        st.session_state["pit_min_rs_slider"] = 80
+                        st.session_state["pit_min_alpha_slider"] = 0.0
+                        st.session_state["pit_chk_top20"] = False
+                        st.session_state["pit_chk_alpha_sister"] = False
+                    elif "Full Resilient" in qp:
+                        st.session_state["pit_min_rs_slider"] = 0
+                        st.session_state["pit_min_alpha_slider"] = 0.0
+                        st.session_state["pit_chk_top20"] = False
+                        st.session_state["pit_chk_alpha_sister"] = False
+                    elif "Alpha Leaders" in qp:
+                        st.session_state["pit_min_rs_slider"] = 80
+                        st.session_state["pit_chk_alpha_sister"] = True
+                    elif "Top 20%" in qp:
+                        st.session_state["pit_min_rs_slider"] = 80
+                        st.session_state["pit_chk_top20"] = True
+                    st.rerun()
+
                 # 4. Interactive Fine-Tuning Controls (Sliders, Checkboxes, Dropdowns & Search)
-                preset_rs = 0 if "Full Resilient" in qp else (90 if "Apex" in qp else 80)
-                preset_alpha = 50.0 if "Elite" in qp else 0.0
+                if "pit_min_rs_slider" not in st.session_state:
+                    st.session_state["pit_min_rs_slider"] = 80
+                if "pit_min_alpha_slider" not in st.session_state:
+                    st.session_state["pit_min_alpha_slider"] = 0.0
 
                 f_col1, f_col2, f_col3, f_col4 = st.columns([1.2, 1.2, 1.1, 1.5])
                 with f_col1:
                     min_rs = st.slider(
                         "Min Relative Strength (RS Rating):",
                         min_value=0, max_value=99,
-                        value=preset_rs,
-                        step=1,
                         key="pit_min_rs_slider",
                         help="CANSLIM Percentile Relative Strength Rating (1-99). Default is 80 (O'Neil Market Leader threshold)."
                     )
@@ -900,7 +984,6 @@ with tab_session:
                     min_alpha = st.slider(
                         "Min Alpha Score (0-100):",
                         min_value=0.0, max_value=100.0,
-                        value=preset_alpha,
                         step=5.0,
                         key="pit_min_alpha_slider",
                         help="Session resilience alpha score combining 1D return, volume expansion, and 52W high proximity"
@@ -996,9 +1079,22 @@ with tab_session:
                 elif "Multi-Accumulated" in qp:
                     df_disp = df_disp[~df_disp['Cumulative_Accumulation'].str.contains(r"1x \(Single")].copy()
 
-                # Numeric & Search Filters
-                df_disp = df_disp[df_disp['RS_Rating'] >= min_rs]
-                df_disp = df_disp[df_disp['Alpha_Score'] >= min_alpha]
+                # Explicit Preset Enforcement
+                if "Elite" in qp:
+                    eff_rs_s = max(int(min_rs), 80)
+                    eff_alpha_s = max(float(min_alpha), 50.0)
+                elif "Apex" in qp:
+                    eff_rs_s = max(int(min_rs), 90)
+                    eff_alpha_s = float(min_alpha)
+                elif "All Leaders" in qp:
+                    eff_rs_s = max(int(min_rs), 80)
+                    eff_alpha_s = float(min_alpha)
+                else:
+                    eff_rs_s = int(min_rs)
+                    eff_alpha_s = float(min_alpha)
+
+                df_disp = df_disp[df_disp['RS_Rating'] >= eff_rs_s]
+                df_disp = df_disp[df_disp['Alpha_Score'] >= eff_alpha_s]
                 df_disp = df_disp[df_disp['Volume_Mult'] >= min_vol]
 
                 # IBD Grade Filters (Checkbox + Multiselect)
