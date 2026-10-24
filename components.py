@@ -38,13 +38,16 @@ def render_header(title: str, subtitle: str, icon: str = ""):
     </div>
     """, unsafe_allow_html=True)
     
-def render_metric_card(label: str, value: str, color_class: str = "", extra_style: str = ""):
+def render_metric_card(label: str, value: str, color_class: str = "", extra_style: str = "", subtext: str = "", **kwargs):
     """Renders a standardized metric card."""
     # color_class e.g., 'green-text', 'red-text', 'yellow-text'
+    st_text = subtext or kwargs.get('subtitle', '') or kwargs.get('sub_label', '') or kwargs.get('help', '')
+    subtext_html = f'<div style="font-size: 0.75rem; color: #94a3b8; margin-top: 4px;">{st_text}</div>' if st_text else ''
     st.markdown(f"""
     <div class="metric-card" style="{extra_style}">
         <div class="metric-label">{label}</div>
         <div class="metric-value {color_class}">{value}</div>
+        {subtext_html}
     </div>
     """, unsafe_allow_html=True)
 
