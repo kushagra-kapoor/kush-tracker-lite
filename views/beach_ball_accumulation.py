@@ -132,6 +132,49 @@ st.markdown("""
     background: #eab308;
     z-index: 2;
 }
+.tab-question-banner {
+    background: linear-gradient(135deg, rgba(15, 23, 42, 0.92) 0%, rgba(30, 41, 59, 0.78) 100%);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 10px;
+    padding: 14px 18px;
+    margin-bottom: 18px;
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.25);
+    backdrop-filter: blur(8px);
+}
+.tqb-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 4px;
+}
+.tqb-badge {
+    font-size: 0.68rem;
+    font-weight: 800;
+    text-transform: uppercase;
+    letter-spacing: 0.9px;
+    padding: 2px 8px;
+    border-radius: 4px;
+}
+.tqb-question {
+    font-size: 1.02rem;
+    font-weight: 700;
+    color: #f8fafc;
+    line-height: 1.45;
+    margin: 6px 0 8px 0;
+}
+.tqb-meta {
+    font-size: 0.80rem;
+    color: #94a3b8;
+    line-height: 1.45;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 16px;
+    border-top: 1px solid rgba(255, 255, 255, 0.06);
+    padding-top: 6px;
+}
+.tqb-meta span b {
+    color: #e2e8f0;
+}
 </style>
 """, unsafe_allow_html=True)
 
@@ -283,6 +326,23 @@ tab_session, tab_leaderboard, tab_horizon, tab_playbook = st.tabs([
 # TAB 1: POINT-IN-TIME SESSION RADAR (SINGLE DOWN-DAY DEEP DIVE)
 # -------------------------------------------------------------------------
 with tab_session:
+    st.markdown("""
+    <div class="tab-question-banner" style="border-left: 4px solid #38bdf8;">
+        <div class="tqb-header">
+            <span class="tqb-badge" style="color: #38bdf8; background: rgba(56, 189, 248, 0.12); border: 1px solid rgba(56, 189, 248, 0.25);">
+                🎯 CORE QUESTION ANSWERED
+            </span>
+        </div>
+        <div class="tqb-question">
+            "Today was a red day where 90% of stocks declined. Which 10% of stocks defied gravity, closed green, surged ≥ +4% on heavy volume, or broke out to new 52-week highs?"
+        </div>
+        <div class="tqb-meta">
+            <span>⏱️ <b>When to use:</b> Every market down session at 3:35 PM IST (or 4:05 PM EST) to construct tomorrow's high-conviction focus list.</span>
+            <span>⚡ <b>What to do:</b> Select the washout date, inspect the 3 resilience archetypes, verify cumulative accumulation footprint, and export symbols to TradingView or Notion.</span>
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
+
     st.markdown("#### 📅 Single-Day Washout & Correction Session Analyzer")
     st.caption("Inspect exactly which equities printed Beach Ball thrusts, broke out to 52W highs, or closed green during severe market pullbacks.")
 
@@ -459,6 +519,23 @@ with tab_session:
 # TAB 2: CUMULATIVE BEACH BALL LEADERBOARD (MULTI-DAY ACCUMULATION)
 # -------------------------------------------------------------------------
 with tab_leaderboard:
+    st.markdown("""
+    <div class="tab-question-banner" style="border-left: 4px solid #c084fc;">
+        <div class="tqb-header">
+            <span class="tqb-badge" style="color: #c084fc; background: rgba(192, 132, 252, 0.12); border: 1px solid rgba(192, 132, 252, 0.25);">
+                🎯 CORE QUESTION ANSWERED
+            </span>
+        </div>
+        <div class="tqb-question">
+            "Across all down days over the past 1 to 3 months, which stocks have institutions accumulated multiple times (2x, 3x, 4x+)? Who has the tightest coiled spring ready to launch on the market follow-through day?"
+        </div>
+        <div class="tqb-meta">
+            <span>⏱️ <b>When to use:</b> Weekend review or after multi-week market pullbacks to isolate recurring institutional footprints and group contagion.</span>
+            <span>⚡ <b>What to do:</b> Filter by Multi-Accumulators (≥2x) or Apex Power (≥4x), inspect Industry Group Contagion clusters, and set pivot buy alerts for the next confirmed FTD.</span>
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
+
     p_col1, p_col2 = st.columns([2.8, 1.2])
     with p_col1:
         preset_choice = st.pills(
@@ -598,6 +675,23 @@ with tab_leaderboard:
 # TAB 3: MULTI-HORIZON CORRECTION & RELATIVE ALPHA ANALYTICS (1M / 3M)
 # -------------------------------------------------------------------------
 with tab_horizon:
+    st.markdown("""
+    <div class="tab-question-banner" style="border-left: 4px solid #10b981;">
+        <div class="tqb-header">
+            <span class="tqb-badge" style="color: #10b981; background: rgba(16, 185, 129, 0.12); border: 1px solid rgba(16, 185, 129, 0.25);">
+                🎯 CORE QUESTION ANSWERED
+            </span>
+        </div>
+        <div class="tqb-question">
+            "Over the last 1 Month (21D) or 3 Months (63D), the broad market fell. Which stocks completely decoupled, generated positive absolute returns, and delivered massive Alpha Delta (α)?"
+        </div>
+        <div class="tqb-meta">
+            <span>⏱️ <b>When to use:</b> During slow, choppy, or correcting markets to verify institutional sponsorship and true regime-decoupling market generals.</span>
+            <span>⚡ <b>What to do:</b> Compare Benchmark Max Drawdown vs stock gain, prioritize high Down-Day Win Rates (>70%), and spot decoupled theme clusters.</span>
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
+
     st.markdown("#### 🔬 Multi-Horizon Correction & Counter-Trend Divergence Matrix")
     st.caption("When the broad market is bad over 1 Month (21D) or 3 Months (63D), uncover the true leaders generating positive absolute returns and massive Alpha Delta.")
 
@@ -720,6 +814,23 @@ with tab_horizon:
 # TAB 4: MASTER TRADER PLAYBOOK
 # -------------------------------------------------------------------------
 with tab_playbook:
+    st.markdown("""
+    <div class="tab-question-banner" style="border-left: 4px solid #eab308;">
+        <div class="tqb-header">
+            <span class="tqb-badge" style="color: #eab308; background: rgba(234, 179, 8, 0.12); border: 1px solid rgba(234, 179, 8, 0.25);">
+                🎯 CORE QUESTION ANSWERED
+            </span>
+        </div>
+        <div class="tqb-question">
+            "What are the strict William J. O'Neil, David Ryan, and Mark Minervini execution rules for trading Beach Balls and striking on Follow-Through Days?"
+        </div>
+        <div class="tqb-meta">
+            <span>⏱️ <b>When to use:</b> Before pulling the trigger on trades, sizing exposure, or placing stops during market turnarounds.</span>
+            <span>⚡ <b>What to do:</b> Memorize Rule 1 (Never chase on red days; build the watchlist), Rule 2 (Execute on FTD from sound bases), and Rule 3 (Follow 3+ stock group contagion).</span>
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
+
     st.markdown(r"""
     ### 📖 The Law of Down-Day Resilience & Submerged Leaders
     > *"During general market declines of 10% to 20%, 90% of all stocks decline with the averages. **The 10% that resist the decline, hold their ground, or actually advance to new highs are almost always the huge winners of the next market cycle.** Smart money uses market panic to quietly accumulate their highest-conviction ideas without pushing the price through the roof."*  
