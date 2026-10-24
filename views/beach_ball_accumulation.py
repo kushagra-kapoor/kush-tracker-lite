@@ -335,9 +335,12 @@ with tab_session:
             b_pct = row['above_50_pct']
             nnh = int(row['net_new_highs'])
             badge = row['severity_badge']
-            adv = row['advances']
-            dec = row['declines']
-            return f"{d_str}  ·  {badge}  (Breadth: {b_pct:.1f}% > 50SMA • Net Highs: {nnh:+d} • A/D: {adv}/{dec})"
+            adv = int(row.get('advances', 0) or 0)
+            dec = int(row.get('declines', 0) or 0)
+            if adv == 0 and dec == 0:
+                adv, dec = dde.get_session_advance_decline(d_str, market=mkt_tag)
+            ad_str = f" • A/D: {adv}/{dec}" if (adv > 0 or dec > 0) else ""
+            return f"{d_str}  ·  {badge}  (Breadth: {b_pct:.1f}% > 50SMA • Net Highs: {nnh:+d}{ad_str})"
 
         selected_date = st.selectbox(
             "Select Market Down Day to Inspect:",
@@ -363,9 +366,12 @@ with tab_session:
             nnh_class = "red-text" if nnh_val < 0 else "green-text"
             render_metric_card("Net 52W Highs/Lows", f"{nnh_val:+d}", subtitle="New Highs vs New Lows", color_class=nnh_class)
         with sm4:
-            adv = date_meta['advances']
-            dec = date_meta['declines']
-            render_metric_card("Advance / Decline", f"{adv} / {dec}", subtitle=f"Ratio: {adv/max(1,dec):.2f}")
+            adv = int(date_meta.get('advances', 0) or 0)
+            dec = int(date_meta.get('declines', 0) or 0)
+            if adv == 0 and dec == 0:
+                adv, dec = dde.get_session_advance_decline(selected_date, market=mkt_tag)
+            ratio_str = f"{adv/max(1,dec):.2f}" if (adv > 0 or dec > 0) else "—"
+            render_metric_card("Advance / Decline", f"{adv} / {dec}", subtitle=f"Ratio: {ratio_str}")
 
         # Fetch Resilient Leaders for Date
         df_resilient = dde.compute_down_day_resilience(

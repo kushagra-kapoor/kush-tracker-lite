@@ -438,6 +438,72 @@ def get_cumulative_thrust_map(market: str = 'INDIA', lookback_days: int = 90) ->
         conn.close()
     return result
 
+def get_clean_active_trading_panel(close_panel: pd.DataFrame, is_us: bool = False) -> pd.DataFrame:
+    """
+    Filters price panel to valid trading sessions where the exchange was open.
+    Eliminates national holidays (e.g. Gandhi Jayanti Oct 2), partial sessions,
+    and sparse data artifacts that cause mathematical distortion.
+    """
+    min_stocks = 200 if is_us else 500
+    active_mask = close_panel.notna().sum(axis=1) >= min_stocks
+    return close_panel.loc[active_mask].copy()
+
+@st.cache_data(ttl=3600, show_spinner=False)
+def get_cached_official_benchmark(market: str = 'INDIA') -> tuple:
+    """
+    Downloads or fetches the official broad market index benchmark.
+    India: ^CRSLDX (NIFTY 500) with fallback to ^NSEI (NIFTY 50)
+    US: ^GSPC (S&P 500) with fallback to SPY
+    """
+    is_us = market.upper() in ['US', 'USA']
+    symbols = ['^GSPC', 'SPY'] if is_us else ['^CRSLDX', '^NSEI']
+    
+    for s in symbols:
+        try:
+            df = yf.download(s, period='1y', progress=False)
+            if df is not None and not df.empty:
+                c = df['Close']
+                if hasattr(c, 'iloc') and len(c.shape) > 1:
+                    c = c.iloc[:, 0]
+                c = c.dropna()
+                if len(c) >= 21:
+                    c.index = pd.to_datetime(c.index)
+                    name = "S&P 500 (^GSPC)" if s == '^GSPC' else ("SPY (S&P 500 ETF)" if s == 'SPY' else ("NIFTY 500 (^CRSLDX)" if s == '^CRSLDX' else "NIFTY 50 (^NSEI)"))
+                    return c, name
+        except Exception as e:
+            print(f"[DownDay Engine] Benchmark download warning for {s}: {e}")
+    return None, ""
+
+def get_session_advance_decline(target_date_str: str, market: str = 'INDIA') -> tuple:
+    """
+    Computes exact point-in-time advances and declines from clean price matrix
+    if market_breadth_daily has 0 or null recorded.
+    """
+    matrix = load_price_matrix()
+    if matrix is None:
+        return 0, 0
+    is_us = market.upper() in ['US', 'USA']
+    try:
+        close_panel = matrix.xs('Close', level=1, axis=1)
+        if is_us:
+            tickers = [c for c in close_panel.columns if not c.endswith('.NS') and not c.endswith('.BO')]
+        else:
+            tickers = [c for c in close_panel.columns if c.endswith('.NS')]
+        sub_close = close_panel[tickers]
+        clean_close = get_clean_active_trading_panel(sub_close, is_us=is_us)
+        if target_date_str in clean_close.index:
+            idx = clean_close.index.get_loc(target_date_str)
+            if idx > 0:
+                c_cur = clean_close.iloc[idx]
+                c_prv = clean_close.iloc[idx - 1]
+                ret = (c_cur / c_prv) - 1.0
+                adv = int((ret > 0.0).sum())
+                dec = int((ret < 0.0).sum())
+                return adv, dec
+    except Exception as e:
+        print(f"[DownDay Engine] get_session_advance_decline error: {e}")
+    return 0, 0
+
 @st.cache_data(ttl=1800, show_spinner=False)
 def compute_multi_horizon_correction_analytics(
     market: str = 'INDIA',
@@ -446,8 +512,9 @@ def compute_multi_horizon_correction_analytics(
 ) -> tuple:
     """
     Multi-Horizon Macro Correction & Counter-Trend Divergence Engine:
-    Evaluates market performance over the last N trading days (e.g. 1M / 21D, 3M / 63D, 6M / 126D).
+    Evaluates market performance over the last N active trading days (e.g. 1M / 21D, 3M / 63D, 6M / 126D).
     Identifies stocks that decoupled from broad market weakness and generated positive excess alpha.
+    Scrubs holiday artifacts and unadjusted corporate action split spikes.
     
     Returns:
       (df_divergent, bench_summary, df_group_alpha)
@@ -466,10 +533,6 @@ def compute_multi_horizon_correction_analytics(
         print(f"[DownDay Engine] Horizon matrix indexing error: {e}")
         return pd.DataFrame(), {}, pd.DataFrame()
 
-    n_bars = len(close_panel)
-    if n_bars < horizon_days + 1:
-        return pd.DataFrame(), {}, pd.DataFrame()
-
     # Universe tickers
     if is_us:
         tickers = [c for c in close_panel.columns if not c.endswith('.NS') and not c.endswith('.BO') and not c.startswith('^')]
@@ -482,91 +545,97 @@ def compute_multi_horizon_correction_analytics(
     sub_close = close_panel[tickers]
     sub_vol = vol_panel[tickers]
 
-    # Time window indices
-    start_idx = max(0, n_bars - horizon_days - 1)
-    t_start = close_panel.index[start_idx]
-    t_end = close_panel.index[-1]
+    # Clean active trading days (completely scrubs national holidays & non-trading dates)
+    clean_close = get_clean_active_trading_panel(sub_close, is_us=is_us)
+    clean_vol = sub_vol.loc[clean_close.index]
 
-    # Determine Benchmark Series with clean fallback
-    bench_series = None
-    bench_name = "NIFTY 500 (^CRSLDX)" if not is_us else "S&P 500 (^GSPC)"
+    n_active = len(clean_close)
+    if n_active < horizon_days + 1:
+        return pd.DataFrame(), {}, pd.DataFrame()
+
+    # Download or get official benchmark
+    bench_series, bench_name = get_cached_official_benchmark(market=mkt_tag)
     
-    if not is_us:
-        if '^CRSLDX' in close_panel.columns and close_panel['^CRSLDX'].dropna().index[-1] >= t_end:
-            bench_series = close_panel['^CRSLDX'].dropna()
-        elif 'NIFTYBEES.NS' in close_panel.columns and close_panel['NIFTYBEES.NS'].dropna().index[-1] >= t_end:
-            bench_series = close_panel['NIFTYBEES.NS'].dropna()
-            bench_name = "NIFTY 50 (NIFTYBEES)"
+    if bench_series is not None:
+        # Align official benchmark with clean active dates
+        common_dates = clean_close.index.intersection(bench_series.index)
+        if len(common_dates) >= horizon_days:
+            clean_close = clean_close.loc[common_dates]
+            clean_vol = clean_vol.loc[common_dates]
+            b_window = bench_series.loc[common_dates].tail(horizon_days)
         else:
-            bench_series = sub_close.median(axis=1).dropna()
-            bench_name = "NIFTY Broad Market Index (Equal-Weight)"
+            b_window = bench_series.tail(horizon_days)
     else:
-        if '^GSPC' in close_panel.columns and close_panel['^GSPC'].dropna().index[-1] >= t_end:
-            bench_series = close_panel['^GSPC'].dropna()
-        elif 'SPY' in close_panel.columns and close_panel['SPY'].dropna().index[-1] >= t_end:
-            bench_series = close_panel['SPY'].dropna()
-            bench_name = "SPY (S&P 500 ETF)"
-        else:
-            bench_series = sub_close.median(axis=1).dropna()
-            bench_name = "US Broad Market Index (Equal-Weight)"
+        # Fallback to holiday-scrubbed equal-weight median index
+        bench_series = clean_close.median(axis=1)
+        bench_name = "NIFTY Broad Market Index (Equal-Weight)" if not is_us else "US Broad Market Index (Equal-Weight)"
+        b_window = bench_series.tail(horizon_days)
 
-    # Benchmark metrics over horizon
-    b_window = bench_series.loc[t_start:t_end]
     if len(b_window) < 2:
         return pd.DataFrame(), {}, pd.DataFrame()
-        
-    bench_ret_pct = ((b_window.iloc[-1] / b_window.iloc[0]) - 1.0) * 100.0
-    
+
+    t_start = b_window.index[0]
+    t_end = b_window.index[-1]
+
+    # Mathematically exact benchmark return & max drawdown over horizon
+    bench_ret_pct = float(((b_window.iloc[-1] / b_window.iloc[0]) - 1.0) * 100.0)
+    b_rolling_max = b_window.cummax()
+    b_drawdown = ((b_window - b_rolling_max) / b_rolling_max) * 100.0
+    b_max_dd = float(b_drawdown.min())
+
     # Daily benchmark returns in window to identify down days
     b_daily_rets = b_window.pct_change().dropna()
     down_days_mask = b_daily_rets < 0.0
     down_day_dates = b_daily_rets[down_days_mask].index
     total_down_days = len(down_day_dates)
 
-    # Benchmark Max Drawdown in window
-    b_rolling_max = b_window.cummax()
-    b_drawdown = ((b_window - b_rolling_max) / b_rolling_max) * 100.0
-    b_max_dd = b_drawdown.min()
-
-    # Stock metrics over horizon
-    c_start = sub_close.loc[t_start]
-    c_end = sub_close.loc[t_end]
+    # Window slice for stocks
+    window_close = clean_close.loc[t_start:t_end]
+    c_start = window_close.iloc[0]
+    c_end = window_close.iloc[-1]
     stock_rets = ((c_end / c_start) - 1.0) * 100.0
-    
-    # 52W High Proximity
-    window_252 = sub_close.iloc[max(0, n_bars - 252):]
+
+    # 52W High Proximity (evaluated over active trading sessions)
+    window_252 = clean_close.tail(252)
     high_252 = window_252.max()
     dist_high = ((c_end / high_252) - 1.0) * 100.0
 
     # 20D Volume Multiple
-    vol_latest = sub_vol.loc[t_end]
-    vol_20d_avg = sub_vol.iloc[max(0, n_bars - 21):-1].mean().replace(0, np.nan)
+    vol_latest = clean_vol.loc[t_end]
+    vol_20d_avg = clean_vol.tail(21).iloc[:-1].mean().replace(0, np.nan)
     vol_mult = vol_latest / vol_20d_avg
+
+    # Corporate Action Split Scrubbing:
+    # Detect any unadjusted corporate consolidation/reverse split spike (> 100% daily jump)
+    window_daily = window_close.pct_change()
+    has_corporate_split = (window_daily > 1.0).any(axis=0)
 
     # Down-Day Hit Rate (% of days stock was GREEN when Benchmark was RED)
     if total_down_days > 0 and len(down_day_dates) > 0:
-        sub_window = sub_close.loc[t_start:t_end]
-        sub_daily_rets = sub_window.pct_change()
-        down_day_stock_rets = sub_daily_rets.loc[sub_daily_rets.index.isin(down_day_dates)]
-        green_on_down_count = (down_day_stock_rets > 0.0).sum(axis=0)
+        down_stock_rets = window_daily.loc[window_daily.index.isin(down_dates if 'down_dates' in locals() else down_day_dates)]
+        green_on_down_count = (down_stock_rets > 0.0).sum(axis=0)
         down_day_win_rate = (green_on_down_count / total_down_days) * 100.0
     else:
-        down_day_win_rate = pd.Series(50.0, index=tickers)
+        down_day_win_rate = pd.Series(50.0, index=clean_close.columns)
 
     # Turnover
     turnover_cr = (c_end * vol_latest) / 10000000.0 if not is_us else (c_end * vol_latest) / 1000000.0
 
-    # Assemble DataFrame with clean handling
+    # Assemble DataFrame
     df = pd.DataFrame({
-        'Ticker': tickers,
+        'Ticker': clean_close.columns,
         'Close': c_end.values,
         'Return_Window': stock_rets.values,
         'Alpha_Delta': (stock_rets - bench_ret_pct).values,
         'Down_Day_Win_Rate': down_day_win_rate.values,
         'Dist_52W_High': dist_high.values,
         'Volume_Mult': vol_mult.values,
-        'Turnover_Cr': turnover_cr.values
+        'Turnover_Cr': turnover_cr.values,
+        'Has_Corporate_Split': has_corporate_split.values
     }).dropna(subset=['Close', 'Return_Window', 'Dist_52W_High'])
+
+    # Scrub corporate action reverse splits / consolidation jumps (e.g. CCAVENUE)
+    df = df[~df['Has_Corporate_Split']]
 
     # Fill volume mult if missing
     df['Volume_Mult'] = df['Volume_Mult'].fillna(1.0)
