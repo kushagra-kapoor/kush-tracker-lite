@@ -546,9 +546,56 @@ def format_telegram_alert(
     lines.append("")
     lines.append(f"📋 *TradingView Watchlist*:\n`{tv_str}`")
     return "\n".join(lines)
-        
+
+def format_cluster_notion_table(df_cluster: pd.DataFrame, dates_list: list) -> str:
+    """Formats an institutional markdown table for Notion copy-paste across a multi-day cluster."""
+    if df_cluster.empty:
+        return "No cluster leaders found."
+    d_start = sorted(dates_list)[0] if dates_list else ""
+    d_end = sorted(dates_list)[-1] if dates_list else ""
+    n_days = len(dates_list)
+    lines = [
+        f"### 🗂️ Down-Day Washout Cluster Leaders — {d_start} to {d_end} ({n_days} Sessions)",
+        "| Symbol | RS Rating | Hit Rate | Cluster Gain % | Avg Alpha | Archetype Footprint | Industry & Grade | Sister Role |",
+        "| :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |"
+    ]
+    for _, r in df_cluster.head(50).iterrows():
+        t = r.get('Clean_Ticker', '')
+        rs = f"{r.get('RS_Rating', 80):.0f}"
+        hit = r.get('Hit_Rate_Label', '')
+        gain = f"{r.get('Cluster_Gain', 0):+.2f}%"
+        alpha = f"{r.get('Avg_Alpha', 0):.1f}"
+        arch = r.get('Archetype_Footprint', '')
+        ind = f"{r.get('Industry', 'Broad Market')} ({r.get('Ind_Grade', '—')})"
+        role = r.get('Sister_Role', '—')
+        lines.append(f"| **{t}** | {rs} | {hit} | {gain} | {alpha} | {arch} | {ind} | {role} |")
+    return "\n".join(lines)
+
+def format_cluster_telegram_alert(df_cluster: pd.DataFrame, dates_list: list, market: str = 'INDIA') -> str:
+    """Formats a concise cluster alert for Telegram."""
+    if df_cluster.empty:
+        return "No cluster leaders found."
+    d_start = sorted(dates_list)[0] if dates_list else ""
+    d_end = sorted(dates_list)[-1] if dates_list else ""
+    n_days = len(dates_list)
+    tv_str = format_tradingview_watchlist(df_cluster['Clean_Ticker'].head(15).tolist(), market=market)
+    lines = [
+        f"🚨 *CANSLIM MULTI-DAY WASHOUT CLUSTER REPORT*",
+        f"🗓️ *Correction Window*: {d_start} → {d_end} ({n_days} down sessions)",
+        f"🛡️ *Resilient Universe*: {len(df_cluster)} stocks held green on ≥1 down day",
+        "",
+        "💎 *TOP CLUSTER GENERALS (Top Hit Rate & RS ≥ 80)*:"
+    ]
+    for i, (_, r) in enumerate(df_cluster.head(8).iterrows()):
+        t = r.get('Clean_Ticker', '')
+        rs = r.get('RS_Rating', 80)
+        hit = r.get('Hit_Rate_Label', '')
+        gain = r.get('Cluster_Gain', 0)
+        arch = r.get('Archetype_Footprint', '')
+        ind = r.get('Industry', 'Broad Market')
+        lines.append(f"{i+1}. *{t}* (RS {rs:.0f} • Hit {hit}): {gain:+.1f}% | {arch} — _{ind}_")
     lines.append("")
-    lines.append(f"📋 *TradingView 1-Click Import*:\n`{tv_str}`")
+    lines.append(f"📋 *TradingView Watchlist*:\n`{tv_str}`")
     return "\n".join(lines)
 
 @st.cache_data(ttl=1800, show_spinner=False)
@@ -903,4 +950,117 @@ def compute_multi_horizon_correction_analytics(
         group_stats = pd.DataFrame()
 
     return divergent, bench_summary, group_stats
+
+@st.cache_data(ttl=1800, show_spinner=False)
+def compute_multi_day_resilience_cluster(
+    dates_list: list,
+    market: str = 'INDIA',
+    min_price: float = 20.0,
+    max_dist_high: float = 20.0
+) -> tuple:
+    """
+    Aggregates institutional down-day resilience across a cluster of multiple selected down days.
+    
+    Returns:
+      (df_cluster_leaders, cluster_summary)
+    """
+    if not dates_list:
+        return pd.DataFrame(), {}
+        
+    mkt_tag = 'US' if market.upper() in ['US', 'USA'] else 'INDIA'
+    sorted_dates = sorted(dates_list)
+    n_days = len(sorted_dates)
+    
+    dfs = []
+    for d in sorted_dates:
+        df_d = compute_down_day_resilience(d, market=mkt_tag, min_price=min_price, max_dist_high=max_dist_high)
+        if not df_d.empty:
+            df_d = df_d.copy()
+            df_d['Session_Date'] = d
+            dfs.append(df_d)
+            
+    if not dfs:
+        return pd.DataFrame(), {}
+        
+    all_df = pd.concat(dfs, ignore_index=True)
+    
+    # Aggregate by ticker
+    def summarize_archetypes(s):
+        parts = []
+        n_bb = int((s.str.contains('Beach Ball')).sum())
+        n_52 = int((s.str.contains('52W High')).sum())
+        n_gr = int((s.str.contains('Green on Red')).sum())
+        if n_bb > 0: parts.append(f"🏖️ {n_bb}x BB")
+        if n_52 > 0: parts.append(f"🚀 {n_52}x 52W")
+        if n_gr > 0: parts.append(f"🟢 {n_gr}x Green")
+        return " • ".join(parts) if parts else "🟢 Green on Red"
+
+    agg = all_df.groupby('Clean_Ticker').agg(
+        Green_Days_Count=('Session_Date', 'nunique'),
+        Avg_Return_Down=('Return_1D', 'mean'),
+        Avg_Alpha=('Alpha_Score', 'mean'),
+        Beach_Ball_Plays=('Archetype', lambda s: int((s.str.contains('Beach Ball')).sum())),
+        High_52W_Plays=('Archetype', lambda s: int((s.str.contains('52W High')).sum())),
+        Archetype_Footprint=('Archetype', summarize_archetypes),
+        RS_Rating=('RS_Rating', 'max'),
+        Industry=('Industry', 'last'),
+        Ind_Grade=('Ind_Grade', 'last'),
+        Sister_Role=('Sister_Role', 'last'),
+        Close=('Close', 'last'),
+        Turnover_Cr=('Turnover_Cr', 'last'),
+        Dist_52W_High=('Dist_52W_High', 'last'),
+        Volume_Mult=('Volume_Mult', 'mean')
+    ).reset_index()
+    
+    agg['Total_Down_Days'] = n_days
+    agg['Hit_Rate_Pct'] = (agg['Green_Days_Count'] / n_days) * 100.0
+    agg['Hit_Rate_Label'] = agg.apply(lambda r: f"{int(r['Green_Days_Count'])} / {n_days} ({r['Hit_Rate_Pct']:.0f}%)", axis=1)
+    
+    # Calculate Cluster Return from earliest date to latest date
+    matrix = load_price_matrix()
+    if matrix is not None:
+        try:
+            close_panel = matrix.xs('Close', level=1, axis=1)
+            t_first = pd.to_datetime(sorted_dates[0])
+            t_last = pd.to_datetime(sorted_dates[-1])
+            avail = close_panel.index.sort_values()
+            v_start = avail[avail <= t_first]
+            v_end = avail[avail <= t_last]
+            if len(v_start) >= 2 and len(v_end) >= 1:
+                idx_start = close_panel.index.get_loc(v_start[-1])
+                idx_prev = max(0, idx_start - 1)
+                p_base = close_panel.iloc[idx_prev]
+                p_cur = close_panel.loc[v_end[-1]]
+                c_ret = ((p_cur / p_base) - 1.0) * 100.0
+                
+                # Clean ticker map
+                clean_ret_map = {}
+                for k, v in c_ret.dropna().items():
+                    c_k = k.replace('.NS', '').replace('.BO', '')
+                    clean_ret_map[c_k] = round(float(v), 2)
+                    
+                agg['Cluster_Gain'] = agg['Clean_Ticker'].map(clean_ret_map).fillna(agg['Avg_Return_Down'])
+            else:
+                agg['Cluster_Gain'] = agg['Avg_Return_Down']
+        except Exception as e:
+            print(f"[DownDay Engine] Cluster return calc note: {e}")
+            agg['Cluster_Gain'] = agg['Avg_Return_Down']
+    else:
+        agg['Cluster_Gain'] = agg['Avg_Return_Down']
+        
+    agg = agg.sort_values(['Hit_Rate_Pct', 'Avg_Alpha', 'RS_Rating', 'Cluster_Gain'], ascending=[False, False, False, False])
+    
+    # Cluster summary
+    summary = {
+        'total_down_days': n_days,
+        'earliest_date': sorted_dates[0],
+        'latest_date': sorted_dates[-1],
+        'dates_list': sorted_dates,
+        'total_candidates': len(agg),
+        'perfect_hit_count': int((agg['Hit_Rate_Pct'] >= 80.0).sum()),
+        'rs80_hit_count': int(((agg['Hit_Rate_Pct'] >= 60.0) & (agg['RS_Rating'] >= 80)).sum()),
+        'apex_bb_count': int((agg['Beach_Ball_Plays'] >= 2).sum())
+    }
+    
+    return agg, summary
 
