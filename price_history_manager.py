@@ -1,16 +1,98 @@
 import pandas as pd
 import yfinance as yf
 import os
+import json
 from datetime import datetime, timedelta
 import time
 
 CACHE_FILE = "historical_prices_matrix.pkl"
+DELISTED_CACHE_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".cache", "delisted_tickers.json")
 _LAGGING_CHECKED_TODAY = set()
+
+def load_delisted_tickers() -> set:
+    """Loads permanently delisted or invalid tickers to avoid spamming Yahoo Finance on boot."""
+    if os.path.exists(DELISTED_CACHE_FILE):
+        try:
+            with open(DELISTED_CACHE_FILE, "r", encoding="utf-8") as f:
+                return set(json.load(f))
+        except Exception:
+            pass
+    return set()
+
+def save_delisted_tickers(delisted_set: set):
+    """Persists delisted tickers to JSON cache."""
+    try:
+        os.makedirs(os.path.dirname(DELISTED_CACHE_FILE), exist_ok=True)
+        with open(DELISTED_CACHE_FILE, "w", encoding="utf-8") as f:
+            json.dump(sorted(list(delisted_set)), f, indent=2)
+    except Exception:
+        pass
+
+from zoneinfo import ZoneInfo
+
+def get_matrix_last_date(cache_file=CACHE_FILE) -> str:
+    """
+    Returns the newest date string (YYYY-MM-DD) found in the cache matrix.
+    Runs in < 0.05s from disk.
+    """
+    if os.path.exists(cache_file):
+        try:
+            df = pd.read_pickle(cache_file)
+            if not df.empty and df.index is not None:
+                return df.index.max().strftime('%Y-%m-%d')
+        except Exception:
+            pass
+    return None
+
+def is_new_session_possible(last_date, now=None, market='IN') -> bool:
+    """
+    Determines if a new market session could possibly have printed since last_date.
+    Avoids spamming Yahoo Finance pre-market or on weekends.
+    Anchored to exchange local timezones (IST for India, EST for US).
+    """
+    if last_date is None:
+        return True
+
+    # 1. Anchor to appropriate exchange timezone
+    try:
+        tz = ZoneInfo("Asia/Kolkata") if market.upper() == 'IN' or market.upper() == 'INDIA' else ZoneInfo("America/New_York")
+        now_dt = datetime.now(tz)
+    except Exception:
+        now_dt = datetime.now() if now is None else now
+        
+    last_dt = last_date.date() if hasattr(last_date, 'date') else last_date
+    current_date = now_dt.date()
+    
+    # Check if last_date is already today in the exchange's timezone
+    if last_dt >= current_date:
+        return False
+        
+    # If today is weekend in the exchange timezone (Saturday=5, Sunday=6)
+    if now_dt.weekday() == 5:  # Saturday
+        return last_dt < (current_date - timedelta(days=1))
+    if now_dt.weekday() == 6:  # Sunday
+        return last_dt < (current_date - timedelta(days=2))
+        
+    # Weekday Monday-Friday:
+    # India market open: 09:15 AM IST. US market open: 09:30 AM EST.
+    open_hour = 9
+    open_minute = 15 if (market.upper() == 'IN' or market.upper() == 'INDIA') else 30
+    
+    is_pre_market = now_dt.hour < open_hour or (now_dt.hour == open_hour and now_dt.minute < open_minute)
+    if is_pre_market:
+        # On Monday morning before market open, latest possible close is Friday (3 days ago)
+        if now_dt.weekday() == 0:
+            return last_dt < (current_date - timedelta(days=3))
+        # Tuesday-Friday morning before market open, latest possible close is yesterday (1 day ago)
+        return last_dt < (current_date - timedelta(days=1))
+        
+    return True
 
 def _safe_yf_download(tickers, max_retries=3, chunk_size=500, **kwargs):
     """
     yfinance multi-threading throws 'RuntimeError: dictionary changed size' occasionally.
     This safely chunks the download and retries if the race condition occurs, keeping it fast.
+    Aborts gracefully on Yahoo Finance rate limits (HTTP 429) to prevent UI freezes.
     """
     if isinstance(tickers, str):
         tickers = [tickers]
@@ -26,11 +108,15 @@ def _safe_yf_download(tickers, max_retries=3, chunk_size=500, **kwargs):
                 if not df.empty:
                     all_dfs.append(df)
                 break
-            except RuntimeError as e:
-                if "dictionary changed size" in str(e).lower() and attempt < max_retries - 1:
+            except Exception as e:
+                err_str = str(e).lower()
+                if "rate limit" in err_str or "too many requests" in err_str:
+                    print(f"[PriceHistoryManager] ⚠️ Yahoo Finance rate limit active: {e}. Aborting network sync and using cached matrix.")
+                    return pd.concat(all_dfs, axis=1) if all_dfs else pd.DataFrame()
+                if "dictionary changed size" in err_str and attempt < max_retries - 1:
                     time.sleep(1.5)
                     continue
-                raise
+                break
                 
     if all_dfs:
         if len(all_dfs) == 1:
@@ -91,7 +177,8 @@ def fetch_incremental_history(tickers, days=252, progress_callback=None, force_t
         cached_df = pd.DataFrame()
         cached_tickers = set()
 
-    missing_tickers = list(target_tickers - cached_tickers)
+    delisted_tickers = load_delisted_tickers()
+    missing_tickers = [t for t in list(target_tickers - cached_tickers) if t not in delisted_tickers]
     existing_tickers = list(target_tickers.intersection(cached_tickers))
     
     new_dataframes = []
@@ -111,6 +198,15 @@ def fetch_incremental_history(tickers, days=252, progress_callback=None, force_t
         missing_df = _ensure_multiindex(missing_df, missing_tickers)
         if not missing_df.empty:
             new_dataframes.append(missing_df)
+            downloaded = set(missing_df.columns.get_level_values(0))
+        else:
+            downloaded = set()
+            
+        # Cache persistently failed / delisted tickers so we never spam Yahoo Finance again
+        failed_tickers = set(missing_tickers) - downloaded
+        if failed_tickers:
+            delisted_tickers.update(failed_tickers)
+            save_delisted_tickers(delisted_tickers)
 
     # 2. Fetch incremental deltas for existing tickers (including per-ticker NaN hole catch-up)
     if existing_tickers and not cached_df.empty:
@@ -141,7 +237,12 @@ def fetch_incremental_history(tickers, days=252, progress_callback=None, force_t
         except Exception as e:
             print(f"[PriceHistoryManager] Lagging ticker check warning: {e}")
 
-        need_global_sync = (last_date.date() < now.date()) or force_today_refresh
+        # Check if market has actually traded since last_date (avoids pre-market / weekend spam)
+        is_in_market = any(isinstance(t, str) and (t.endswith('.NS') or t.endswith('.BO')) for t in existing_tickers)
+        mkt = 'IN' if is_in_market or not existing_tickers else 'US'
+        need_global_sync = is_new_session_possible(last_date, market=mkt) or force_today_refresh
+        if not need_global_sync and not force_today_refresh:
+            print(f"[PriceHistoryManager] Pre-market / off-hours ({mkt}): local matrix is up to date (last date: {last_date.date()}). Skipping network delta sync.")
 
         if need_global_sync:
             non_lagging = [t for t in existing_tickers if t not in set(lagging_tickers)]

@@ -33,7 +33,10 @@ from database import init_database, save_snapshot, get_signal_change_days, save_
 from climax_exhaustion import detect_climax_exhaustion
 from macro_regime_engine import calculate_distribution_days, get_market_regime_label, detect_change_of_character
 from daily_insights_engine import generate_exposure_guide, get_sector_clusters, generate_macro_health_score
-from pages.market_regime import process_macro_data, fetch_universe_with_industry, fetch_yfinance_batch
+try:
+    from views.market_regime import process_macro_data, fetch_universe_with_industry, fetch_yfinance_batch
+except ImportError:
+    from pages.market_regime import process_macro_data, fetch_universe_with_industry, fetch_yfinance_batch
 from safe_harbor_engine import evaluate_safe_harbor
 from portfolio_earnings_engine import update_portfolio_earnings, get_portfolio_new_results_alerts, get_pre_earnings_risk_tickers
 from risk_metrics import calculate_sortino_ratio, calculate_smooth_rs_atr
@@ -57,7 +60,8 @@ def start_background_backfill():
         print("[System] Starting background TML history backfill...")
         try:
             # We use python executable from sys to ensure we stay in the same environment
-            script_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "backfill_tml_history.py")
+            root_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+            script_path = os.path.join(root_dir, "backfill_tml_history.py")
             subprocess.run([sys.executable, script_path], check=True)
             print("[System] Background TML backfill completed or verified.")
         except Exception as e:

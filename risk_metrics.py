@@ -1,5 +1,5 @@
 """
-Quantitative Risk and Performance Metrics for Kush Tracker Lite
+Quantitative Risk and Performance Metrics for Kush Tracker
 Implements downside risk metrics:
 - Downside Deviation (Semi-deviation)
 - Sortino Ratio (Dual-horizon: 3M Tactical & 6M Structural)
@@ -220,3 +220,118 @@ def calculate_rolling_portfolio_metrics(
         'cagr': round(cagr, 1),
         'max_drawdown': round(max_dd, 1)
     }
+
+
+def calculate_smooth_rs_atr(
+    closes,
+    highs=None,
+    lows=None,
+    atr_window: int = 20
+) -> float:
+    """
+    Calculates Smooth RS (Composite RS % / 20D ATR%), measuring volatility-efficiency
+    and tight trend progression relative to daily True Range expansion.
+
+    Formula:
+        Numerator (Composite RS %):
+            (0.40 * R_21d + 0.35 * R_63d + 0.25 * R_126d) * 100
+            (graceful fallback for shorter histories < 126 bars)
+        Denominator (20D ATR%):
+            Mean_20(TrueRange) / Close_t * 100
+            (falls back to 20D mean absolute return % * 1.25 if highs/lows are omitted)
+            Floored at 1.0% to prevent division-by-zero blowups on halted/illiquid bars.
+        Smooth RS = clip(Composite RS % / max(ATR_20%, 1.0%), -10.0, 40.0)
+
+    Args:
+        closes: pd.Series, list, or np.ndarray of closing prices.
+        highs: Optional pd.Series, list, or np.ndarray of high prices.
+        lows: Optional pd.Series, list, or np.ndarray of low prices.
+        atr_window: Lookback window for ATR% (default 20 trading days).
+
+    Returns:
+        float: Smooth RS ratio (Composite RS % / 20D ATR%), rounded to 2 decimals.
+    """
+    if closes is None:
+        return 0.0
+
+    try:
+        if isinstance(closes, pd.Series):
+            c_arr = closes.dropna().values.astype(float)
+        else:
+            c_arr = np.array(closes, dtype=float)
+            c_arr = c_arr[~np.isnan(c_arr)]
+
+        n = len(c_arr)
+        if n < 22 or c_arr[-1] <= 0:
+            return 0.0
+
+        cur_c = float(c_arr[-1])
+
+        # 1. Multi-Horizon Composite Momentum (%)
+        r21 = (cur_c / float(c_arr[-22])) - 1.0 if n >= 22 and c_arr[-22] > 0 else 0.0
+        if n >= 127 and c_arr[-64] > 0 and c_arr[-127] > 0:
+            r63 = (cur_c / float(c_arr[-64])) - 1.0
+            r126 = (cur_c / float(c_arr[-127])) - 1.0
+            comp_rs_pct = (0.40 * r21 + 0.35 * r63 + 0.25 * r126) * 100.0
+        elif n >= 64 and c_arr[-64] > 0:
+            r63 = (cur_c / float(c_arr[-64])) - 1.0
+            comp_rs_pct = (0.55 * r21 + 0.45 * r63) * 100.0
+        else:
+            comp_rs_pct = r21 * 100.0
+
+        # 2. 20D ATR% (True Range % of current close)
+        atr_pct = None
+        if highs is not None and lows is not None:
+            try:
+                if isinstance(closes, pd.Series) and isinstance(highs, pd.Series) and isinstance(lows, pd.Series):
+                    df_hlc = pd.DataFrame({'c': closes, 'h': highs, 'l': lows}).dropna().tail(atr_window + 2)
+                    if len(df_hlc) >= 5:
+                        h_v = df_hlc['h'].values.astype(float)
+                        l_v = df_hlc['l'].values.astype(float)
+                        c_v = df_hlc['c'].values.astype(float)
+                        prev_c = c_v[:-1]
+                        tr = np.maximum(
+                            h_v[1:] - l_v[1:],
+                            np.maximum(np.abs(h_v[1:] - prev_c), np.abs(l_v[1:] - prev_c))
+                        )
+                        atr_val = float(np.mean(tr[-atr_window:]))
+                        if c_v[-1] > 0 and atr_val > 0:
+                            atr_pct = (atr_val / float(c_v[-1])) * 100.0
+                else:
+                    h_arr = np.array(highs, dtype=float)
+                    l_arr = np.array(lows, dtype=float)
+                    m_len = min(len(c_arr), len(h_arr), len(l_arr))
+                    if m_len >= 5:
+                        w = min(m_len, atr_window + 2)
+                        c_v = c_arr[-w:]
+                        h_v = h_arr[-w:]
+                        l_v = l_arr[-w:]
+                        valid = ~(np.isnan(c_v) | np.isnan(h_v) | np.isnan(l_v))
+                        c_v, h_v, l_v = c_v[valid], h_v[valid], l_v[valid]
+                        if len(c_v) >= 5:
+                            prev_c = c_v[:-1]
+                            tr = np.maximum(
+                                h_v[1:] - l_v[1:],
+                                np.maximum(np.abs(h_v[1:] - prev_c), np.abs(l_v[1:] - prev_c))
+                            )
+                            atr_val = float(np.mean(tr[-atr_window:]))
+                            if c_v[-1] > 0 and atr_val > 0:
+                                atr_pct = (atr_val / float(c_v[-1])) * 100.0
+            except Exception:
+                atr_pct = None
+
+        # Fallback if High/Low not provided: 20D close-to-close mean absolute % change * 1.25
+        if atr_pct is None or np.isnan(atr_pct) or atr_pct <= 0:
+            tail_c = c_arr[-(atr_window + 1):]
+            if len(tail_c) >= 5:
+                abs_rets = np.abs(np.diff(tail_c) / tail_c[:-1]) * 100.0
+                atr_pct = float(np.mean(abs_rets)) * 1.25
+            else:
+                atr_pct = 2.5
+
+        atr_pct_safe = max(float(atr_pct), 1.0)
+        smooth_rs = comp_rs_pct / atr_pct_safe
+        return round(float(np.clip(smooth_rs, -10.0, 40.0)), 2)
+    except Exception:
+        return 0.0
+

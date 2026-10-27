@@ -11,6 +11,10 @@ app_dir = os.path.dirname(os.path.abspath(__file__))
 if app_dir not in sys.path:
     sys.path.insert(0, app_dir)
 
+# Cross-compatibility alias: Map 'pages' package to 'views' package so any legacy or shared imports resolve cleanly
+import views
+sys.modules['pages'] = views
+
 import importlib
 try:
     import database

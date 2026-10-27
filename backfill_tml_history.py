@@ -37,6 +37,20 @@ def backfill_market(market, universe_mode, asset_class, get_universe_fn, compute
     existing_dates = set([row[0] for row in cursor.fetchall()])
     conn.close()
     
+    # Early-Exit: If local price matrix exists and all recent 90 sessions are in DB, skip heavy download
+    matrix_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), "historical_prices_matrix.pkl")
+    if os.path.exists(matrix_file):
+        try:
+            m_df = pd.read_pickle(matrix_file)
+            if not m_df.empty:
+                recent_trading_dates = [d.strftime('%Y-%m-%d') for d in m_df.index][-90:]
+                missing_recent = [d for d in recent_trading_dates if d not in existing_dates]
+                if not missing_recent:
+                    print(f"[TML Backfill] {market} history is already up to date ({len(existing_dates)} sessions, latest: {recent_trading_dates[-1]}). Skipping download.")
+                    return
+        except Exception as e:
+            print(f"[TML Backfill] Matrix pre-check notice: {e}")
+            
     # 2. Get Universe
     if market == 'INDIA':
         tickers = get_universe_fn(universe_mode)
