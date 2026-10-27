@@ -180,19 +180,21 @@ def calculate_weighted_rs_for_universe(history_df, tickers):
         raw_scores = {}
         for col in close_panel.columns:
             series = close_panel[col].dropna()
-            if len(series) < 127:  # Need at least 6M of data
+            if len(series) < 25:  # Adaptive minimum for SMEs and recent IPOs
                 continue
 
             # 1M return (21 days)
-            r1 = (series.iloc[-1] / series.iloc[-22] - 1) * 100 if len(series) >= 22 else 0
+            r1 = (series.iloc[-1] / series.iloc[-22] - 1) * 100 if len(series) >= 22 else ((series.iloc[-1] / series.iloc[0] - 1) * 100)
             # 3M return (63 days)
-            r3 = (series.iloc[-1] / series.iloc[-64] - 1) * 100 if len(series) >= 64 else 0
-            # 6M return (126 days)
-            r6 = (series.iloc[-1] / series.iloc[-127] - 1) * 100 if len(series) >= 127 else 0
+            r3 = (series.iloc[-1] / series.iloc[-64] - 1) * 100 if len(series) >= 64 else ((series.iloc[-1] / series.iloc[0] - 1) * 100)
+            # 6M return (126 days, adaptive fallback to inception bar for 25-126 bar SMEs/IPOs)
+            r6 = (series.iloc[-1] / series.iloc[-127] - 1) * 100 if len(series) >= 127 else ((series.iloc[-1] / series.iloc[0] - 1) * 100)
 
             rs_raw = (r1 * w1) + (r3 * w3) + (r6 * w6)
             clean = col.replace('.NS', '') if isinstance(col, str) else str(col)
             raw_scores[clean] = rs_raw
+            if isinstance(col, str) and col.endswith('.BO'):
+                raw_scores[col.replace('.BO', '')] = rs_raw
 
         if not raw_scores:
             return rs_scores

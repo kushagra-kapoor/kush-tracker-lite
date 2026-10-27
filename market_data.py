@@ -16,7 +16,11 @@ def get_ticker_symbol(ticker: str) -> str:
     Returns:
         yfinance compatible ticker (e.g., 'RELIANCE.NS')
     """
+    import re
     ticker = ticker.strip().upper()
+    
+    # Symbol Sanitization: Strip known suffixes that break Yahoo Finance
+    ticker = re.sub(r'-(ST|SM|BE|EQ|P1|P2|P3)$', '', ticker)
     
     # Auto-resolve BSE numerical codes to Yahoo Finance alphabetical symbols via Screener
     if ticker.isdigit():
@@ -71,45 +75,112 @@ def get_ticker_symbol(ticker: str) -> str:
 
 def fetch_stock_data(ticker: str, days: int = None) -> pd.DataFrame:
     """
-    Fetch historical OHLCV data for a stock.
-    
-    Args:
-        ticker: Stock ticker symbol
-        days: Number of days of history (default: from config)
-    
-    Returns:
-        DataFrame with OHLCV data
+    Fetch historical OHLCV data for a stock across .NS -> .BO -> nselib SME waterfall.
+    Requires >= 5 trading bars from Yahoo Finance so 1-row SME quote stubs
+    (like ANONDITA-SM.NS) automatically fall through to nselib full history.
     """
     if days is None:
         days = DATA_SETTINGS['HISTORY_DAYS']
     
-    yf_ticker = get_ticker_symbol(ticker)
+    yf_ticker_primary = get_ticker_symbol(ticker)
+    raw_ticker = ticker.strip().upper()
+    
+    # Generate candidate tickers to try in order
+    candidates = [
+        yf_ticker_primary,                                                # Sanitized .NS
+        f"{raw_ticker}.NS" if not raw_ticker.endswith('.NS') else raw_ticker, # Original .NS
+        yf_ticker_primary.replace('.NS', '.BO'),                          # Sanitized .BO
+        f"{raw_ticker}.BO" if not raw_ticker.endswith('.BO') else raw_ticker  # Original .BO
+    ]
+    
+    # Remove duplicates while preserving order
+    candidates = list(dict.fromkeys(candidates))
+    
     end_date = datetime.now()
     start_date = end_date - timedelta(days=days + 30)  # Extra buffer for trading days
     
-    try:
-        stock = yf.Ticker(yf_ticker)
-        df = stock.history(start=start_date, end=end_date)
-        
-        if df.empty:
-            print(f"⚠️ No data found for {ticker}")
-            return pd.DataFrame()
+    df = pd.DataFrame()
+    best_stub_df = pd.DataFrame()
+    successful_ticker = None
+    
+    for cand in candidates:
+        try:
+            stock = yf.Ticker(cand)
+            temp_df = stock.history(start=start_date, end=end_date)
             
-        if 'Close' in df.columns:
-            df = df.dropna(subset=['Close'])
+            if not temp_df.empty and 'Close' in temp_df.columns:
+                temp_df = temp_df.dropna(subset=['Close'])
+                if len(temp_df) >= 5:
+                    df = temp_df
+                    successful_ticker = cand
+                    break # Found valid multi-bar history, stop trying candidates
+                elif not temp_df.empty and best_stub_df.empty:
+                    best_stub_df = temp_df
+        except Exception:
+            continue
             
-        if df.empty:
-            return pd.DataFrame()
-        
-        # Clean column names
-        df.columns = df.columns.str.lower()
-        df = df.reset_index()
-        df['ticker'] = ticker
-        
-        return df
-    except Exception as e:
-        print(f"❌ Error fetching data for {ticker}: {e}")
+    if df.empty:
+        print(f"[Fallback] <5 bars on YF for {ticker}. Trying nselib SME/Equities fallback...")
+        try:
+            from nselib import capital_market
+            clean_sym = ticker.replace('-SM', '').replace('-ST', '').replace('.NS', '').replace('.BO', '').strip()
+            from_str = start_date.strftime("%d-%m-%Y")
+            to_str = end_date.strftime("%d-%m-%Y")
+            
+            nselib_df = capital_market.price_volume_and_deliverable_position_data(
+                symbol=clean_sym, 
+                from_date=from_str, 
+                to_date=to_str
+            )
+            
+            if nselib_df is not None and not nselib_df.empty:
+                nselib_df = nselib_df.rename(columns={
+                    'Date': 'Date',
+                    'OpenPrice': 'Open',
+                    'HighPrice': 'High',
+                    'LowPrice': 'Low',
+                    'ClosePrice': 'Close',
+                    'TotalTradedQuantity': 'Volume'
+                })
+                
+                # Convert Date to datetime, setting as index to mimic yfinance
+                nselib_df['Date'] = pd.to_datetime(nselib_df['Date'])
+                nselib_df = nselib_df.set_index('Date')
+                if nselib_df.index.tz is not None:
+                    nselib_df.index = nselib_df.index.tz_localize(None)
+                nselib_df.index = nselib_df.index.normalize()
+                
+                # Convert string numbers to float
+                for col in ['Open', 'High', 'Low', 'Close', 'Volume']:
+                    if col in nselib_df.columns:
+                        nselib_df[col] = pd.to_numeric(nselib_df[col].astype(str).str.replace(',', ''), errors='coerce')
+                
+                nselib_df = nselib_df.dropna(subset=['Close'])
+                nselib_df = nselib_df[~nselib_df.index.duplicated(keep='last')]
+                nselib_df = nselib_df.sort_index()
+                
+                if not nselib_df.empty:
+                    df = nselib_df[['Open', 'High', 'Low', 'Close', 'Volume']].copy()
+                    print(f"[OK] Fetched {len(df)} bars for {ticker} via nselib.")
+        except Exception as e:
+            print(f"[WARN] nselib fallback failed for {ticker}: {e}")
+
+    if df.empty and not best_stub_df.empty:
+        df = best_stub_df
+            
+    if df.empty:
+        print(f"[WARN] No data found for {ticker} across all fallbacks.")
         return pd.DataFrame()
+    
+    # Clean column names
+    df.columns = df.columns.str.lower()
+    if 'date' not in df.columns:
+        df = df.reset_index()
+        if 'Date' in df.columns and 'date' not in df.columns:
+            df = df.rename(columns={'Date': 'date'})
+    df['ticker'] = ticker # Keep original ticker in df for app consistency
+    
+    return df
 
 
 def fetch_screener_fallback(ticker: str) -> tuple:
@@ -179,14 +250,6 @@ _cached_total_market_tickers = None
 _cached_total_market_industries = None
 _total_market_cache_date = None
 
-
-def fetch_nifty_total_market_tickers(show_progress: bool = True, return_industry_map: bool = False):
-    """
-    Fetch NIFTY Total Market constituent tickers from NSE website.
-    Returns:
-        If return_industry_map=False: List of ticker symbols (default)
-        If return_industry_map=True: Tuple of (List of tickers, Dict[ticker, industry])
-    """
 
 def get_cache_staleness(key: str = "NIFTY_TOTAL_MARKET") -> int:
     """Returns number of days old the newest cache file is. 0 means fresh today. -1 means no cache."""
@@ -363,6 +426,49 @@ def fetch_nifty_total_market_tickers(show_progress: bool = True, return_industry
         return _cached_total_market_tickers or [], _cached_total_market_industries or {}
     return _cached_total_market_tickers or []
 
+def fetch_full_india_universe_tickers(portfolio_tickers: list = None, show_progress: bool = False) -> list:
+    """
+    Returns the complete 3-Tier Indian Equity Universe (~2,750+ stocks):
+      Tier 1: NIFTY Total Market (~750 Liquid Core)
+      Tier 2: Broad NSE Small/Micro-Cap Universe from tickers.txt & historical_prices_matrix.pkl (~2,000+ stocks)
+      Tier 3: Active Portfolio & Watchlist SME (-SM/-ST) & BSE (.BO) holdings
+    """
+    import os
+    universe = set(fetch_nifty_total_market_tickers(show_progress=show_progress))
+    
+    if os.path.exists('tickers.txt'):
+        try:
+            with open('tickers.txt', 'r') as f:
+                for line in f:
+                    t = line.strip().upper()
+                    if t and not t.startswith('#'):
+                        if not t.endswith('.NS') and not t.endswith('.BO') and not t.startswith('^'):
+                            universe.add(f"{t}.NS")
+                        else:
+                            universe.add(t)
+        except Exception:
+            pass
+
+    if os.path.exists('historical_prices_matrix.pkl'):
+        try:
+            import pickle
+            with open('historical_prices_matrix.pkl', 'rb') as f:
+                mat = pickle.load(f)
+            if isinstance(mat, pd.DataFrame) and isinstance(mat.columns, pd.MultiIndex):
+                for col_t in mat.columns.get_level_values(0).unique():
+                    s_t = str(col_t)
+                    if s_t.endswith('.NS') or s_t.endswith('.BO'):
+                        universe.add(s_t)
+        except Exception:
+            pass
+
+    if portfolio_tickers:
+        for pt in portfolio_tickers:
+            if pt and pt != 'BENCHMARK':
+                universe.add(get_ticker_symbol(str(pt)))
+
+    return sorted(list(universe))
+
 def fetch_nifty500_tickers(show_progress: bool = True):
     try:
         df = fetch_and_cache_csv("NIFTY_500", show_progress)
@@ -394,7 +500,7 @@ def fetch_benchmark_data(days: int = None) -> pd.DataFrame:
         df = benchmark.history(start=start_date, end=end_date)
         
         if df.empty:
-            print(f"⚠️ No data found for benchmark {BENCHMARK_TICKER}")
+            print(f"[WARN] No data found for benchmark {BENCHMARK_TICKER}")
             return pd.DataFrame()
             
         if 'Close' in df.columns:
@@ -409,22 +515,17 @@ def fetch_benchmark_data(days: int = None) -> pd.DataFrame:
         
         return df
     except Exception as e:
-        print(f"❌ Error fetching benchmark data: {e}")
+        print(f"[ERROR] Error fetching benchmark data: {e}")
         return pd.DataFrame()
 
 
 def fetch_all_holdings_data(tickers: list) -> dict:
     """
-    Fetch market data for all holdings using batched yfinance downloads.
-    This prevents Yahoo Finance from rate limiting the IP on initial load.
-    
-    Args:
-        tickers: List of ticker symbols
-    
-    Returns:
-        Dictionary mapping ticker to DataFrame
+    Fetch market data for all holdings using batched yfinance downloads,
+    with automatic waterfall fallback to .BO and nselib SME history (for -SM/-ST/BSE stocks)
+    and write-through injection into historical_prices_matrix.pkl.
     """
-    print(f"📊 Batch fetching market data for {len(tickers)} holdings...")
+    print(f"[Holdings] Batch fetching market data for {len(tickers)} holdings...")
     data = {}
     if not tickers:
         return data
@@ -433,6 +534,35 @@ def fetch_all_holdings_data(tickers: list) -> dict:
     days = DATA_SETTINGS.get('HISTORY_DAYS', 252)
     end_date = datetime.now()
     start_date = end_date - timedelta(days=days + 30)
+    matrix_injections = {}
+    local_matrix_df = None
+
+    def _extract_from_local_matrix(yf_sym: str, raw_ticker: str) -> pd.DataFrame:
+        nonlocal local_matrix_df
+        import os, pickle
+        if local_matrix_df is None and os.path.exists('historical_prices_matrix.pkl'):
+            try:
+                with open('historical_prices_matrix.pkl', 'rb') as f:
+                    local_matrix_df = pickle.load(f)
+            except Exception:
+                local_matrix_df = pd.DataFrame()
+        if local_matrix_df is None or local_matrix_df.empty or not isinstance(local_matrix_df.columns, pd.MultiIndex):
+            return pd.DataFrame()
+        lvl0 = local_matrix_df.columns.get_level_values(0).unique()
+        clean_base = raw_ticker.replace('-SM', '').replace('-ST', '').replace('.NS', '').replace('.BO', '').strip()
+        for cand in [yf_sym, f"{clean_base}.NS", f"{clean_base}.BO", raw_ticker]:
+            if cand in lvl0:
+                sub = local_matrix_df[cand].dropna(how='all').copy()
+                if len(sub) >= 5:
+                    sub.columns = [str(c).lower() for c in sub.columns]
+                    sub = sub.dropna(subset=['close']).reset_index()
+                    if 'Date' in sub.columns and 'date' not in sub.columns:
+                        sub = sub.rename(columns={'Date': 'date'})
+                    elif 'index' in sub.columns and 'date' not in sub.columns:
+                        sub = sub.rename(columns={'index': 'date'})
+                    sub['ticker'] = raw_ticker
+                    return sub
+        return pd.DataFrame()
     
     try:
         import yfinance as yf
@@ -461,7 +591,7 @@ def fetch_all_holdings_data(tickers: list) -> dict:
                             stock_df = df_batch.xs(yf_t, axis=1, level=1).copy()
                 else:
                     stock_df = df_batch.copy()
-            except Exception as e:
+            except Exception:
                 pass
                 
             if not stock_df.empty:
@@ -470,45 +600,66 @@ def fetch_all_holdings_data(tickers: list) -> dict:
                 elif 'close' in stock_df.columns:
                     stock_df = stock_df.dropna(subset=['close'])
                     
-                if not stock_df.empty:
-                    stock_df.columns = stock_df.columns.str.lower()
-                    stock_df = stock_df.reset_index()
-                    stock_df['ticker'] = ticker
-                    data[ticker] = stock_df
-                    print(f"  → {ticker} ✓ ({len(stock_df)} days)")
-                else:
-                    print(f"  → {ticker} ✗ (empty from yf) - attempting Screener fallback...")
-                    sme_df, mcap = fetch_screener_fallback(ticker)
-                    data[ticker] = sme_df
-                    if mcap:
-                        from database import get_all_fundamentals_cache, save_fundamentals_cache
-                        fundas = get_all_fundamentals_cache()
-                        industry = fundas.get(ticker, {}).get('industry', 'Unknown')
-                        save_fundamentals_cache([(ticker, 0.0, 0.0, 0.0, industry, mcap * 10000000.0)])
+            if not stock_df.empty and len(stock_df) >= 5:
+                stock_df.columns = stock_df.columns.str.lower()
+                stock_df = stock_df.reset_index()
+                if 'Date' in stock_df.columns and 'date' not in stock_df.columns:
+                    stock_df = stock_df.rename(columns={'Date': 'date'})
+                stock_df['ticker'] = ticker
+                data[ticker] = stock_df
+                matrix_injections[yf_t] = stock_df
+                print(f"  -> {ticker} OK ({len(stock_df)} days)")
             else:
-                print(f"  → {ticker} ✗ (no data from yf) - attempting Screener fallback...")
-                sme_df, mcap = fetch_screener_fallback(ticker)
-                data[ticker] = sme_df
-                if mcap:
-                    from database import get_all_fundamentals_cache, save_fundamentals_cache
-                    fundas = get_all_fundamentals_cache()
-                    industry = fundas.get(ticker, {}).get('industry', 'Unknown')
-                    save_fundamentals_cache([(ticker, 0.0, 0.0, 0.0, industry, mcap * 10000000.0)])
+                # Waterfall Step 2: Check historical_prices_matrix.pkl first (instant 250+ bar SME/BSE history), then .BO / nselib
+                matrix_fallback_df = _extract_from_local_matrix(yf_t, ticker)
+                if not matrix_fallback_df.empty and len(matrix_fallback_df) >= 20:
+                    data[ticker] = matrix_fallback_df
+                    print(f"  -> {ticker} OK via local matrix ({len(matrix_fallback_df)} days)")
+                else:
+                    print(f"  -> {ticker} (<5 bars in YF .NS batch) - running .BO / nselib full-history waterfall...")
+                    waterfall_df = fetch_stock_data(ticker, days=days)
+                    if not waterfall_df.empty and len(waterfall_df) >= 5:
+                        data[ticker] = waterfall_df
+                        matrix_injections[yf_t] = waterfall_df
+                        print(f"  -> {ticker} OK via waterfall ({len(waterfall_df)} days)")
+                    elif not matrix_fallback_df.empty:
+                        data[ticker] = matrix_fallback_df
+                        print(f"  -> {ticker} OK via local matrix ({len(matrix_fallback_df)} days)")
+                    else:
+                        print(f"  -> {ticker} attempting Screener fallback...")
+                        sme_df, mcap = fetch_screener_fallback(ticker)
+                        data[ticker] = sme_df if not sme_df.empty else waterfall_df
+                        if mcap:
+                            from database import get_all_fundamentals_cache, save_fundamentals_cache
+                            fundas = get_all_fundamentals_cache()
+                            industry = fundas.get(ticker, {}).get('industry', 'Unknown')
+                            save_fundamentals_cache([(ticker, 0.0, 0.0, 0.0, industry, mcap * 10000000.0)])
                 
     except Exception as e:
-        print(f"❌ Error in batch fetch: {e}")
-        # Fallback to sequential
+        print(f"[ERROR] Error in batch fetch: {e}")
         for ticker in tickers:
-            data[ticker] = fetch_stock_data(ticker)
+            yf_t = get_ticker_symbol(ticker)
+            s_df = fetch_stock_data(ticker, days=days)
+            data[ticker] = s_df
+            if not s_df.empty and len(s_df) >= 5:
+                matrix_injections[yf_t] = s_df
+
+    # Persist all resolved portfolio histories (including SME nselib & .BO) into historical_prices_matrix.pkl
+    if matrix_injections:
+        try:
+            from price_history_manager import inject_external_history_into_matrix
+            inject_external_history_into_matrix(matrix_injections)
+        except Exception as e:
+            print(f"[WARN] Matrix injection warning: {e}")
             
     # Also fetch benchmark
-    print(f"  → Fetching benchmark ({BENCHMARK_TICKER})...", end=" ")
+    print(f"  -> Fetching benchmark ({BENCHMARK_TICKER})...", end=" ")
     benchmark_df = fetch_benchmark_data()
     if not benchmark_df.empty:
         data['BENCHMARK'] = benchmark_df
-        print(f"✓ ({len(benchmark_df)} days)")
+        print(f"OK ({len(benchmark_df)} days)")
     else:
-        print("✗ (no data)")
+        print("EMPTY (no data)")
         
     return data
 

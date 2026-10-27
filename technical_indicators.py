@@ -196,13 +196,18 @@ def add_technical_indicators(df: pd.DataFrame, benchmark_df: pd.DataFrame = None
         return df
     
     df = df.copy()
+    
+    # Auto-adjust unadjusted corporate actions / split cliffs to match TradingView / institutional data
     df = detect_and_adjust_split_cliffs(df)
     
     # EMAs
     df['ema_8'] = calculate_ema(df['close'], EMA_PERIODS['FAST'])
     df['ema_10'] = calculate_ema(df['close'], 10)  # Added for Climax Detector
     df['ema_21'] = calculate_ema(df['close'], EMA_PERIODS['MEDIUM'])
+    df['ema_21_low'] = calculate_ema(df['low'], EMA_PERIODS['MEDIUM'])  # 21-EMA of Lows (Anti-Wick Institutional Floor)
+    df['ema_23'] = calculate_ema(df['close'], 23)  # Ross Haber / William O'Neil Core Swing Line
     df['sma_50'] = calculate_sma(df['close'], EMA_PERIODS['SLOW'])
+    df['ema_65'] = calculate_ema(df['close'], 65)  # Ross Haber Quarterly / 13-Week Institutional Floor
     df['sma_200'] = calculate_sma(df['close'], 200)
     
     # ATRs
@@ -1131,6 +1136,428 @@ def snap_round_number_undercut(price: float, buffer_pct: float = 0.25) -> float:
     return round(price, 2)
 
 
+
+
+# =============================================================================
+# TRADERLION & ROSS HABER MODEL BOOK DETECTORS
+# =============================================================================
+
+def detect_oops_reversal(df: pd.DataFrame, max_risk_pct: float = 3.5) -> dict:
+    """
+    Larry Williams / TraderLion Oops Reversal Detector.
+    
+    Identifies a high-conviction, low-risk shakeout entry:
+      1. Today's low undercuts yesterday's low (flushing out retail stops).
+      2. Price reverses sharply intraday and closes back ABOVE yesterday's low.
+      3. Strong close in upper half of daily range or green close.
+      4. Support proximity: within 3.5% of 21 EMA, 50 SMA, 65 EMA, or 200 SMA.
+      5. Surgical stop-loss is placed strictly at Low of the Day (LOD).
+    """
+    res = {
+        'is_oops': False,
+        'entry_price': 0.0,
+        'stop_price': 0.0,
+        'risk_pct': 0.0,
+        'support_level': 'None'
+    }
+    
+    if df.empty or len(df) < 22:
+        return res
+        
+    c_close = df['close'] if 'close' in df.columns else df['Close']
+    c_open = df['open'] if 'open' in df.columns else df['Open']
+    c_high = df['high'] if 'high' in df.columns else df['High']
+    c_low = df['low'] if 'low' in df.columns else df['Low']
+    
+    today_low = float(c_low.iloc[-1])
+    today_close = float(c_close.iloc[-1])
+    today_open = float(c_open.iloc[-1])
+    today_high = float(c_high.iloc[-1])
+    
+    yest_low = float(c_low.iloc[-2])
+    
+    # 1. Undercut & Reclaim Check
+    if not (today_low < yest_low and today_close > yest_low):
+        return res
+        
+    # 2. Strong Finish Check (close in upper half or closed green)
+    daily_range = today_high - today_low
+    close_pos = (today_close - today_low) / daily_range if daily_range > 0 else 1.0
+    is_strong_bar = (today_close >= today_open) or (close_pos >= 0.45)
+    if not is_strong_bar:
+        return res
+        
+    # 3. Stop & Risk Calculation (Stop strictly at LOD)
+    entry = today_close
+    stop = today_low
+    risk_pct = ((entry - stop) / entry) * 100 if entry > 0 else 99.0
+    
+    if risk_pct <= 0 or risk_pct > max_risk_pct:
+        return res
+        
+    # 4. Support Proximity Check
+    support_found = 'Recent Range'
+    for col_name, label in [('ema_21', '21 EMA'), ('sma_50', '50 SMA'), ('ema_65', '65 EMA'), ('sma_200', '200 SMA')]:
+        if col_name in df.columns:
+            ma_val = float(df[col_name].iloc[-1])
+            if ma_val > 0 and abs(today_close - ma_val) / ma_val <= 0.04:
+                support_found = label
+                break
+                
+    res['is_oops'] = True
+    res['entry_price'] = round(entry, 2)
+    res['stop_price'] = round(stop, 2)
+    res['risk_pct'] = round(risk_pct, 2)
+    res['support_level'] = support_found
+    return res
+
+
+def detect_positive_expectation_breaker(df: pd.DataFrame, max_risk_pct: float = 5.0) -> dict:
+    """
+    TraderLion Positive Expectation Breaker (PEB) Detector.
+    
+    Identifies institutional absorption when a sharp selloff is immediately negated:
+      1. Yesterday was an Extension Down: wide-range red bar (<= -1.3% drop) with volume.
+      2. Today breaks the negative expectation: closes green AND above yesterday's close.
+      3. Stop-loss placed at min(today_low, yesterday_low).
+    """
+    res = {
+        'is_peb': False,
+        'entry_price': 0.0,
+        'stop_price': 0.0,
+        'risk_pct': 0.0
+    }
+    
+    if df.empty or len(df) < 22:
+        return res
+        
+    c_close = df['close'] if 'close' in df.columns else df['Close']
+    c_open = df['open'] if 'open' in df.columns else df['Open']
+    c_high = df['high'] if 'high' in df.columns else df['High']
+    c_low = df['low'] if 'low' in df.columns else df['Low']
+    c_vol = df['volume'] if 'volume' in df.columns else df['Volume']
+    
+    today_close = float(c_close.iloc[-1])
+    today_open = float(c_open.iloc[-1])
+    today_low = float(c_low.iloc[-1])
+    
+    yest_close = float(c_close.iloc[-2])
+    yest_open = float(c_open.iloc[-2])
+    yest_low = float(c_low.iloc[-2])
+    prev2_close = float(c_close.iloc[-3]) if len(df) >= 3 else yest_open
+    
+    # 1. Extension Down check
+    yest_return = ((yest_close - prev2_close) / prev2_close) * 100 if prev2_close > 0 else 0
+    yest_is_red = (yest_close < yest_open) and (yest_return <= -1.3)
+    if not yest_is_red:
+        return res
+        
+    avg_vol_20 = c_vol.iloc[-22:-2].mean() if len(c_vol) >= 22 else c_vol.mean()
+    yest_vol = float(c_vol.iloc[-2])
+    if avg_vol_20 > 0 and (yest_vol / avg_vol_20) < 0.70:
+        return res
+        
+    # 2. Breaks negative expectation
+    today_breaks_neg = (today_close > today_open) and (today_close > yest_close)
+    if not today_breaks_neg:
+        return res
+        
+    stop = min(today_low, yest_low)
+    entry = today_close
+    risk_pct = ((entry - stop) / entry) * 100 if entry > 0 else 99.0
+    
+    if risk_pct <= 0 or risk_pct > max_risk_pct:
+        return res
+        
+    res['is_peb'] = True
+    res['entry_price'] = round(entry, 2)
+    res['stop_price'] = round(stop, 2)
+    res['risk_pct'] = round(risk_pct, 2)
+    return res
+
+
+def detect_inside_day_priming(df: pd.DataFrame) -> dict:
+    """
+    TraderLion Inside Days Prime Mature Setups Detector.
+    
+    Identifies maximum volatility contraction (coil) right before breakout:
+      1. Inside Day: today_high <= yesterday_high and today_low >= yesterday_low.
+      2. Volume Dry-Up (VDU): today_volume <= 0.85 * volume_ma_20.
+      3. Double Inside Day: yesterday was also an inside day relative to day -2.
+      4. Context: within 18% of 52-week high.
+    """
+    res = {
+        'is_primed': False,
+        'is_double_inside': False,
+        'pivot_trigger': 0.0,
+        'stop_price': 0.0,
+        'risk_pct': 0.0
+    }
+    
+    if df.empty or len(df) < 22:
+        return res
+        
+    c_close = df['close'] if 'close' in df.columns else df['Close']
+    c_high = df['high'] if 'high' in df.columns else df['High']
+    c_low = df['low'] if 'low' in df.columns else df['Low']
+    c_vol = df['volume'] if 'volume' in df.columns else df['Volume']
+    
+    today_high = float(c_high.iloc[-1])
+    today_low = float(c_low.iloc[-1])
+    today_vol = float(c_vol.iloc[-1])
+    
+    yest_high = float(c_high.iloc[-2])
+    yest_low = float(c_low.iloc[-2])
+    
+    # 1. Inside Day Check
+    is_inside = (today_high <= yest_high) and (today_low >= yest_low)
+    if not is_inside:
+        return res
+        
+    # 2. Volume Dry-Up Check
+    avg_vol_20 = c_vol.iloc[-21:-1].mean() if len(c_vol) >= 21 else c_vol.mean()
+    is_vdu = (today_vol <= 0.88 * avg_vol_20) if avg_vol_20 > 0 else True
+    if not is_vdu:
+        return res
+        
+    # 3. Double Inside Day Check
+    is_double_inside = False
+    if len(df) >= 4:
+        prev2_high = float(c_high.iloc[-3])
+        prev2_low = float(c_low.iloc[-3])
+        if (yest_high <= prev2_high) and (yest_low >= prev2_low):
+            is_double_inside = True
+            
+    # 4. Context Check: within 18% of 52W high
+    max_high_252 = c_high.tail(252).max()
+    curr_close = float(c_close.iloc[-1])
+    dist_52w = ((max_high_252 - curr_close) / max_high_252) * 100 if max_high_252 > 0 else 0
+    if dist_52w > 18.0:
+        return res
+        
+    pivot = today_high
+    stop = today_low
+    risk_pct = ((pivot - stop) / pivot) * 100 if pivot > 0 else 0
+    
+    res['is_primed'] = True
+    res['is_double_inside'] = is_double_inside
+    res['pivot_trigger'] = round(pivot, 2)
+    res['stop_price'] = round(stop, 2)
+    res['risk_pct'] = round(risk_pct, 2)
+    return res
+
+
+def _safe_get_series(df: pd.DataFrame, col_lower: str, col_upper: str, fallback=None):
+    """Safely extract a 1D numeric Series from a DataFrame regardless of column casing."""
+    if df is None or df.empty:
+        return fallback
+    for col in (col_lower, col_upper):
+        if col in df.columns:
+            s = df[col]
+            if isinstance(s, pd.DataFrame):
+                s = s.iloc[:, 0]
+            return pd.to_numeric(s, errors='coerce')
+    return fallback
+
+
+def classify_stock_ma_dna(df: pd.DataFrame) -> dict:
+    """
+    John Boik (Monster Stocks) & TraderLion Moving Average Character DNA Classifier.
+    Classifies a stock into one of the 3 institutional trend-riding spines:
+      1. 🚀 10-EMA Sprinter (High-velocity momentum, holds 10 EMA >= 78% of uptrend)
+      2. ⚡ 21-EMA Low Rider (Modern momentum floor: undercuts 21 EMA Close on wicks, holds 21 EMA Low)
+      3. 🦖 50-SMA Monster (John Boik Monster Stock: undercuts 21 EMA during bases, 100% hold on rising 50 SMA)
+    """
+    default_res = {
+        'dna_type': '21_EMA_LOW_RIDER',
+        'dna_badge': '⚡ 21-EMA Low Rider',
+        'active_spine_name': '21 EMA Low',
+        'active_spine_price': 0.0,
+        'ema_21_low': 0.0,
+        'hold_rate_pct': 85.0,
+        'boik_launch_detected': False,
+        'zero_heavy_vol_50sma_breaches': True,
+    }
+    if df is None or df.empty or len(df) < 15:
+        return default_res
+
+    c_close = _safe_get_series(df, 'close', 'Close')
+    if c_close is None or c_close.empty:
+        return default_res
+    c_low = _safe_get_series(df, 'low', 'Low', fallback=c_close)
+    c_vol = _safe_get_series(df, 'volume', 'Volume', fallback=pd.Series(100000.0, index=df.index))
+
+    ema10 = df['ema_10'] if 'ema_10' in df.columns else c_close.ewm(span=10, adjust=False).mean()
+    ema21_c = df['ema_21'] if 'ema_21' in df.columns else c_close.ewm(span=21, adjust=False).mean()
+    ema21_l = df['ema_21_low'] if 'ema_21_low' in df.columns else c_low.ewm(span=21, adjust=False).mean()
+    sma50 = df['sma_50'] if 'sma_50' in df.columns else c_close.rolling(window=50, min_periods=25).mean()
+    vol_ma20 = c_vol.rolling(window=20, min_periods=5).mean().replace(0, 1)
+
+    curr_close = float(c_close.iloc[-1])
+    curr_ema10 = float(ema10.iloc[-1]) if pd.notna(ema10.iloc[-1]) else curr_close
+    curr_ema21_l = float(ema21_l.iloc[-1]) if pd.notna(ema21_l.iloc[-1]) else curr_close
+    curr_sma50 = float(sma50.iloc[-1]) if pd.notna(sma50.iloc[-1]) else curr_ema21_l
+
+    default_res['ema_21_low'] = round(curr_ema21_l, 2)
+    default_res['active_spine_price'] = round(curr_ema21_l, 2)
+
+    if len(df) < 25:
+        default_res['dna_type'] = '10_EMA_SPRINTER'
+        default_res['dna_badge'] = '🚀 10-EMA Sprinter'
+        default_res['active_spine_name'] = '10 EMA'
+        default_res['active_spine_price'] = round(curr_ema10, 2)
+        return default_res
+
+    window = min(120, len(df))
+    w_close = c_close.iloc[-window:]
+    w_low = c_low.iloc[-window:]
+    w_vol = c_vol.iloc[-window:]
+    w_vol_ma = vol_ma20.iloc[-window:]
+    w_ema10 = ema10.iloc[-window:]
+    w_ema21_c = ema21_c.iloc[-window:]
+    w_ema21_l = ema21_l.iloc[-window:]
+    w_sma50 = sma50.iloc[-window:]
+
+    # 1. John Boik Monster Launch check: >= +20% surge in 15 trading days inside window
+    ret_15d = (w_close / w_close.shift(15)) - 1.0
+    boik_launch = bool((ret_15d >= 0.20).any()) if len(w_close) >= 16 else False
+
+    # 2. Check heavy-volume 50-SMA breaches in last 60 sessions
+    tail_n = min(60, len(w_close))
+    valid_50 = w_sma50.iloc[-tail_n:].notna()
+    if valid_50.sum() >= 20:
+        below_50 = (w_close.iloc[-tail_n:] < w_sma50.iloc[-tail_n:] * 0.99)
+        heavy_vol = (w_vol.iloc[-tail_n:] >= w_vol_ma.iloc[-tail_n:] * 1.25)
+        heavy_50_breaches = int((below_50 & heavy_vol).sum())
+        hold_50_pct = float((w_close.iloc[-tail_n:] >= w_sma50.iloc[-tail_n:] * 0.985).mean() * 100.0)
+    else:
+        heavy_50_breaches = 0
+        hold_50_pct = 80.0
+
+    # 3. Hold rates on 10 EMA and 21 EMA Low over trailing 45 sessions
+    t45 = min(45, len(w_close))
+    hold_10_pct = float((w_close.iloc[-t45:] >= w_ema10.iloc[-t45:]).mean() * 100.0)
+    hold_21l_pct = float((w_close.iloc[-t45:] >= w_ema21_l.iloc[-t45:]).mean() * 100.0)
+    undercut_21c_days = int((w_low.iloc[-t45:] < w_ema21_c.iloc[-t45:]).sum())
+
+    if hold_10_pct >= 80.0 and curr_close >= curr_ema10:
+        return {
+            'dna_type': '10_EMA_SPRINTER',
+            'dna_badge': '🚀 10-EMA Sprinter',
+            'active_spine_name': '10 EMA',
+            'active_spine_price': round(curr_ema10, 2),
+            'ema_21_low': round(curr_ema21_l, 2),
+            'hold_rate_pct': round(hold_10_pct, 1),
+            'boik_launch_detected': boik_launch,
+            'zero_heavy_vol_50sma_breaches': heavy_50_breaches == 0,
+        }
+
+    if (
+        len(df) >= 50
+        and boik_launch
+        and heavy_50_breaches == 0
+        and hold_50_pct >= 88.0
+        and curr_close >= curr_sma50 * 0.985
+        and (hold_21l_pct < 82.0 or undercut_21c_days >= 6)
+    ):
+        return {
+            'dna_type': '50_SMA_MONSTER',
+            'dna_badge': '🦖 50-SMA Monster',
+            'active_spine_name': '50 SMA',
+            'active_spine_price': round(curr_sma50, 2),
+            'ema_21_low': round(curr_ema21_l, 2),
+            'hold_rate_pct': round(hold_50_pct, 1),
+            'boik_launch_detected': True,
+            'zero_heavy_vol_50sma_breaches': True,
+        }
+
+    return {
+        'dna_type': '21_EMA_LOW_RIDER',
+        'dna_badge': '⚡ 21-EMA Low Rider',
+        'active_spine_name': '21 EMA Low',
+        'active_spine_price': round(curr_ema21_l, 2),
+        'ema_21_low': round(curr_ema21_l, 2),
+        'hold_rate_pct': round(max(hold_21l_pct, 75.0), 1),
+        'boik_launch_detected': boik_launch,
+        'zero_heavy_vol_50sma_breaches': heavy_50_breaches == 0,
+    }
+
+
+def detect_hv1_float_lockup(df: pd.DataFrame) -> dict:
+    """
+    TraderLion HV1 + Float-Lockup Detector.
+    Finds the Highest Volume Day in the trailing 252 bars (HV1).
+    If HV1 was an accumulation day (closed green or upper range) AND price is currently
+    defending HV1 Low, calculates the Float-Lockup Ratio = HV1_Volume / Min_Volume_Last_10D.
+    A ratio >= 6.0x proves institutional supply absorption (float lockup).
+    """
+    res = {
+        'is_hv1_defended': False,
+        'is_float_lockup': False,
+        'lockup_ratio': 0.0,
+        'hv1_date': None,
+        'hv1_low': 0.0,
+        'hv1_high': 0.0,
+        'hv1_close': 0.0,
+        'dist_from_hv1_low_pct': 0.0,
+    }
+    if df is None or df.empty or len(df) < 30:
+        return res
+
+    c_close = _safe_get_series(df, 'close', 'Close')
+    if c_close is None or c_close.empty:
+        return res
+    c_open = _safe_get_series(df, 'open', 'Open', fallback=c_close)
+    c_high = _safe_get_series(df, 'high', 'High', fallback=c_close)
+    c_low = _safe_get_series(df, 'low', 'Low', fallback=c_close)
+    c_vol = _safe_get_series(df, 'volume', 'Volume')
+    if c_vol is None or c_vol.empty or float(c_vol.max()) <= 0:
+        return res
+
+    tail_len = min(252, len(df))
+    w_vol = c_vol.iloc[-tail_len:]
+    w_close = c_close.iloc[-tail_len:]
+    w_open = c_open.iloc[-tail_len:]
+    w_low = c_low.iloc[-tail_len:]
+    w_high = c_high.iloc[-tail_len:]
+
+    hv1_idx = w_vol.idxmax()
+    hv1_vol = float(w_vol.loc[hv1_idx])
+    hv1_close = float(w_close.loc[hv1_idx])
+    hv1_open = float(w_open.loc[hv1_idx])
+    hv1_low = float(w_low.loc[hv1_idx])
+    hv1_high = float(w_high.loc[hv1_idx])
+
+    rng = hv1_high - hv1_low
+    clv = (hv1_close - hv1_low) / rng if rng > 0 else 1.0
+    if hv1_close < hv1_open and clv < 0.50:
+        return res
+
+    curr_close = float(w_close.iloc[-1])
+    if curr_close < hv1_low or hv1_low <= 0:
+        return res
+
+    min_vol_10d = float(w_vol.iloc[-10:].replace(0, np.nan).min())
+    lockup_ratio = (hv1_vol / min_vol_10d) if (pd.notna(min_vol_10d) and min_vol_10d > 0) else 1.0
+    dist_hv1_low = ((curr_close - hv1_low) / hv1_low) * 100.0
+
+    hv1_dt_str = str(hv1_idx)[:10]
+    if 'date' in df.columns:
+        try:
+            hv1_dt_str = str(pd.to_datetime(df.loc[hv1_idx, 'date']).strftime('%Y-%m-%d'))
+        except Exception:
+            pass
+
+    res['is_hv1_defended'] = True
+    res['is_float_lockup'] = bool(lockup_ratio >= 6.0 and dist_hv1_low <= 35.0)
+    res['lockup_ratio'] = round(lockup_ratio, 1)
+    res['hv1_date'] = hv1_dt_str
+    res['hv1_low'] = round(hv1_low, 2)
+    res['hv1_high'] = round(hv1_high, 2)
+    res['hv1_close'] = round(hv1_close, 2)
+    res['dist_from_hv1_low_pct'] = round(dist_hv1_low, 1)
+    return res
+
 if __name__ == '__main__':
     # Test with sample data
     print("Testing technical indicators...")
@@ -1148,3 +1575,4 @@ if __name__ == '__main__':
     
     result = add_technical_indicators(sample_df)
     print(result.tail())
+

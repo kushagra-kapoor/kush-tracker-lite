@@ -157,6 +157,9 @@ pages = {
     "⚡ Fast Momentum": [
         st.Page("views/fast_momentum_index.py", title="Fast Momentum Index", icon="⚡")
     ],
+    "⚡ Catalysts & Earnings": [
+        st.Page("views/pead_scanner.py", title="Earnings Intelligence & PEAD Hub", icon="⚡")
+    ],
     "⚡ Intraday Monitors": [
         st.Page("views/intraday_monitor.py", title="Intraday Monitor (India)", icon="🇮🇳"),
         st.Page("views/intraday_monitor_us.py", title="Intraday Monitor (US)", icon="🇺🇸")

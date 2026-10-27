@@ -11,7 +11,8 @@ from trend_analyzer import (
     determine_trend_state, check_warning_triggers, check_structural_failure
 )
 from technical_indicators import (
-    count_days_above_ema, count_days_below_ema, has_big_down_day, get_atr_state, detect_3_weeks_tight, calculate_atr_chandelier_stop
+    count_days_above_ema, count_days_below_ema, has_big_down_day, get_atr_state,
+    detect_3_weeks_tight, calculate_atr_chandelier_stop, classify_stock_ma_dna
 )
 
 
@@ -161,34 +162,63 @@ def check_layer1_5_dead_money(df: pd.DataFrame, loss_metrics: dict) -> tuple:
     return (None, None)
 
 
-def check_layer2_trend(df: pd.DataFrame, trend_state: str) -> tuple:
+def check_layer2_trend(df: pd.DataFrame, trend_state: str, gain_loss_pct: float = 0.0, ma_dna: dict = None) -> tuple:
     """
-    Layer 2: Trend health based actions.
+    Layer 2: Trend health based actions (upgraded with 21-EMA Low Anti-Wick Floor
+    and John Boik 50-SMA Monster Stock Immunity).
     
     Rules:
-    - Warning + 5 days below 21 EMA → TRIM 25-50%
+    - John Boik Monster Immunity: >= 15% profit cushion + Boik 50-SMA DNA + holding 50 SMA -> Suppress 21-EMA trim
+    - 21-EMA Low Rider: Only triggers Haber Trim if >= 2 consecutive closes below 21-EMA Low (ema_21_low)
     - Warning + high-vol down day → TRIM 25-50%
-    - Broken trend → Reduce to tracking size
-    
-    Args:
-        df: DataFrame with indicators
-        trend_state: Current trend state
-    
-    Returns:
-        Tuple of (action, reason) or (None, None) if no trigger
+    - Broken trend → Reduce to tracking size / Exit
     """
+    triggers = check_warning_triggers(df)
+    if ma_dna is None:
+        ma_dna = classify_stock_ma_dna(df)
+    
+    # Ross Haber 21-Day Moving Average Double-Close Rule (upgraded with 21-EMA Low & Boik Monster Immunity):
+    if triggers.get('haber_double_close_triggered', False) or triggers.get('days_below_21ema', 0) >= 2:
+        last_close = float(df['close'].iloc[-1]) if not df.empty and 'close' in df.columns else 0.0
+        sma_50 = float(df['sma_50'].iloc[-1]) if (not df.empty and 'sma_50' in df.columns and pd.notna(df['sma_50'].iloc[-1])) else 0.0
+        ema_21_low = float(df['ema_21_low'].iloc[-1]) if (not df.empty and 'ema_21_low' in df.columns and pd.notna(df['ema_21_low'].iloc[-1])) else 0.0
+        days_below_21_low = count_days_below_ema(df, 'ema_21_low', lookback=10) if ('ema_21_low' in df.columns) else triggers.get('days_below_21ema', 0)
+
+        # 1. John Boik Monster Stock 50-SMA Immunity Check
+        is_monster_eligible = (
+            gain_loss_pct >= 15.0
+            and sma_50 > 0
+            and last_close >= sma_50 * 0.99
+            and not triggers.get('high_vol_down_day', False)
+            and (
+                ma_dna.get('dna_type') == '50_SMA_MONSTER'
+                or (ma_dna.get('boik_launch_detected', False) and ma_dna.get('zero_heavy_vol_50sma_breaches', True))
+            )
+        )
+        if is_monster_eligible:
+            return (
+                None,
+                f"🦖 Monster 50-SMA Ride Active (+{gain_loss_pct:.1f}% cushion; holding rising 50 SMA ₹{sma_50:.1f})"
+            )
+
+        # 2. 21-EMA Low Anti-Wick Channel Check
+        if ema_21_low > 0 and days_below_21_low < 2 and last_close >= ema_21_low * 0.995:
+            return (
+                None,
+                f"⚡ 21-EMA Low Floor Defended (₹{ema_21_low:.1f} held despite 21-EMA Close undercut)"
+            )
+
+        days = max(days_below_21_low, triggers.get('days_below_21ema', 2))
+        return (ACTION_TRIM, f"Ross Haber Sell Rule: {days} consecutive closes below 21-EMA Low (Trim 1/3 to 1/2)")
+        
     if trend_state == TREND_WARNING:
-        triggers = check_warning_triggers(df)
-        
-        if triggers['consecutive_below_21ema']:
-            days = triggers['days_below_21ema']
-            return (ACTION_TRIM, f"Warning: {days} consecutive days below 21 EMA")
-        
         if triggers['high_vol_down_day']:
             return (ACTION_TRIM, "Warning: High-volume down day >5%")
     
     if trend_state == TREND_BROKEN:
-        return (ACTION_EXIT, "Trend broken: 3 consecutive closes below 50 SMA")
+        if len(df) >= 50 and 'sma_50' in df.columns and not pd.isna(df['sma_50'].iloc[-1]):
+            return (ACTION_EXIT, "Trend broken: 3 consecutive closes below 50 SMA")
+        return (None, None)
     
     return (None, None)
 
@@ -271,11 +301,16 @@ def check_averaging_up(df: pd.DataFrame, rs_score: float, trend_state: str) -> t
     if has_big_down_day(df, AVERAGING_UP['MAX_DOWN_DAY_PCT'], lookback=10):
         return (ACTION_HOLD, False, f"Down day >{AVERAGING_UP['MAX_DOWN_DAY_PCT']}% in last 10 days")
         
-    # Setup 1: 21-EMA Squat
+    # Setup 1: 21-EMA / 21-EMA Low Squat
+    ema_21_low = last_row.get('ema_21_low', ema_21)
     if ema_21 > 0 and close >= ema_21:
         ext_21 = ((close - ema_21) / ema_21) * 100
         if ext_21 <= AVERAGING_UP['MAX_EXTENSION_FROM_21EMA'] and trend_state == TREND_STRONG:
             return (ACTION_ADD, True, "Add: 21-EMA Squat on light volume")
+    elif ema_21_low and ema_21_low > 0 and close >= ema_21_low:
+        ext_21l = ((close - ema_21_low) / ema_21_low) * 100
+        if ext_21l <= AVERAGING_UP['MAX_EXTENSION_FROM_21EMA']:
+            return (ACTION_ADD, True, "Add: 21-EMA Low Channel Bounce on light volume")
             
     # Setup 2: 50-SMA Pullback
     if sma_50 > 0 and close >= sma_50:
@@ -329,11 +364,44 @@ def make_decision(
     # Get ATR state
     atr_ratio = df.iloc[-1].get('atr_ratio') if not df.empty else None
     atr_state = get_atr_state(atr_ratio)
+
+    # Classify Moving Average Character DNA & Tom Hougaard House-Money Cushion
+    ma_dna = classify_stock_ma_dna(df)
+    ema_21_low_val = float(ma_dna.get('ema_21_low', 0.0) or 0.0)
+    active_spine_val = float(ma_dna.get('active_spine_price', 0.0) or ema_21_low_val or 0.0)
+    locked_profit_ps = max(0.0, active_spine_val - avg_buy_price) if (active_spine_val > 0 and avg_buy_price > 0 and current_price > active_spine_val) else 0.0
+    locked_profit_inr = round(locked_profit_ps * quantity, 2)
+    if active_spine_val > 0 and active_spine_val < current_price:
+        stop_for_add = active_spine_val
+    elif ema_21_low_val > 0 and ema_21_low_val < current_price:
+        stop_for_add = ema_21_low_val
+    else:
+        stop_for_add = round(current_price * 0.94, 2) if current_price > 0 else 0.0
+    new_share_risk = max(current_price * 0.03, current_price - stop_for_add) if current_price > 0 else 1.0
+    if locked_profit_inr > 0 and new_share_risk > 0 and current_price > stop_for_add:
+        # 1. Financed by at most 35% of locked profit cushion (preserving 65%+ profit floor)
+        sh_by_cushion = int((locked_profit_inr * 0.35) // new_share_risk)
+        # 2. O'Neil Pyramid Taper Rule: add at most 50% of existing share count
+        sh_by_taper = max(1, int(quantity * 0.50))
+        # 3. O'Neil 20% Max Portfolio Weight Cap
+        rem_nav_cap = max(0.0, (total_portfolio_value * 0.20) - (quantity * current_price)) if total_portfolio_value > 0 else (sh_by_taper * current_price)
+        sh_by_nav = int(rem_nav_cap // current_price) if current_price > 0 else sh_by_taper
+        free_pyramid_shares = max(0, min(sh_by_cushion, sh_by_taper, sh_by_nav if sh_by_nav > 0 else sh_by_taper))
+    else:
+        free_pyramid_shares = 0
+
+    def _enrich(res_dict: dict) -> dict:
+        res_dict['ma_dna'] = ma_dna
+        res_dict['ema_21_low'] = ema_21_low_val
+        res_dict['locked_profit_inr'] = locked_profit_inr
+        res_dict['free_pyramid_shares'] = free_pyramid_shares
+        res_dict['new_share_stop'] = round(stop_for_add, 2)
+        return res_dict
     
     # Layer 1: Risk management
     action, reason = check_layer1_risk(loss_metrics)
     if action:
-        return {
+        return _enrich({
             'ticker': ticker,
             'action': action,
             'reason': reason,
@@ -343,12 +411,12 @@ def make_decision(
             'add_on_ready': False,
             'loss_metrics': loss_metrics,
             'layer': 'L1-Risk',
-        }
+        })
         
     # Layer 1.5: Volatility Risk (ATR Chandelier Stop)
     action, reason = check_layer1_5_volatility_stop(df)
     if action:
-        return {
+        return _enrich({
             'ticker': ticker,
             'action': action,
             'reason': reason,
@@ -358,31 +426,31 @@ def make_decision(
             'add_on_ready': False,
             'loss_metrics': loss_metrics,
             'layer': 'L1.5-VolRisk',
-        }
+        })
     
     # Cash equivalents should be ignored from trend and structural exits
     is_cash_etf = ticker.upper() in {'LIQUIDBEES', 'LIQUIDCASE', 'LIQUIDETF'}
 
-    # Layer 2: Trend health
-    action, reason = check_layer2_trend(df, trend_state)
+    # Layer 2: Trend health (with 21-EMA Low & Boik 50-SMA Monster Immunity)
+    action, l2_reason = check_layer2_trend(df, trend_state, gain_loss_pct=loss_metrics.get('gain_loss_pct', 0.0), ma_dna=ma_dna)
     if action and not is_cash_etf:
-        return {
+        return _enrich({
             'ticker': ticker,
             'action': action,
-            'reason': reason,
+            'reason': l2_reason,
             'trend_state': trend_state,
             'rs_score': rs_score,
             'atr_state': atr_state,
             'add_on_ready': False,
             'loss_metrics': loss_metrics,
             'layer': 'L2-Trend',
-        }
+        })
     
     # Layer 3: Structural failure
     days_below_50sma = count_days_below_ema(df, 'sma_50', lookback=30) if not df.empty else 0
     action, reason = check_layer3_structural(df, rs_score, days_below_50sma)
     if action and not is_cash_etf:
-        return {
+        return _enrich({
             'ticker': ticker,
             'action': action,
             'reason': reason,
@@ -392,12 +460,12 @@ def make_decision(
             'add_on_ready': False,
             'loss_metrics': loss_metrics,
             'layer': 'L3-Structural',
-        }
+        })
         
     # Layer 4: Opportunity Cost (Dead Money)
     action, reason = check_layer1_5_dead_money(df, loss_metrics)
     if action and not is_cash_etf:
-        return {
+        return _enrich({
             'ticker': ticker,
             'action': action,
             'reason': reason,
@@ -407,12 +475,12 @@ def make_decision(
             'add_on_ready': False,
             'loss_metrics': loss_metrics,
             'layer': 'L4-DeadMoney',
-        }
+        })
     
     # Opportunity: Averaging up
     action, add_on_ready, reason = check_averaging_up(df, rs_score, trend_state)
     if action == ACTION_ADD:
-        return {
+        return _enrich({
             'ticker': ticker,
             'action': action,
             'reason': reason,
@@ -422,20 +490,21 @@ def make_decision(
             'add_on_ready': True,
             'loss_metrics': loss_metrics,
             'layer': 'Opportunity',
-        }
+        })
     
-    # Default: HOLD
-    return {
+    # Default: HOLD (surface Monster 50-SMA or 21-EMA Low defense reason if active)
+    hold_reason = l2_reason if l2_reason else ("Position healthy - no action needed" if trend_state == TREND_STRONG else f"Monitoring: {reason or trend_state}")
+    return _enrich({
         'ticker': ticker,
         'action': ACTION_HOLD,
-        'reason': "Position healthy - no action needed" if trend_state == TREND_STRONG else f"Monitoring: {reason or trend_state}",
+        'reason': hold_reason,
         'trend_state': trend_state,
         'rs_score': rs_score,
         'atr_state': atr_state,
         'add_on_ready': add_on_ready,
         'loss_metrics': loss_metrics,
         'layer': 'Default',
-    }
+    })
 
 
 if __name__ == '__main__':

@@ -5,6 +5,7 @@ from datetime import datetime, timedelta
 import time
 
 CACHE_FILE = "historical_prices_matrix.pkl"
+_LAGGING_CHECKED_TODAY = set()
 
 def _safe_yf_download(tickers, max_retries=3, chunk_size=500, **kwargs):
     """
@@ -70,16 +71,17 @@ def _ensure_multiindex(df, tickers):
         
     return df
 
-def fetch_incremental_history(tickers, days=252, progress_callback=None, force_today_refresh=False):
+def fetch_incremental_history(tickers, days=252, progress_callback=None, force_today_refresh=False, cache_file=CACHE_FILE, period="1y"):
     """
     Loads historical prices from local disk to avoid rate limiting.
-    Only incrementally downloads the exact delta of missing dates from Yahoo Finance.
+    Only incrementally downloads the exact delta of missing dates from Yahoo Finance,
+    including per-ticker catch-up backfills if a partial-subset sync left NaN holes.
     """
     target_tickers = set(tickers)
     
-    if os.path.exists(CACHE_FILE):
+    if os.path.exists(cache_file):
         try:
-            cached_df = pd.read_pickle(CACHE_FILE)
+            cached_df = pd.read_pickle(cache_file)
             cached_tickers = set(cached_df.columns.get_level_values(0))
         except Exception as e:
             print("Error loading cache, rebuilding:", e)
@@ -94,14 +96,14 @@ def fetch_incremental_history(tickers, days=252, progress_callback=None, force_t
     
     new_dataframes = []
     
-    # 1. Fetch completely missing tickers (Full 1 Year History)
+    # 1. Fetch completely missing tickers (Full History)
     if missing_tickers:
         if progress_callback:
-            progress_callback(f"Downloading 1Y history for {len(missing_tickers)} uncached tickers...")
+            progress_callback(f"Downloading {period} history for {len(missing_tickers)} uncached tickers...")
         
         missing_df = _safe_yf_download(
             list(missing_tickers), 
-            period="1y", 
+            period=period, 
             group_by='ticker',
             progress=False,
             auto_adjust=False
@@ -110,28 +112,66 @@ def fetch_incremental_history(tickers, days=252, progress_callback=None, force_t
         if not missing_df.empty:
             new_dataframes.append(missing_df)
 
-    # 2. Fetch incremental deltas for existing tickers
+    # 2. Fetch incremental deltas for existing tickers (including per-ticker NaN hole catch-up)
     if existing_tickers and not cached_df.empty:
         last_date = cached_df.index.max()
-        # If the last_date is older than today, fetch delta
         now = datetime.now()
-        
-        # We fetch starting from the last known date
-        # yfinance `start` date is inclusive, so we'll get crossover, which we drop later
-        if last_date.date() < now.date() or force_today_refresh:
+        today_key = now.strftime("%Y-%m-%d")
+
+        # Detect partial-subset NaN holes: existing tickers whose last valid Close trails last_date
+        lagging_tickers = []
+        min_lag_date = last_date
+        try:
+            if 'Close' in cached_df.columns.get_level_values(1):
+                close_sub = cached_df.xs('Close', level=1, axis=1)
+                valid_existing = [t for t in existing_tickers if t in close_sub.columns]
+                if valid_existing:
+                    last_row = close_sub.loc[last_date, valid_existing]
+                    nan_on_last = last_row[last_row.isna()].index.tolist()
+                    cutoff_dt = last_date - timedelta(days=45)
+                    for t in nan_on_last:
+                        if (t, today_key) in _LAGGING_CHECKED_TODAY and not force_today_refresh:
+                            continue
+                        lvi = close_sub[t].last_valid_index()
+                        if lvi is not None and cutoff_dt <= lvi < last_date:
+                            lagging_tickers.append(t)
+                            if lvi < min_lag_date:
+                                min_lag_date = lvi
+                        _LAGGING_CHECKED_TODAY.add((t, today_key))
+        except Exception as e:
+            print(f"[PriceHistoryManager] Lagging ticker check warning: {e}")
+
+        need_global_sync = (last_date.date() < now.date()) or force_today_refresh
+
+        if need_global_sync:
+            non_lagging = [t for t in existing_tickers if t not in set(lagging_tickers)]
+            if non_lagging:
+                if progress_callback:
+                    progress_callback(f"Syncing incremental bars since {last_date.date()}...")
+                delta_df = _safe_yf_download(
+                    list(non_lagging),
+                    start=last_date.strftime("%Y-%m-%d"),
+                    group_by='ticker',
+                    progress=False,
+                    auto_adjust=False
+                )
+                delta_df = _ensure_multiindex(delta_df, non_lagging)
+                if not delta_df.empty:
+                    new_dataframes.append(delta_df)
+
+        if lagging_tickers:
             if progress_callback:
-                progress_callback(f"Syncing incremental bars since {last_date.date()}...")
-                
-            delta_df = _safe_yf_download(
-                list(existing_tickers),
-                start=last_date.strftime("%Y-%m-%d"),
+                progress_callback(f"Backfilling {len(lagging_tickers)} partial-subset lagging tickers since {min_lag_date.date()}...")
+            lag_df = _safe_yf_download(
+                list(lagging_tickers),
+                start=min_lag_date.strftime("%Y-%m-%d"),
                 group_by='ticker',
                 progress=False,
                 auto_adjust=False
             )
-            delta_df = _ensure_multiindex(delta_df, existing_tickers)
-            if not delta_df.empty:
-                new_dataframes.append(delta_df)
+            lag_df = _ensure_multiindex(lag_df, lagging_tickers)
+            if not lag_df.empty:
+                new_dataframes.append(lag_df)
 
     # 3. Merge everything together
     master_df = cached_df.copy()
@@ -140,11 +180,6 @@ def fetch_incremental_history(tickers, days=252, progress_callback=None, force_t
         if progress_callback:
             progress_callback("Merging memory matrix and saving to NVMe cache...")
             
-        # .combine_first() is structurally bulletproof. 
-        # If new_df has new dates, it appends them. 
-        # If new_df has new columns (tickers), it appends them.
-        # If new_df has overlapping dates with valid data, it overrides cached_df.
-        # If new_df has overlapping dates with YFinance NaNs (rate limit), it IGNORES them and keeps cached_df's valid data!
         for new_df in new_dataframes:
             master_df = new_df.combine_first(master_df)
             
@@ -152,57 +187,37 @@ def fetch_incremental_history(tickers, days=252, progress_callback=None, force_t
             
             master_df.sort_index(inplace=True)
             
-            # -- VALIDATION STEP --
-            # yfinance creates NaN columns even if a ticker fails to download.
-            # If we save NaNs, the cache thinks it succeeded and won't retry.
-            # We strip any ticker that has fewer than 5 valid close prices (5 protects IPOs while punishing dead drops).
             try:
                 if 'Close' in master_df.columns.get_level_values(1):
                     close_df = master_df.xs('Close', level=1, axis=1)
-                    # Count valid non-NaN bars per ticker
                     valid_counts = close_df.notna().sum()
                     valid_tickers = valid_counts[valid_counts >= 5].index.tolist()
                     
-                    # Contract the master_df to strictly valid tickers
                     master_df = master_df.loc[:, master_df.columns.get_level_values(0).isin(valid_tickers)]
-                    
-                    # Scrub Orphaned Tickers (companies removed from the universe)
-                    # DISABLED: Because we run multiple universes (US and IN) on the same cache,
-                    # dropping 'orphans' based on a single target_tickers list will delete the other market's data!
-                    # all_cached = set(master_df.columns.get_level_values(0))
-                    # orphans = list(all_cached - target_tickers)
-                    # if orphans:
-                    #     master_df.drop(columns=orphans, level=0, inplace=True, errors='ignore')
-                        
             except Exception as e:
                 pass
             
-            # Save it permanently (Atomic Write to prevent corruption on Streamlit reload)
-            temp_file = CACHE_FILE + ".tmp"
+            temp_file = cache_file + ".tmp"
             master_df.to_pickle(temp_file)
             
             for attempt in range(10):
                 try:
-                    os.replace(temp_file, CACHE_FILE)
+                    os.replace(temp_file, cache_file)
                     break
                 except Exception:
                     time.sleep(0.2)
             else:
-                if os.path.exists(CACHE_FILE):
-                    try: os.remove(CACHE_FILE)
+                if os.path.exists(cache_file):
+                    try: os.remove(cache_file)
                     except: pass
-                try: os.rename(temp_file, CACHE_FILE)
+                try: os.rename(temp_file, cache_file)
                 except: pass
                 
             cached_df = master_df
             
-    # Remove any timezone awareness dynamically to avoid merge crashes
     if not cached_df.empty and cached_df.index.tz is not None:
         cached_df.index = cached_df.index.tz_localize(None)
 
-    # In case the user requested specific tickers out of a massive overall cache,
-    # we filter out everything else so their RAM isn't loaded with non-requested tickers
-    # Get available level 0 columns (tickers)
     if not cached_df.empty:
         available_tickers = [t for t in target_tickers if t in cached_df.columns.get_level_values(0)]
         return cached_df[available_tickers].copy()
@@ -221,20 +236,19 @@ def get_cache_status():
     except:
         return 0, None
 
-def rebuild_full_history(tickers, days=252, progress_callback=None):
+def rebuild_full_history(tickers, days=252, progress_callback=None, cache_file=CACHE_FILE, period="1y"):
     """
-    Forcefully wipes the disk cache and downloads pristine 252-day history.
-    Used to retroactively adjust the dataset for Stock Splits and Corporate Actions.
+    Forcefully wipes the disk cache and downloads pristine history.
     """
-    if os.path.exists(CACHE_FILE):
+    if os.path.exists(cache_file):
         try:
-            os.remove(CACHE_FILE)
+            os.remove(cache_file)
         except Exception as e:
             if progress_callback:
                 progress_callback(f"Failed to delete DB. Ensure it's not locked. {e}")
             pass
             
-    return fetch_incremental_history(tickers, days=days, progress_callback=progress_callback)
+    return fetch_incremental_history(tickers, days=days, progress_callback=progress_callback, cache_file=cache_file, period=period)
 
 def ensure_history_range(tickers, required_start_date, required_end_date=None, progress_callback=None):
     """
@@ -319,3 +333,110 @@ def ensure_history_range(tickers, required_start_date, required_end_date=None, p
                 except: pass
             try: os.rename(temp_file, CACHE_FILE)
             except: pass
+
+
+def inject_external_history_into_matrix(ticker_df_map: dict, cache_file=CACHE_FILE) -> bool:
+    """
+    Injects externally resolved OHLCV DataFrames (e.g., from nselib SME or .BO fallback)
+    directly into historical_prices_matrix.pkl so small/micro/SME portfolio holdings
+    are 100% present in universe RS rankings and Brain synthesis scans.
+    """
+    if not ticker_df_map:
+        return False
+
+    if os.path.exists(cache_file):
+        try:
+            cached_df = pd.read_pickle(cache_file)
+        except Exception:
+            cached_df = pd.DataFrame()
+    else:
+        cached_df = pd.DataFrame()
+
+    existing_close = None
+    if not cached_df.empty and isinstance(cached_df.columns, pd.MultiIndex):
+        if 'Close' in cached_df.columns.get_level_values(1):
+            existing_close = cached_df.xs('Close', level=1, axis=1)
+
+    frames_to_merge = []
+    for matrix_ticker, raw_df in ticker_df_map.items():
+        if raw_df is None or raw_df.empty or len(raw_df) < 5:
+            continue
+
+        df = raw_df.copy()
+        if 'date' in df.columns:
+            df['date'] = pd.to_datetime(df['date'])
+            df = df.set_index('date')
+        elif 'Date' in df.columns:
+            df['Date'] = pd.to_datetime(df['Date'])
+            df = df.set_index('Date')
+        elif not isinstance(df.index, pd.DatetimeIndex):
+            try:
+                df.index = pd.to_datetime(df.index)
+            except Exception:
+                continue
+
+        if df.index.tz is not None:
+            df.index = df.index.tz_localize(None)
+        df.index = df.index.normalize()
+        df = df[~df.index.duplicated(keep='last')].sort_index()
+
+        col_map = {c.lower(): c for c in df.columns}
+        if 'close' not in col_map:
+            continue
+
+        max_new_dt = df.index.max()
+        if existing_close is not None and matrix_ticker in existing_close.columns:
+            cur_lvi = existing_close[matrix_ticker].last_valid_index()
+            cur_cnt = int(existing_close[matrix_ticker].notna().sum())
+            if cur_lvi is not None and cur_lvi >= max_new_dt and cur_cnt >= len(df):
+                continue
+
+        sub_data = {}
+        for std_col, low_key in [('Open', 'open'), ('High', 'high'), ('Low', 'low'), ('Close', 'close'), ('Volume', 'volume')]:
+            if low_key in col_map:
+                sub_data[(matrix_ticker, std_col)] = pd.to_numeric(df[col_map[low_key]], errors='coerce')
+            elif std_col != 'Volume':
+                sub_data[(matrix_ticker, std_col)] = pd.to_numeric(df[col_map['close']], errors='coerce')
+            else:
+                sub_data[(matrix_ticker, std_col)] = 0.0
+        sub_data[(matrix_ticker, 'Adj Close')] = sub_data[(matrix_ticker, 'Close')]
+
+        multi_df = pd.DataFrame(sub_data, index=df.index)
+        multi_df.columns = pd.MultiIndex.from_tuples(multi_df.columns)
+        multi_df.columns.names = [None, None]
+        frames_to_merge.append(multi_df)
+
+    if not frames_to_merge:
+        return False
+
+    merged_ext = pd.concat(frames_to_merge, axis=1)
+    merged_ext.columns.names = [None, None]
+
+    if cached_df.empty:
+        master_df = merged_ext
+    else:
+        if cached_df.index.tz is not None:
+            cached_df.index = cached_df.index.tz_localize(None)
+        cached_df.columns.names = [None, None]
+        master_df = merged_ext.combine_first(cached_df)
+
+    master_df.sort_index(inplace=True)
+    temp_file = cache_file + ".tmp"
+    master_df.to_pickle(temp_file)
+    for attempt in range(10):
+        try:
+            os.replace(temp_file, cache_file)
+            break
+        except Exception:
+            time.sleep(0.2)
+    else:
+        if os.path.exists(cache_file):
+            try:
+                os.remove(cache_file)
+            except Exception:
+                pass
+        try:
+            os.rename(temp_file, cache_file)
+        except Exception:
+            pass
+    return True

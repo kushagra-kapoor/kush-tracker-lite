@@ -512,6 +512,21 @@ def init_database():
     """)
     safe_execute(cursor, 'CREATE INDEX IF NOT EXISTS idx_persona_mkt_date ON market_persona_daily(market, date)')
 
+    # Institutional Artificial Brain Daily Synthesis Cache (SSOT)
+    safe_execute(cursor, """
+        CREATE TABLE IF NOT EXISTS brain_daily_synthesis_cache (
+            date TEXT NOT NULL,
+            market TEXT NOT NULL DEFAULT 'INDIA',
+            matrix_bar_date TEXT NOT NULL,
+            universe_count INTEGER DEFAULT 0,
+            tide_turn_json TEXT,
+            confluence_json TEXT,
+            updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY (date, market)
+        )
+    """)
+    safe_execute(cursor, 'CREATE INDEX IF NOT EXISTS idx_brain_synth_mkt_date ON brain_daily_synthesis_cache(market, date)')
+
 
 
 
@@ -2187,3 +2202,78 @@ def get_market_persona_history(market: str = 'INDIA', days: int = 60) -> list:
         return []
     finally:
         conn.close()
+
+
+# =============================================================================
+# INSTITUTIONAL ARTIFICIAL BRAIN DAILY SYNTHESIS CACHE (SSOT)
+# =============================================================================
+
+def save_brain_synthesis_cache(
+    date_str: str,
+    market: str,
+    matrix_bar_date: str,
+    universe_count: int,
+    tide_turn_data: dict,
+    confluence_list: list
+) -> bool:
+    """Persist the vectorized Artificial Brain synthesis into SQLite/Turso."""
+    import json
+    conn = get_connection()
+    c = conn.cursor()
+    try:
+        safe_execute(c, """
+            INSERT OR REPLACE INTO brain_daily_synthesis_cache (
+                date, market, matrix_bar_date, universe_count,
+                tide_turn_json, confluence_json, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?)
+        """, (
+            date_str,
+            market,
+            matrix_bar_date,
+            int(universe_count),
+            json.dumps(tide_turn_data or {}),
+            json.dumps(confluence_list or []),
+            datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        ))
+        conn.commit()
+        return True
+    except Exception as e:
+        print(f"[DB Error] save_brain_synthesis_cache: {e}")
+        return False
+    finally:
+        conn.close()
+
+
+def get_brain_synthesis_cache(market: str = 'INDIA', required_matrix_bar_date: str = None) -> dict:
+    """Retrieve cached Artificial Brain synthesis if it matches required_matrix_bar_date."""
+    import json
+    conn = get_connection()
+    c = conn.cursor()
+    try:
+        safe_execute(c, """
+            SELECT * FROM brain_daily_synthesis_cache
+            WHERE market = ?
+            ORDER BY date DESC, updated_at DESC
+            LIMIT 1
+        """, (market,))
+        row = _fetch_one_dict(c)
+        if not row:
+            return None
+        res = dict(row)
+        if required_matrix_bar_date and res.get('matrix_bar_date') != required_matrix_bar_date:
+            return None
+        try:
+            res['tide_turn'] = json.loads(res.get('tide_turn_json') or '{}')
+        except Exception:
+            res['tide_turn'] = {}
+        try:
+            res['confluence'] = json.loads(res.get('confluence_json') or '[]')
+        except Exception:
+            res['confluence'] = []
+        return res
+    except Exception as e:
+        print(f"[DB Error] get_brain_synthesis_cache: {e}")
+        return None
+    finally:
+        conn.close()
+

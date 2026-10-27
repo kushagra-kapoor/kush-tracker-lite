@@ -163,6 +163,7 @@ def get_intraday_column_config(is_us: bool = False):
         "1M Ret Pctile": st.column_config.NumberColumn("1M Pctile", format="%.0fth"),
         "3M Return": st.column_config.NumberColumn("3M Ret", format="%+.2f%%"),
         "3M Ret Pctile": st.column_config.NumberColumn("3M Pctile", format="%.0fth"),
+        "Ind Grade": st.column_config.TextColumn("Ind Grade", width="small", help="Investor's Business Daily Industry Group Letter Grade (A+ to E) and Momentum Rank"),
         "Industry": st.column_config.TextColumn("Sector / Theme", width="medium"),
         "Setup Trigger": st.column_config.TextColumn("Setup Trigger", width="medium"),
         "Active Setups": st.column_config.TextColumn("Active Setups", width="medium"),
@@ -180,6 +181,9 @@ def get_intraday_column_config(is_us: bool = False):
         "Is Power Trend": st.column_config.CheckboxColumn("⚡ Power Trend", help="Strict multi-timeframe MA uptrend"),
         "Is Ants": st.column_config.CheckboxColumn("🐜 Ants", help="12+ up days in last 15"),
         "HV1 Defended": st.column_config.CheckboxColumn("🛡️ HV1 Defender", help="Within 5% of 1Y HV1 Anchored VWAP"),
+        "HV1 Lockup Ratio": st.column_config.NumberColumn("HV1 Lockup", format="%.1fx", help="HV1 Institutional Float-Lockup Ratio (HV1 Vol / 10D Min Pullback Vol). >= 6.0x indicates extreme supply absorption"),
+        "Is HV1 Lockup": st.column_config.CheckboxColumn("🔒 HV1 Lockup", help="HV1 Float-Lockup: HV1 Vol >= 6.0x post-HV1 pullback dry-up volume while defending HV1 Low"),
+        "MA DNA": st.column_config.TextColumn("MA Spine DNA", width="small", help="Stock's natural moving average character (10-EMA Sprinter, 21-EMA Low Rider, or 50-SMA Monster)"),
         "Beach Ball Score": st.column_config.ProgressColumn("BB Score", min_value=0, max_value=100, format="%d", help="Beach Ball Divergence Strength Score (0 to 100)"),
         "Is Beach Ball": st.column_config.CheckboxColumn("🏖️ Beach Ball", help="Steve Cohen / Shake Pryzby Beach Ball Divergence Leader"),
         "Sister Stock Tandem": st.column_config.TextColumn(
@@ -400,6 +404,8 @@ def get_active_setups_tags(row) -> str:
         setups.append("⏳ 3WT")
     if row.get('Is HV1', False):
         setups.append("🔊 HV1")
+    if row.get('Is HV1 Lockup', False) or float(row.get('HV1 Lockup Ratio', 0) or 0) >= 6.0:
+        setups.append("🔒 HV1 Lockup")
     if row.get('Is Beach Ball', False):
         setups.append("🏖️ Beach Ball")
     if row.get('Is New High', False):
@@ -523,8 +529,8 @@ def compute_sister_stock_tandems(results_df: pd.DataFrame) -> pd.DataFrame:
         t1_healthy = (ret1 >= -1.5) and (dist52_1 <= 22.0)
         t2_healthy = (ret2 >= -1.5) and (dist52_2 <= 22.0)
         both_healthy = t1_healthy and t2_healthy
-        tag1 = f"👯 Confirmed ({clean_t2} {ret2:+.1f}%, RS{rs2})" if both_healthy else f"⚠️ Divergence ({clean_t2} {ret2:+.1f}%, RS{rs2})"
-        tag2 = f"👯 Confirmed ({clean_t1} {ret1:+.1f}%, RS{rs1})" if both_healthy else f"⚠️ Divergence ({clean_t1} {ret1:+.1f}%, RS{rs1})"
+        tag1 = f"👑 Alpha 1 (Sister: {clean_t2} {ret2:+.1f}%)" if both_healthy else f"👑 Alpha 1 (⚠️ Divergence: {clean_t2})"
+        tag2 = f"👯 Sister 2 Confirmed ({clean_t1} {ret1:+.1f}%)" if both_healthy else f"👯 Sister 2 (⚠️ Divergence: {clean_t1})"
             
         sister_tags[t1] = tag1
         sister_tickers[t1] = clean_t2
@@ -533,11 +539,14 @@ def compute_sister_stock_tandems(results_df: pd.DataFrame) -> pd.DataFrame:
         
         for k in range(2, len(sorted_grp)):
             tk = sorted_grp.iloc[k]['Ticker']
-            both_confirmed = t1_healthy and t2_healthy
-            if both_confirmed:
-                sister_tags[tk] = f"🛡️ Group Confirmed ({clean_t1}/{clean_t2})"
+            row_k = sorted_grp.iloc[k]
+            rs_k = int(row_k.get('RS Rating', 50))
+            if k == 2 and rs_k >= 80:
+                sister_tags[tk] = f"🥉 Leader #3 (RS {rs_k})"
+            elif rs_k >= 80:
+                sister_tags[tk] = f"🐺 Pack Leader #{k+1} (RS {rs_k})"
             else:
-                sister_tags[tk] = f"⚠️ Group Mixed ({clean_t1}/{clean_t2})"
+                sister_tags[tk] = f"⚠️ Sympathy #{k+1} (Avoid — Laggard vs {clean_t1})"
             sister_tickers[tk] = f"{clean_t1}, {clean_t2}"
             
     df['Sister Stock Tandem'] = df['Ticker'].map(sister_tags).fillna('— Solitary')
