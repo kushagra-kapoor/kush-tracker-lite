@@ -63,8 +63,7 @@ def get_cached_universe(mode="Stocks"):
 def get_cached_history(tickers, days):
     return fetch_yfinance_batch(tickers, days=days)
 
-from components import render_disk_cache_sidebar
-render_disk_cache_sidebar(get_cached_universe)
+# render_disk_cache_sidebar moved into main()
 
 # -----------------------------------------------------------------------------
 # CORE LOGIC
@@ -605,8 +604,9 @@ def score_leaders(candidates, is_etf=False):
 # MAIN APP UI
 # -----------------------------------------------------------------------------
 def main():
-    from components import render_header
+    from components import render_header, render_disk_cache_sidebar
     render_header("👑 True Market Leader (US)", "Locating the Apex Predators of the US Market.")
+    render_disk_cache_sidebar(get_cached_universe)
     
     with st.expander("📖 True Market Leader Scoring Methodology (120 Points)", expanded=False):
         st.markdown("""
