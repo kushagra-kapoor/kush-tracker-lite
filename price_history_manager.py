@@ -28,65 +28,98 @@ def save_delisted_tickers(delisted_set: set):
     except Exception:
         pass
 
-from zoneinfo import ZoneInfo
+SYNC_TRACKER_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".cache", "matrix_sync_tracker.json")
 
-def get_matrix_last_date(cache_file=CACHE_FILE) -> str:
+def load_sync_tracker() -> dict:
+    if os.path.exists(SYNC_TRACKER_FILE):
+        try:
+            with open(SYNC_TRACKER_FILE, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except Exception:
+            pass
+    return {}
+
+def record_sync_complete(cache_file: str, market: str):
+    tracker = load_sync_tracker()
+    base_key = os.path.basename(cache_file)
+    if base_key not in tracker:
+        tracker[base_key] = {}
+    today_str = datetime.now().strftime("%Y-%m-%d")
+    tracker[base_key][market.upper()] = {
+        "last_sync_date": today_str,
+        "sync_time": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    }
+    try:
+        os.makedirs(os.path.dirname(SYNC_TRACKER_FILE), exist_ok=True)
+        with open(SYNC_TRACKER_FILE, "w", encoding="utf-8") as f:
+            json.dump(tracker, f, indent=2)
+    except Exception as e:
+        print(f"[PriceHistoryManager] Sync tracker notice: {e}")
+
+def has_synced_today(cache_file: str, market: str) -> bool:
+    tracker = load_sync_tracker()
+    base_key = os.path.basename(cache_file)
+    mkt_entry = tracker.get(base_key, {}).get(market.upper(), {})
+    last_date = mkt_entry.get("last_sync_date", "")
+    today_str = datetime.now().strftime("%Y-%m-%d")
+    return last_date == today_str
+
+def get_effective_last_date(cached_df: pd.DataFrame, target_tickers: list = None, market: str = 'IN') -> pd.Timestamp:
     """
-    Returns the newest date string (YYYY-MM-DD) found in the cache matrix.
+    Finds the newest date where the requested market's tickers actually have data.
+    Decouples US stocks from Indian stocks even in the same matrix file.
+    """
+    if cached_df is None or cached_df.empty:
+        return None
+    try:
+        if isinstance(cached_df.columns, pd.MultiIndex) and 'Close' in cached_df.columns.get_level_values(1):
+            close_df = cached_df.xs('Close', level=1, axis=1)
+        else:
+            close_df = cached_df
+    except Exception:
+        close_df = pd.DataFrame()
+        
+    if close_df.empty:
+        return cached_df.index.max()
+        
+    valid_existing = [t for t in target_tickers if t in close_df.columns] if target_tickers else []
+    if not valid_existing:
+        if market.upper() in ['IN', 'INDIA']:
+            valid_existing = [c for c in close_df.columns if str(c).endswith('.NS') or str(c).endswith('.BO')]
+        else:
+            valid_existing = [c for c in close_df.columns if not (str(c).endswith('.NS') or str(c).endswith('.BO'))]
+            
+    if not valid_existing:
+        return cached_df.index.max()
+        
+    counts = close_df[valid_existing].notna().sum(axis=1)
+    threshold = max(1, int(len(valid_existing) * 0.15))
+    valid_dates = counts[counts >= threshold].index
+    if len(valid_dates) > 0:
+        return valid_dates.max()
+    return cached_df.index.max()
+
+def get_matrix_last_date(cache_file=CACHE_FILE, market=None) -> str:
+    """
+    Returns the newest date string (YYYY-MM-DD) found in the cache matrix for the given market.
     Runs in < 0.05s from disk.
     """
     if os.path.exists(cache_file):
         try:
             df = pd.read_pickle(cache_file)
             if not df.empty and df.index is not None:
+                if market:
+                    eff_d = get_effective_last_date(df, market=market)
+                    if eff_d is not None:
+                        return eff_d.strftime('%Y-%m-%d')
                 return df.index.max().strftime('%Y-%m-%d')
         except Exception:
             pass
     return None
 
-def is_new_session_possible(last_date, now=None, market='IN') -> bool:
-    """
-    Determines if a new market session could possibly have printed since last_date.
-    Avoids spamming Yahoo Finance pre-market or on weekends.
-    Anchored to exchange local timezones (IST for India, EST for US).
-    """
-    if last_date is None:
-        return True
-
-    # 1. Anchor to appropriate exchange timezone
-    try:
-        tz = ZoneInfo("Asia/Kolkata") if market.upper() == 'IN' or market.upper() == 'INDIA' else ZoneInfo("America/New_York")
-        now_dt = datetime.now(tz)
-    except Exception:
-        now_dt = datetime.now() if now is None else now
-        
-    last_dt = last_date.date() if hasattr(last_date, 'date') else last_date
-    current_date = now_dt.date()
-    
-    # Check if last_date is already today in the exchange's timezone
-    if last_dt >= current_date:
-        return False
-        
-    # If today is weekend in the exchange timezone (Saturday=5, Sunday=6)
-    if now_dt.weekday() == 5:  # Saturday
-        return last_dt < (current_date - timedelta(days=1))
-    if now_dt.weekday() == 6:  # Sunday
-        return last_dt < (current_date - timedelta(days=2))
-        
-    # Weekday Monday-Friday:
-    # India market open: 09:15 AM IST. US market open: 09:30 AM EST.
-    open_hour = 9
-    open_minute = 15 if (market.upper() == 'IN' or market.upper() == 'INDIA') else 30
-    
-    is_pre_market = now_dt.hour < open_hour or (now_dt.hour == open_hour and now_dt.minute < open_minute)
-    if is_pre_market:
-        # On Monday morning before market open, latest possible close is Friday (3 days ago)
-        if now_dt.weekday() == 0:
-            return last_dt < (current_date - timedelta(days=3))
-        # Tuesday-Friday morning before market open, latest possible close is yesterday (1 day ago)
-        return last_dt < (current_date - timedelta(days=1))
-        
-    return True
+def is_new_session_possible(last_date=None, now=None, market='IN') -> bool:
+    """Simplified compatibility wrapper: returns True if today != last_synced_date."""
+    return not has_synced_today(CACHE_FILE, market)
 
 def _safe_yf_download(tickers, max_retries=3, chunk_size=500, **kwargs):
     """
@@ -208,71 +241,36 @@ def fetch_incremental_history(tickers, days=252, progress_callback=None, force_t
             delisted_tickers.update(failed_tickers)
             save_delisted_tickers(delisted_tickers)
 
-    # 2. Fetch incremental deltas for existing tickers (including per-ticker NaN hole catch-up)
+    # 2. Fetch incremental deltas for existing tickers (once per calendar day per market)
     if existing_tickers and not cached_df.empty:
-        last_date = cached_df.index.max()
-        now = datetime.now()
-        today_key = now.strftime("%Y-%m-%d")
-
-        # Detect partial-subset NaN holes: existing tickers whose last valid Close trails last_date
-        lagging_tickers = []
-        min_lag_date = last_date
-        try:
-            if 'Close' in cached_df.columns.get_level_values(1):
-                close_sub = cached_df.xs('Close', level=1, axis=1)
-                valid_existing = [t for t in existing_tickers if t in close_sub.columns]
-                if valid_existing:
-                    last_row = close_sub.loc[last_date, valid_existing]
-                    nan_on_last = last_row[last_row.isna()].index.tolist()
-                    cutoff_dt = last_date - timedelta(days=45)
-                    for t in nan_on_last:
-                        if (t, today_key) in _LAGGING_CHECKED_TODAY and not force_today_refresh:
-                            continue
-                        lvi = close_sub[t].last_valid_index()
-                        if lvi is not None and cutoff_dt <= lvi < last_date:
-                            lagging_tickers.append(t)
-                            if lvi < min_lag_date:
-                                min_lag_date = lvi
-                        _LAGGING_CHECKED_TODAY.add((t, today_key))
-        except Exception as e:
-            print(f"[PriceHistoryManager] Lagging ticker check warning: {e}")
-
-        # Check if market has actually traded since last_date (avoids pre-market / weekend spam)
         is_in_market = any(isinstance(t, str) and (t.endswith('.NS') or t.endswith('.BO')) for t in existing_tickers)
         mkt = 'IN' if is_in_market or not existing_tickers else 'US'
-        need_global_sync = is_new_session_possible(last_date, market=mkt) or force_today_refresh
-        if not need_global_sync and not force_today_refresh:
-            print(f"[PriceHistoryManager] Pre-market / off-hours ({mkt}): local matrix is up to date (last date: {last_date.date()}). Skipping network delta sync.")
-
-        if need_global_sync:
-            non_lagging = [t for t in existing_tickers if t not in set(lagging_tickers)]
-            if non_lagging:
-                if progress_callback:
-                    progress_callback(f"Syncing incremental bars since {last_date.date()}...")
-                delta_df = _safe_yf_download(
-                    list(non_lagging),
-                    start=last_date.strftime("%Y-%m-%d"),
-                    group_by='ticker',
-                    progress=False,
-                    auto_adjust=False
-                )
-                delta_df = _ensure_multiindex(delta_df, non_lagging)
-                if not delta_df.empty:
-                    new_dataframes.append(delta_df)
-
-        if lagging_tickers:
+        
+        last_date = get_effective_last_date(cached_df, existing_tickers, market=mkt)
+        if last_date is None:
+            last_date = cached_df.index.max()
+            
+        already_synced = has_synced_today(cache_file, mkt)
+        need_sync = (not already_synced) or force_today_refresh
+        
+        if not need_sync:
+            print(f"[PriceHistoryManager] Already synced today ({mkt}) for {os.path.basename(cache_file)} (last date: {last_date.date() if hasattr(last_date, 'date') else last_date}). Fast loading from disk cache.")
+        else:
+            print(f"[PriceHistoryManager] First sync of the day for {mkt} (last date: {last_date.date() if hasattr(last_date, 'date') else last_date}). Fetching delta from Yahoo Finance...")
             if progress_callback:
-                progress_callback(f"Backfilling {len(lagging_tickers)} partial-subset lagging tickers since {min_lag_date.date()}...")
-            lag_df = _safe_yf_download(
-                list(lagging_tickers),
-                start=min_lag_date.strftime("%Y-%m-%d"),
+                progress_callback(f"Syncing daily incremental delta for {len(existing_tickers)} {mkt} stocks since {last_date.date()}...")
+            delta_df = _safe_yf_download(
+                list(existing_tickers),
+                start=last_date.strftime("%Y-%m-%d"),
                 group_by='ticker',
                 progress=False,
                 auto_adjust=False
             )
-            lag_df = _ensure_multiindex(lag_df, lagging_tickers)
-            if not lag_df.empty:
-                new_dataframes.append(lag_df)
+            delta_df = _ensure_multiindex(delta_df, existing_tickers)
+            if not delta_df.empty:
+                new_dataframes.append(delta_df)
+                
+            record_sync_complete(cache_file, mkt)
 
     # 3. Merge everything together
     master_df = cached_df.copy()
