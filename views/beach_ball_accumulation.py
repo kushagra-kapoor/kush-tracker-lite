@@ -229,19 +229,38 @@ tv_prefix = "" if is_us else "NSE:"
 # =========================================================================
 conn = get_connection()
 c = conn.cursor()
-c.execute("""
-    SELECT date, above_50_pct, above_20_pct, above_200_pct 
-    FROM market_breadth_daily 
-    WHERE market = ? 
-    ORDER BY date DESC LIMIT 1
-""", (mkt_code,))
-row_b = c.fetchone()
-conn.close()
+row_b = None
+try:
+    c.execute("""
+        SELECT date, above_50_pct, above_20_pct, above_200_pct 
+        FROM market_breadth_daily 
+        WHERE market = ? 
+        ORDER BY date DESC LIMIT 1
+    """, (mkt_code,))
+    row_b = c.fetchone()
+except Exception:
+    try:
+        c.execute("""
+            SELECT date, above_50_pct 
+            FROM market_breadth_daily 
+            WHERE market = ? 
+            ORDER BY date DESC LIMIT 1
+        """, (mkt_code,))
+        r = c.fetchone()
+        if r:
+            row_b = (r[0], r[1], 50.0, 50.0)
+    except Exception:
+        row_b = None
+finally:
+    try:
+        conn.close()
+    except Exception:
+        pass
 
-cur_date = row_b[0] if row_b else "Latest"
-cur_50_breadth = float(row_b[1]) if row_b and row_b[1] is not None else 50.0
-cur_20_breadth = float(row_b[2]) if row_b and row_b[2] is not None else 50.0
-cur_200_breadth = float(row_b[3]) if row_b and row_b[3] is not None else 50.0
+cur_date = row_b[0] if row_b and len(row_b) > 0 else "Latest"
+cur_50_breadth = float(row_b[1]) if row_b and len(row_b) > 1 and row_b[1] is not None else 50.0
+cur_20_breadth = float(row_b[2]) if row_b and len(row_b) > 2 and row_b[2] is not None else 50.0
+cur_200_breadth = float(row_b[3]) if row_b and len(row_b) > 3 and row_b[3] is not None else 50.0
 is_submerged = (cur_50_breadth < 35.0)
 
 # Pre-fetch Cumulative Radar Data

@@ -313,6 +313,27 @@ def init_database():
         )
     ''')
 
+    # Ensure market_breadth_daily has all required columns across schema versions
+    breadth_cols = [
+        ("above_20_pct", "REAL"),
+        ("above_200_pct", "REAL"),
+        ("new_highs_count", "INTEGER"),
+        ("new_lows_count", "INTEGER"),
+        ("advances", "INTEGER"),
+        ("declines", "INTEGER"),
+        ("ad_line_cumulative", "INTEGER"),
+        ("double_52w_count", "INTEGER"),
+        ("quadruple_52w_count", "INTEGER"),
+        ("total_stocks", "INTEGER"),
+        ("surge_extreme_5d", "INTEGER"),
+        ("panic_extreme_5d", "INTEGER")
+    ]
+    for col_name, col_type in breadth_cols:
+        try:
+            safe_execute(cursor, f"ALTER TABLE market_breadth_daily ADD COLUMN {col_name} {col_type}")
+        except Exception:
+            pass
+
     safe_execute(cursor, '''
         CREATE TABLE IF NOT EXISTS corporate_announcements (
             id TEXT PRIMARY KEY,
