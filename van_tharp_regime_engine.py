@@ -42,6 +42,11 @@ INDEX_SPECS = {
         'symbol': '^NSEI',
         'name': 'NIFTY 50',
         'market': 'IN',
+        'exchange': 'NSE',
+        'market_label': 'INDIA MEGA-CAP',
+        'badge_bg': 'rgba(245, 158, 11, 0.15)',
+        'badge_color': '#fbbf24',
+        'badge_border': 'rgba(245, 158, 11, 0.35)',
         'flag': '🇮🇳',
         'desc': 'India Mega-Cap Benchmark'
     },
@@ -49,6 +54,11 @@ INDEX_SPECS = {
         'symbol': '^CRSLDX',
         'name': 'NIFTY 500',
         'market': 'IN',
+        'exchange': 'NSE',
+        'market_label': 'INDIA BROAD MARKET',
+        'badge_bg': 'rgba(245, 158, 11, 0.15)',
+        'badge_color': '#fbbf24',
+        'badge_border': 'rgba(245, 158, 11, 0.35)',
         'flag': '🇮🇳',
         'desc': 'India Broad-Market Universe'
     },
@@ -56,6 +66,11 @@ INDEX_SPECS = {
         'symbol': '^GSPC',
         'name': 'S&P 500',
         'market': 'US',
+        'exchange': 'US',
+        'market_label': 'US LARGE-CAP',
+        'badge_bg': 'rgba(59, 130, 246, 0.15)',
+        'badge_color': '#60a5fa',
+        'badge_border': 'rgba(59, 130, 246, 0.35)',
         'flag': '🇺🇸',
         'desc': 'US Large-Cap Benchmark'
     },
@@ -63,6 +78,11 @@ INDEX_SPECS = {
         'symbol': '^NDX',
         'name': 'NASDAQ 100',
         'market': 'US',
+        'exchange': 'US',
+        'market_label': 'US TECH & GROWTH',
+        'badge_bg': 'rgba(168, 85, 247, 0.15)',
+        'badge_color': '#c084fc',
+        'badge_border': 'rgba(168, 85, 247, 0.35)',
         'flag': '🇺🇸',
         'desc': 'US Tech & Growth Leaders'
     }
@@ -75,7 +95,8 @@ REGIME_METADATA = {
         'bg_gradient': 'linear-gradient(135deg, rgba(16, 185, 129, 0.15) 0%, rgba(5, 150, 105, 0.05) 100%)',
         'icon': '🟢',
         'title': 'BULL QUIET (The Holy Grail Regime)',
-        'directive': 'Aggressive Breakouts & Pyramiding (Max 80–100% Exposure)',
+        'directive': 'Aggressive Breakouts & Pyramiding (High Follow-Through)',
+        'exposure_range': '80–100% EXP',
         'playbook': 'Optimal CANSLIM environment. High follow-through (>65% win rate). Buy pivot breakouts, pyramid winners at +2% to +3%, trail 21-EMA.',
         'breakout_expectancy': 'High Positive (+0.8R to +1.5R)',
         'risk_stance': 'Aggressive Offense'
@@ -86,7 +107,8 @@ REGIME_METADATA = {
         'bg_gradient': 'linear-gradient(135deg, rgba(245, 158, 11, 0.15) 0%, rgba(217, 119, 6, 0.05) 100%)',
         'icon': '🟡',
         'title': 'BULL VOLATILE (Late-Stage Expansion)',
-        'directive': 'Defensive Strength Selling & Tight Stops (40–60% Exposure)',
+        'directive': 'Defensive Strength Selling & Tight 10-EMA Stops',
+        'exposure_range': '40–60% EXP',
         'playbook': 'Late-stage or parabolic expansion with wide swings. Tighten stops to 10-EMA, take partial profits at +3R to +5R into strength, do not chase extended bases.',
         'breakout_expectancy': 'Moderate (+0.3R, High Squat Risk)',
         'risk_stance': 'Guarded Offense'
@@ -97,7 +119,8 @@ REGIME_METADATA = {
         'bg_gradient': 'linear-gradient(135deg, rgba(56, 189, 248, 0.15) 0%, rgba(2, 132, 199, 0.05) 100%)',
         'icon': '⚪',
         'title': 'SIDEWAYS QUIET (Base-Building Accumulation)',
-        'directive': 'Selective Pocket Pivots & 10-EMA Cheats (25–40% Exposure)',
+        'directive': 'Selective Pocket Pivots & 10-EMA Cheats in Primary Leaders',
+        'exposure_range': '25–40% EXP',
         'playbook': 'Orderly base-building range. Index is flat and calm. Focus strictly on True Market Leaders breaking out of 6-month+ bases with RS > 90 while broad market sleeps.',
         'breakout_expectancy': 'Selective (+0.4R in Primary Leaders)',
         'risk_stance': 'Tactical Selective'
@@ -108,10 +131,11 @@ REGIME_METADATA = {
         'bg_gradient': 'linear-gradient(135deg, rgba(239, 68, 68, 0.15) 0%, rgba(220, 38, 38, 0.05) 100%)',
         'icon': '🔴',
         'title': 'SIDEWAYS VOLATILE (High-Velocity Chop)',
-        'directive': 'Violent Whipsaws: Swing Dips Only (10–20% Pilot Max)',
+        'directive': 'Violent Whipsaws: Swing Dips Only (No High Breakout Chases)',
+        'exposure_range': '10–20% PILOT',
         'playbook': 'Breakout graveyard. Standard 52-week breakouts squat >70% of the time. Strictly forbid chasing highs. Only buy undercut-and-rally setups or hold cash.',
         'breakout_expectancy': 'Negative (-0.5R, High Whip-Saw Rate)',
-        'risk_stance': 'Capital Preservation / Defense'
+        'risk_stance': 'Capital Defense'
     },
     'BEAR QUIET': {
         'color': '#f97316',
@@ -119,7 +143,8 @@ REGIME_METADATA = {
         'bg_gradient': 'linear-gradient(135deg, rgba(249, 115, 22, 0.15) 0%, rgba(234, 88, 12, 0.05) 100%)',
         'icon': '🟠',
         'title': 'BEAR QUIET (Grinding Distribution)',
-        'directive': 'Grinding Slow Bleed: Cash Fortress (0–10% Exposure)',
+        'directive': 'Grinding Slow Bleed: Cash Fortress (Avoid Buying Dips)',
+        'exposure_range': '0–10% CASH',
         'playbook': 'Low-volatility persistent drift lower. Rallies are dead-cat bounces that fade. Strictly protect capital, eliminate lagging positions, and wait for market turn.',
         'breakout_expectancy': 'Near Zero (Breakouts Disappear)',
         'risk_stance': 'Fortress Cash'
@@ -130,7 +155,8 @@ REGIME_METADATA = {
         'bg_gradient': 'linear-gradient(135deg, rgba(168, 85, 247, 0.15) 0%, rgba(147, 51, 234, 0.05) 100%)',
         'icon': '🟣',
         'title': 'BEAR VOLATILE (Panic Liquidation & Washout)',
-        'directive': 'Panic Washouts: Submerged Beach Ball Stalking Mode',
+        'directive': 'Panic Washouts: Submerged Beach Ball Stalking Mode Only',
+        'exposure_range': '0–10% CASH',
         'playbook': 'Indiscriminate institutional selling and volatility spikes. Maintain high cash (0–10%). Use Beach Ball Radar to identify submerged leaders printing high-volume power plays.',
         'breakout_expectancy': 'Extreme Negative (Washout Hazards)',
         'risk_stance': 'Deep Stalking / Cash'
@@ -227,7 +253,6 @@ def load_weekly_indices(force_refresh: bool = False) -> dict:
         except Exception:
             pass
 
-    # If cache exists and has all symbols, use it if network fails
     existing_cache = {}
     if os.path.exists(CACHE_FILE):
         try:
@@ -236,7 +261,6 @@ def load_weekly_indices(force_refresh: bool = False) -> dict:
         except Exception:
             pass
 
-    # Attempt daily sync
     fresh_data = _download_and_cache_weekly_indices()
     if fresh_data:
         return fresh_data
@@ -290,7 +314,6 @@ def calculate_van_tharp_metrics(weekly_df: pd.DataFrame) -> dict:
     regime = f"{direction} {volatility}"
     meta = REGIME_METADATA.get(regime, REGIME_METADATA['SIDEWAYS QUIET'])
 
-    # Historical 52-week trajectory
     history_df = pd.DataFrame({
         'close': c,
         'ret_13w': ((c - c.shift(13)) / c.shift(13) * 100.0),
@@ -326,7 +349,6 @@ def get_all_van_tharp_regimes(force_refresh: bool = False) -> dict:
                 **metrics
             }
         else:
-            # Fallback safe defaults if symbol missing
             results[sym] = {
                 **spec,
                 'last_date': datetime.now().strftime('%Y-%m-%d'),
@@ -362,7 +384,6 @@ def render_van_tharp_cockpit_card(market: str = 'ALL'):
     if not data:
         return
 
-    # Filter by market if requested
     if market.upper() in ['IN', 'INDIA']:
         display_items = [v for v in data.values() if v.get('market') == 'IN']
     elif market.upper() in ['US', 'USA']:
@@ -375,82 +396,120 @@ def render_van_tharp_cockpit_card(market: str = 'ALL'):
         meta = item.get('meta', {})
         ret = item.get('ret_13w', 0.0)
         atr = item.get('atr_13w_pct', 0.0)
-        direction = item.get('direction', 'SIDEWAYS')
-        vol = item.get('volatility', 'QUIET')
         regime = item.get('regime', 'SIDEWAYS QUIET')
         color = meta.get('color', '#38bdf8')
-        border_col = meta.get('border_color', '#0284c7')
-        bg_grad = meta.get('bg_gradient', 'rgba(15, 23, 42, 0.95)')
-        icon = meta.get('icon', '⚪')
         directive = meta.get('directive', 'Tactical Selective')
+        exp_range = meta.get('exposure_range', '0–100%')
+        risk_stance = meta.get('risk_stance', 'Tactical')
 
-        ret_col = '#10b981' if ret > 5.53 else '#ef4444' if ret < -5.53 else '#38bdf8'
-        atr_col = '#ef4444' if atr > 2.87 else '#10b981'
+        # Quant direction condition tag
+        if ret > 5.53:
+            ret_col = '#10b981'
+            ret_tag = '<span style="color: #34d399; font-weight: 700;">▲ BULL (>+5.5%)</span>'
+        elif ret < -5.53:
+            ret_col = '#ef4444'
+            ret_tag = '<span style="color: #f87171; font-weight: 700;">▼ BEAR (&lt;-5.5%)</span>'
+        else:
+            ret_col = '#38bdf8'
+            ret_tag = '<span style="color: #38bdf8; font-weight: 700;">■ FLAT (&plusmn;5.5%)</span>'
 
-        cards_html.append(f"""
-        <div style="background: {bg_grad}; border: 1px solid {border_col}55; border-top: 4px solid {color}; border-radius: 10px; padding: 14px 16px; box-shadow: 0 8px 20px -4px rgba(0,0,0,0.45); display: flex; flex-direction: column; justify-content: space-between;">
+        # Quant volatility condition tag
+        if atr > 2.87:
+            atr_col = '#ef4444'
+            atr_tag = '<span style="color: #f87171; font-weight: 700;">⚡ HIGH (>2.87%)</span>'
+        else:
+            atr_col = '#10b981'
+            atr_tag = '<span style="color: #34d399; font-weight: 700;">🌊 QUIET (&le;2.87%)</span>'
+
+        ex_badge = f"""<span style="background: {item.get('badge_bg')}; color: {item.get('badge_color')}; border: 1px solid {item.get('badge_border')}; padding: 2px 7px; border-radius: 4px; font-size: 0.62rem; font-weight: 800; letter-spacing: 0.5px;">{item.get('exchange', 'IDX')}</span>"""
+
+        card = f"""
+        <div style="background: linear-gradient(145deg, rgba(17, 24, 39, 0.95) 0%, rgba(15, 23, 42, 0.98) 100%); border: 1px solid rgba(255, 255, 255, 0.08); border-top: 3px solid {color}; border-radius: 10px; padding: 14px 16px; box-shadow: 0 10px 25px -5px rgba(0,0,0,0.5), 0 0 16px -4px {color}22; display: flex; flex-direction: column; justify-content: space-between; min-height: 220px;">
             <div>
-                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
-                    <div style="font-size: 0.82rem; font-weight: 800; color: #f8fafc; display: flex; align-items: center; gap: 6px;">
-                        <span>{item.get('flag')}</span>
-                        <span>{item.get('name')}</span>
+                <!-- Top Header: Exchange Badge, Title, Symbol -->
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+                    <div style="display: flex; align-items: center; gap: 7px;">
+                        {ex_badge}
+                        <div>
+                            <div style="font-size: 0.88rem; font-weight: 900; color: #f8fafc; letter-spacing: -0.2px; line-height: 1.1;">{item.get('name')}</div>
+                            <div style="font-size: 0.58rem; color: #64748b; font-weight: 700; text-transform: uppercase; letter-spacing: 0.4px;">{item.get('market_label', '')}</div>
+                        </div>
                     </div>
-                    <span style="font-family: 'JetBrains Mono', monospace; font-size: 0.68rem; color: #94a3b8; background: rgba(0,0,0,0.35); padding: 1px 6px; border-radius: 4px;">
+                    <span style="font-family: 'JetBrains Mono', monospace; font-size: 0.66rem; color: #94a3b8; background: rgba(0,0,0,0.45); padding: 2px 7px; border-radius: 4px; border: 1px solid rgba(255,255,255,0.06);">
                         {item.get('symbol')}
                     </span>
                 </div>
-                <div style="margin-bottom: 10px;">
-                    <span style="background: {color}22; color: {color}; border: 1px solid {color}66; padding: 4px 10px; border-radius: 9999px; font-size: 0.74rem; font-weight: 900; letter-spacing: 0.5px; display: inline-flex; align-items: center; gap: 6px;">
-                        <span>{icon}</span> {regime}
+
+                <!-- Hero Status Banner -->
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; background: rgba(0, 0, 0, 0.35); padding: 7px 10px; border-radius: 6px; border-left: 3px solid {color};">
+                    <span style="color: {color}; font-size: 0.78rem; font-weight: 900; letter-spacing: 0.5px; display: inline-flex; align-items: center; gap: 6px;">
+                        <span style="display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: {color}; box-shadow: 0 0 8px {color};"></span>
+                        {regime}
+                    </span>
+                    <span style="background: {color}18; color: {color}; border: 1px solid {color}44; padding: 2px 7px; border-radius: 4px; font-size: 0.58rem; font-weight: 800; text-transform: uppercase; letter-spacing: 0.4px;">
+                        {risk_stance}
                     </span>
                 </div>
-                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 10px; background: rgba(0,0,0,0.35); padding: 8px 10px; border-radius: 6px; border: 1px solid rgba(255,255,255,0.04);">
+
+                <!-- Dual Quant Telemetry Grid -->
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 12px; background: rgba(0, 0, 0, 0.4); padding: 9px 10px; border-radius: 7px; border: 1px solid rgba(255,255,255,0.05);">
                     <div>
-                        <div style="font-size: 0.65rem; color: #94a3b8; font-weight: 700; text-transform: uppercase;">13W Return</div>
-                        <div style="font-family: 'JetBrains Mono', monospace; font-size: 0.90rem; font-weight: 800; color: {ret_col};">
+                        <div style="font-size: 0.60rem; color: #94a3b8; font-weight: 800; text-transform: uppercase; letter-spacing: 0.5px;">13W RETURN</div>
+                        <div style="font-family: 'JetBrains Mono', monospace; font-size: 1.12rem; font-weight: 900; color: {ret_col}; line-height: 1.25; margin: 1px 0;">
                             {ret:+.2f}%
                         </div>
-                        <div style="font-size: 0.58rem; color: #64748b;">(Baseline: &plusmn;5.5%)</div>
+                        <div style="font-size: 0.56rem;">{ret_tag}</div>
                     </div>
                     <div>
-                        <div style="font-size: 0.65rem; color: #94a3b8; font-weight: 700; text-transform: uppercase;">13W Wkly ATR</div>
-                        <div style="font-family: 'JetBrains Mono', monospace; font-size: 0.90rem; font-weight: 800; color: {atr_col};">
+                        <div style="font-size: 0.60rem; color: #94a3b8; font-weight: 800; text-transform: uppercase; letter-spacing: 0.5px;">13W WKLY ATR</div>
+                        <div style="font-family: 'JetBrains Mono', monospace; font-size: 1.12rem; font-weight: 900; color: {atr_col}; line-height: 1.25; margin: 1px 0;">
                             {atr:.2f}%
                         </div>
-                        <div style="font-size: 0.58rem; color: #64748b;">(Baseline: 2.87%)</div>
+                        <div style="font-size: 0.56rem;">{atr_tag}</div>
                     </div>
                 </div>
             </div>
-            <div style="border-top: 1px solid rgba(255,255,255,0.06); padding-top: 8px; font-size: 0.70rem; color: #cbd5e1; line-height: 1.35; font-weight: 600;">
-                <span style="color: {color}; font-weight: 800;">DIRECTIVE:</span> {directive}
+
+            <!-- Inset Tactical Playbook Footer -->
+            <div style="background: rgba(0, 0, 0, 0.35); border: 1px solid rgba(255, 255, 255, 0.05); border-left: 3px solid {color}; border-radius: 6px; padding: 8px 10px;">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 3px;">
+                    <span style="font-size: 0.60rem; color: {color}; font-weight: 800; text-transform: uppercase; letter-spacing: 0.6px;">⚡ CANSLIM ACTION</span>
+                    <span style="background: {color}22; color: {color}; border: 1px solid {color}55; padding: 1px 6px; border-radius: 3px; font-weight: 800; font-size: 0.58rem; font-family: 'JetBrains Mono', monospace;">{exp_range}</span>
+                </div>
+                <div style="font-size: 0.68rem; color: #cbd5e1; line-height: 1.35; font-weight: 500;">
+                    {directive}
+                </div>
             </div>
         </div>
-        """)
+        """
+        cards_html.append(card)
 
     grid_cols = len(display_items)
     grid_template = f"repeat(auto-fit, minmax(240px, 1fr))" if grid_cols > 2 else f"repeat({grid_cols}, 1fr)"
 
     hud_html = f"""
-    <div style="background: linear-gradient(135deg, rgba(15, 23, 42, 0.96) 0%, rgba(30, 41, 59, 0.92) 100%); border: 1px solid rgba(255, 255, 255, 0.08); border-left: 6px solid #38bdf8; border-radius: 12px; padding: 18px 20px; margin-bottom: 16px; box-shadow: 0 12px 28px -6px rgba(0, 0, 0, 0.55);">
+    <div style="background: linear-gradient(135deg, rgba(15, 23, 42, 0.96) 0%, rgba(24, 33, 54, 0.94) 100%); border: 1px solid rgba(255, 255, 255, 0.08); border-left: 5px solid #38bdf8; border-radius: 12px; padding: 18px 20px; margin-bottom: 18px; box-shadow: 0 14px 32px -6px rgba(0, 0, 0, 0.6), 0 0 1px 1px rgba(255, 255, 255, 0.05) inset;">
         <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px; margin-bottom: 14px;">
             <div style="display: flex; align-items: center; gap: 10px;">
                 <span style="font-size: 1.45rem;">🏛️</span>
                 <div>
                     <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
-                        <span style="color: #f8fafc; font-size: 1.05rem; font-weight: 800; letter-spacing: -0.2px;">
+                        <span style="color: #f8fafc; font-size: 1.05rem; font-weight: 900; letter-spacing: -0.2px;">
                             Van Tharp 6-Market Regime Matrix
                         </span>
-                        <span style="background: rgba(56, 189, 248, 0.15); color: #38bdf8; border: 1px solid rgba(56, 189, 248, 0.35); padding: 2px 8px; border-radius: 9999px; font-size: 0.65rem; font-weight: 800; text-transform: uppercase; letter-spacing: 0.6px;">
+                        <span style="background: rgba(56, 189, 248, 0.15); color: #38bdf8; border: 1px solid rgba(56, 189, 248, 0.35); padding: 2px 8px; border-radius: 9999px; font-size: 0.62rem; font-weight: 800; text-transform: uppercase; letter-spacing: 0.6px;">
                             WEEKLY 13W TELEMETRY
                         </span>
                     </div>
                     <div style="font-size: 0.72rem; color: #94a3b8; margin-top: 2px;">
-                        Canonical formulation from Dr. Van K. Tharp's <i>Super Trader</i> (Page 19). Classifies macro trend direction and volatility to mandate positive-expectancy CANSLIM playbooks.
+                        Canonical formulation from Dr. Van K. Tharp's <i>Super Trader</i> (Page 19). Classifies macro trend direction and weekly volatility to mandate positive-expectancy CANSLIM playbooks.
                     </div>
                 </div>
             </div>
-            <div style="font-size: 0.68rem; color: #64748b; font-family: 'JetBrains Mono', monospace;">
-                Fast Disk Cache: &lt; 0.01s
+            <div style="display: flex; align-items: center; gap: 8px;">
+                <span style="background: rgba(16, 185, 129, 0.12); color: #34d399; border: 1px solid rgba(16, 185, 129, 0.25); padding: 3px 8px; border-radius: 4px; font-size: 0.62rem; font-weight: 700; font-family: 'JetBrains Mono', monospace;">
+                    ⚡ Fast Disk Cache: &lt; 0.01s
+                </span>
             </div>
         </div>
         <div style="display: grid; grid-template-columns: {grid_template}; gap: 12px;">
@@ -468,7 +527,6 @@ def render_van_tharp_full_page():
     """
     try:
         import streamlit as st
-        import plotly.graph_objects as go
     except ImportError:
         return
 
@@ -483,14 +541,14 @@ def render_van_tharp_full_page():
     # 2. Interactive 2D Van Tharp Grid Visualizer
     st.markdown("""
     <div style="margin-top: 24px; margin-bottom: 12px;">
-        <h4 style="color: #f8fafc; margin-bottom: 4px;">🗺️ The 2D Van Tharp Regime Matrix (Trend Direction vs. Volatility)</h4>
+        <h4 style="color: #f8fafc; margin-bottom: 4px; font-weight: 900; letter-spacing: -0.2px;">🗺️ The 2D Van Tharp Regime Matrix (Trend Direction vs. Volatility)</h4>
         <div style="color: #94a3b8; font-size: 0.82rem;">
-            Where all 4 benchmark indices currently sit inside Van Tharp's 6 operational states:
+            Institutional radar mapping where all 4 benchmark indices currently operate within Van Tharp's 6 operational states. Active regimes glow with real-time index beacons; inactive states are dimmed.
         </div>
     </div>
     """, unsafe_allow_html=True)
 
-    # Map current indices to their cells
+    # Map current indices to their cells with full metrics
     cell_indices = {
         'BULL QUIET': [],
         'BULL VOLATILE': [],
@@ -502,7 +560,7 @@ def render_van_tharp_full_page():
     for item in data.values():
         reg = item.get('regime')
         if reg in cell_indices:
-            cell_indices[reg].append(f"{item.get('flag')} {item.get('name')}")
+            cell_indices[reg].append(item)
 
     def _render_cell(regime_name):
         meta = REGIME_METADATA[regime_name]
@@ -511,56 +569,87 @@ def render_van_tharp_full_page():
         title = regime_name
         directive = meta['directive']
         seated = cell_indices.get(regime_name, [])
-        seated_html = "".join([f'<div style="background: {col}; color: #000; font-weight: 800; font-size: 0.72rem; padding: 3px 8px; border-radius: 4px; margin-top: 4px; display: inline-block; margin-right: 4px; box-shadow: 0 0 10px {col}88;">📍 {idx}</div>' for idx in seated])
         is_active = len(seated) > 0
-        glow = f"border: 2px solid {col}; box-shadow: 0 0 18px {col}44;" if is_active else f"border: 1px solid rgba(255,255,255,0.08);"
+
+        seated_chips = []
+        for idx in seated:
+            r = idx.get('ret_13w', 0.0)
+            a = idx.get('atr_13w_pct', 0.0)
+            r_col = '#10b981' if r > 5.53 else '#ef4444' if r < -5.53 else '#38bdf8'
+            a_col = '#ef4444' if a > 2.87 else '#10b981'
+            chip = f"""
+            <div style="background: rgba(0, 0, 0, 0.7); border: 1px solid {col}99; border-radius: 6px; padding: 6px 10px; margin-top: 6px; display: flex; justify-content: space-between; align-items: center; box-shadow: 0 4px 12px rgba(0,0,0,0.5);">
+                <div style="display: flex; align-items: center; gap: 6px;">
+                    <span style="display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: {col}; box-shadow: 0 0 8px {col};"></span>
+                    <span style="font-weight: 800; font-size: 0.76rem; color: #f8fafc;">{idx.get('name')}</span>
+                </div>
+                <div style="font-family: 'JetBrains Mono', monospace; font-size: 0.68rem;">
+                    <span style="color: {r_col}; font-weight: 700;">{r:+.1f}%</span>
+                    <span style="color: #64748b; margin: 0 3px;">|</span>
+                    <span style="color: {a_col}; font-weight: 700;">{a:.2f}% ATR</span>
+                </div>
+            </div>
+            """
+            seated_chips.append(chip)
+
+        seated_html = "".join(seated_chips)
+
+        if is_active:
+            glow = f"border: 2px solid {col}; background: linear-gradient(145deg, {col}22 0%, rgba(15, 23, 42, 0.95) 100%); box-shadow: 0 0 24px {col}33, inset 0 0 12px {col}15;"
+            status_chip = f"""<span style="background: {col}; color: #000; font-size: 0.58rem; font-weight: 900; padding: 2px 7px; border-radius: 3px; letter-spacing: 0.5px;">ACTIVE ({len(seated)})</span>"""
+            opacity = "opacity: 1.0;"
+        else:
+            glow = "border: 1px solid rgba(255,255,255,0.06); background: rgba(15, 23, 42, 0.55);"
+            status_chip = f"""<span style="font-size: 0.62rem; color: #64748b; font-family: 'JetBrains Mono', monospace;">{meta.get('breakout_expectancy')}</span>"""
+            opacity = "opacity: 0.45;"
+
         return f"""
-        <div style="background: rgba(15, 23, 42, 0.85); {glow} border-radius: 10px; padding: 14px; min-height: 140px; display: flex; flex-direction: column; justify-content: space-between;">
+        <div style="{glow} {opacity} border-radius: 10px; padding: 14px; min-height: 155px; display: flex; flex-direction: column; justify-content: space-between; transition: all 0.2s ease;">
             <div>
                 <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
-                    <span style="font-weight: 900; color: {col}; font-size: 0.85rem; letter-spacing: 0.5px;">{icon} {title}</span>
-                    <span style="font-size: 0.65rem; color: #94a3b8; font-family: 'JetBrains Mono', monospace;">{meta.get('breakout_expectancy')}</span>
+                    <span style="font-weight: 900; color: {col}; font-size: 0.84rem; letter-spacing: 0.4px;">{icon} {title}</span>
+                    {status_chip}
                 </div>
-                <div style="font-size: 0.72rem; color: #cbd5e1; line-height: 1.4; margin-bottom: 8px;">
+                <div style="font-size: 0.72rem; color: #cbd5e1; line-height: 1.35; margin-bottom: 8px;">
                     {directive}
                 </div>
             </div>
             <div>
-                {seated_html if seated_html else '<div style="font-size: 0.65rem; color: #64748b; font-style: italic;">No benchmark in this regime</div>'}
+                {seated_html if seated_html else '<div style="font-size: 0.65rem; color: #64748b; font-style: italic;">No index in this regime</div>'}
             </div>
         </div>
         """
 
     grid_html = f"""
-    <div style="background: rgba(0,0,0,0.25); border: 1px solid rgba(255,255,255,0.06); border-radius: 12px; padding: 16px; margin-bottom: 24px;">
-        <div style="display: grid; grid-template-columns: 120px 1fr 1fr 1fr; gap: 10px; align-items: stretch;">
-            <!-- Header Row -->
+    <div style="background: linear-gradient(135deg, rgba(15, 23, 42, 0.95) 0%, rgba(20, 30, 50, 0.95) 100%); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 12px; padding: 18px; margin-bottom: 24px; box-shadow: 0 14px 32px -6px rgba(0, 0, 0, 0.6);">
+        <div style="display: grid; grid-template-columns: 130px 1fr 1fr 1fr; gap: 12px; align-items: stretch;">
+            <!-- Top Column Headers -->
             <div></div>
-            <div style="text-align: center; color: #10b981; font-weight: 800; font-size: 0.82rem; background: rgba(16, 185, 129, 0.1); padding: 8px; border-radius: 6px; border: 1px solid rgba(16, 185, 129, 0.25);">
-                🟢 BULL MARKET<br/><span style="font-size: 0.65rem; color: #94a3b8;">13W Ret &gt; +5.53%</span>
+            <div style="text-align: center; color: #10b981; font-weight: 900; font-size: 0.82rem; background: linear-gradient(180deg, rgba(16, 185, 129, 0.15) 0%, rgba(16, 185, 129, 0.05) 100%); padding: 10px; border-radius: 8px; border: 1px solid rgba(16, 185, 129, 0.3); border-top: 3px solid #10b981;">
+                🟢 BULL TREND<br/><span style="font-size: 0.64rem; color: #94a3b8; font-family: 'JetBrains Mono', monospace;">13W Ret &gt; +5.53%</span>
             </div>
-            <div style="text-align: center; color: #38bdf8; font-weight: 800; font-size: 0.82rem; background: rgba(56, 189, 248, 0.1); padding: 8px; border-radius: 6px; border: 1px solid rgba(56, 189, 248, 0.25);">
-                ⚪ SIDEWAYS MARKET<br/><span style="font-size: 0.65rem; color: #94a3b8;">-5.53% to +5.53%</span>
+            <div style="text-align: center; color: #38bdf8; font-weight: 900; font-size: 0.82rem; background: linear-gradient(180deg, rgba(56, 189, 248, 0.15) 0%, rgba(56, 189, 248, 0.05) 100%); padding: 10px; border-radius: 8px; border: 1px solid rgba(56, 189, 248, 0.3); border-top: 3px solid #38bdf8;">
+                ⚪ SIDEWAYS RANGE<br/><span style="font-size: 0.64rem; color: #94a3b8; font-family: 'JetBrains Mono', monospace;">-5.53% to +5.53%</span>
             </div>
-            <div style="text-align: center; color: #f97316; font-weight: 800; font-size: 0.82rem; background: rgba(249, 115, 22, 0.1); padding: 8px; border-radius: 6px; border: 1px solid rgba(249, 115, 22, 0.25);">
-                🔴 BEAR MARKET<br/><span style="font-size: 0.65rem; color: #94a3b8;">13W Ret &lt; -5.53%</span>
+            <div style="text-align: center; color: #ef4444; font-weight: 900; font-size: 0.82rem; background: linear-gradient(180deg, rgba(239, 68, 68, 0.15) 0%, rgba(239, 68, 68, 0.05) 100%); padding: 10px; border-radius: 8px; border: 1px solid rgba(239, 68, 68, 0.3); border-top: 3px solid #ef4444;">
+                🔴 BEAR TREND<br/><span style="font-size: 0.64rem; color: #94a3b8; font-family: 'JetBrains Mono', monospace;">13W Ret &lt; -5.53%</span>
             </div>
 
             <!-- Row 1: QUIET -->
-            <div style="display: flex; flex-direction: column; justify-content: center; align-items: center; background: rgba(16, 185, 129, 0.08); border: 1px solid rgba(16, 185, 129, 0.2); border-radius: 8px; padding: 10px; text-align: center;">
-                <div style="font-weight: 800; font-size: 0.80rem; color: #34d399;">🌊 QUIET</div>
-                <div style="font-size: 0.62rem; color: #94a3b8;">ATR &le; 2.87%</div>
-                <div style="font-size: 0.58rem; color: #64748b; margin-top: 4px;">Orderly Accumulation</div>
+            <div style="display: flex; flex-direction: column; justify-content: center; align-items: center; background: linear-gradient(90deg, rgba(16, 185, 129, 0.15) 0%, rgba(16, 185, 129, 0.05) 100%); border: 1px solid rgba(16, 185, 129, 0.3); border-left: 3px solid #10b981; border-radius: 8px; padding: 12px 10px; text-align: center;">
+                <div style="font-weight: 900; font-size: 0.84rem; color: #34d399;">🌊 QUIET</div>
+                <div style="font-size: 0.64rem; color: #94a3b8; font-family: 'JetBrains Mono', monospace; margin: 2px 0;">ATR &le; 2.87%</div>
+                <div style="font-size: 0.58rem; color: #64748b; line-height: 1.2;">Orderly Low-Stress Accumulation</div>
             </div>
             {_render_cell('BULL QUIET')}
             {_render_cell('SIDEWAYS QUIET')}
             {_render_cell('BEAR QUIET')}
 
             <!-- Row 2: VOLATILE -->
-            <div style="display: flex; flex-direction: column; justify-content: center; align-items: center; background: rgba(239, 68, 68, 0.08); border: 1px solid rgba(239, 68, 68, 0.2); border-radius: 8px; padding: 10px; text-align: center;">
-                <div style="font-weight: 800; font-size: 0.80rem; color: #f87171;">⚡ VOLATILE</div>
-                <div style="font-size: 0.62rem; color: #94a3b8;">ATR &gt; 2.87%</div>
-                <div style="font-size: 0.58rem; color: #64748b; margin-top: 4px;">High Churn / Gaps</div>
+            <div style="display: flex; flex-direction: column; justify-content: center; align-items: center; background: linear-gradient(90deg, rgba(239, 68, 68, 0.15) 0%, rgba(239, 68, 68, 0.05) 100%); border: 1px solid rgba(239, 68, 68, 0.3); border-left: 3px solid #ef4444; border-radius: 8px; padding: 12px 10px; text-align: center;">
+                <div style="font-weight: 900; font-size: 0.84rem; color: #f87171;">⚡ VOLATILE</div>
+                <div style="font-size: 0.64rem; color: #94a3b8; font-family: 'JetBrains Mono', monospace; margin: 2px 0;">ATR &gt; 2.87%</div>
+                <div style="font-size: 0.58rem; color: #64748b; line-height: 1.2;">High Whipsaws & Breakout Squats</div>
             </div>
             {_render_cell('BULL VOLATILE')}
             {_render_cell('SIDEWAYS VOLATILE')}
@@ -572,24 +661,34 @@ def render_van_tharp_full_page():
 
     # 3. Mandated CANSLIM Playbooks Reference Table
     with st.expander("📖 View Canonical CANSLIM Playbook & Expectancy Matrix for Each Regime", expanded=False):
+        active_regimes = set(idx.get('regime') for idx in data.values())
         playbook_rows = []
         for reg_name, meta in REGIME_METADATA.items():
+            is_cur = reg_name in active_regimes
+            active_badge = f'<span style="background: {meta["color"]}; color: #000; font-weight: 900; font-size: 0.58rem; padding: 2px 6px; border-radius: 3px; margin-left: 6px;">CURRENT</span>' if is_cur else ''
+            row_bg = f'background: {meta["color"]}0d; border-left: 3px solid {meta["color"]};' if is_cur else 'border-left: 3px solid transparent;'
             playbook_rows.append(f"""
-            <tr style="border-bottom: 1px solid rgba(255,255,255,0.06);">
-                <td style="padding: 10px; font-weight: 800; color: {meta['color']}; white-space: nowrap;">{meta['icon']} {reg_name}</td>
-                <td style="padding: 10px; color: #f8fafc; font-weight: 700;">{meta['directive']}</td>
-                <td style="padding: 10px; color: #94a3b8; font-size: 0.78rem;">{meta['playbook']}</td>
-                <td style="padding: 10px; font-family: 'JetBrains Mono', monospace; font-size: 0.75rem; color: {meta['color']};">{meta['breakout_expectancy']}</td>
+            <tr style="border-bottom: 1px solid rgba(255,255,255,0.06); {row_bg}">
+                <td style="padding: 12px; font-weight: 800; color: {meta['color']}; white-space: nowrap;">
+                    {meta['icon']} {reg_name} {active_badge}
+                </td>
+                <td style="padding: 12px; color: #f8fafc; font-weight: 700; white-space: nowrap;">
+                    <span style="background: {meta['color']}18; color: {meta['color']}; border: 1px solid {meta['color']}44; padding: 2px 8px; border-radius: 4px; font-size: 0.68rem; font-family: 'JetBrains Mono', monospace;">{meta.get('exposure_range')}</span>
+                </td>
+                <td style="padding: 12px; color: #f8fafc; font-weight: 600;">{meta['directive']}</td>
+                <td style="padding: 12px; color: #94a3b8; font-size: 0.76rem; line-height: 1.4;">{meta['playbook']}</td>
+                <td style="padding: 12px; font-family: 'JetBrains Mono', monospace; font-size: 0.74rem; color: {meta['color']}; font-weight: 700; white-space: nowrap;">{meta['breakout_expectancy']}</td>
             </tr>
             """)
         table_html = f"""
-        <table style="width: 100%; border-collapse: collapse; font-size: 0.82rem; background: rgba(15, 23, 42, 0.6); border-radius: 8px; overflow: hidden;">
+        <table style="width: 100%; border-collapse: collapse; font-size: 0.82rem; background: rgba(15, 23, 42, 0.75); border-radius: 8px; overflow: hidden; border: 1px solid rgba(255,255,255,0.08);">
             <thead>
-                <tr style="background: rgba(0,0,0,0.4); text-align: left; color: #94a3b8; font-size: 0.72rem; text-transform: uppercase;">
-                    <th style="padding: 10px;">Market Type</th>
-                    <th style="padding: 10px;">Tactical Directive</th>
-                    <th style="padding: 10px;">Execution Playbook</th>
-                    <th style="padding: 10px;">Breakout Expectancy</th>
+                <tr style="background: rgba(0,0,0,0.5); text-align: left; color: #94a3b8; font-size: 0.68rem; text-transform: uppercase; letter-spacing: 0.5px; border-bottom: 1px solid rgba(255,255,255,0.1);">
+                    <th style="padding: 12px;">Market Regime</th>
+                    <th style="padding: 12px;">Target Exposure</th>
+                    <th style="padding: 12px;">CANSLIM Action</th>
+                    <th style="padding: 12px;">Execution Rules & Traps</th>
+                    <th style="padding: 12px;">Expectancy</th>
                 </tr>
             </thead>
             <tbody>
@@ -605,12 +704,12 @@ if __name__ == '__main__':
     sys.stdout.reconfigure(encoding='utf-8')
     print("Testing Van Tharp Regime Engine...")
     t0 = time.time()
-    res = get_all_van_tharp_regimes(force_refresh=True)
+    res = get_all_van_tharp_regimes(force_refresh=False)
     t1 = time.time()
-    print(f"Computed all 4 regimes in {t1-t0:.2f}s:\n")
+    print(f"Loaded and verified in {t1-t0:.4f}s:\n")
     for sym, d in res.items():
-        print(f"{d['flag']} {d['name']} ({sym}):")
-        print(f"  Regime: {d['meta']['icon']} {d['regime']}")
+        print(f"[{d['exchange']}] {d['name']} ({sym}):")
+        print(f"  Regime: {d['meta']['icon']} {d['regime']} ({d['meta']['risk_stance']})")
         print(f"  13W Return: {d['ret_13w']:+.2f}% | 13W Weekly ATR%: {d['atr_13w_pct']:.2f}%")
-        print(f"  Directive: {d['meta']['directive']}")
+        print(f"  Directive: {d['meta']['directive']} [{d['meta']['exposure_range']}]")
         print()
