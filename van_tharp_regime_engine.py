@@ -39,24 +39,28 @@ SYNC_TRACKER_FILE = os.path.join(CACHE_DIR, "matrix_sync_tracker.json")
 
 INDEX_SPECS = {
     '^NSEI': {
+        'symbol': '^NSEI',
         'name': 'NIFTY 50',
         'market': 'IN',
         'flag': '🇮🇳',
         'desc': 'India Mega-Cap Benchmark'
     },
     '^CRSLDX': {
+        'symbol': '^CRSLDX',
         'name': 'NIFTY 500',
         'market': 'IN',
         'flag': '🇮🇳',
         'desc': 'India Broad-Market Universe'
     },
     '^GSPC': {
+        'symbol': '^GSPC',
         'name': 'S&P 500',
         'market': 'US',
         'flag': '🇺🇸',
         'desc': 'US Large-Cap Benchmark'
     },
     '^NDX': {
+        'symbol': '^NDX',
         'name': 'NASDAQ 100',
         'market': 'US',
         'flag': '🇺🇸',
@@ -339,6 +343,11 @@ def get_all_van_tharp_regimes(force_refresh: bool = False) -> dict:
     return results
 
 
+def _clean_html(html_str: str) -> str:
+    """Strips leading whitespace from every line so Streamlit Markdown never treats it as code."""
+    return "\n".join(line.strip() for line in html_str.splitlines() if line.strip())
+
+
 def render_van_tharp_cockpit_card(market: str = 'ALL'):
     """
     Renders an institutional 4-card telemetry HUD on the main dashboard.
@@ -449,7 +458,7 @@ def render_van_tharp_cockpit_card(market: str = 'ALL'):
         </div>
     </div>
     """
-    st.markdown(hud_html, unsafe_allow_html=True)
+    st.markdown(_clean_html(hud_html), unsafe_allow_html=True)
 
 
 def render_van_tharp_full_page():
@@ -559,7 +568,7 @@ def render_van_tharp_full_page():
         </div>
     </div>
     """
-    st.markdown(grid_html, unsafe_allow_html=True)
+    st.markdown(_clean_html(grid_html), unsafe_allow_html=True)
 
     # 3. Mandated CANSLIM Playbooks Reference Table
     with st.expander("📖 View Canonical CANSLIM Playbook & Expectancy Matrix for Each Regime", expanded=False):
@@ -588,7 +597,7 @@ def render_van_tharp_full_page():
             </tbody>
         </table>
         """
-        st.markdown(table_html, unsafe_allow_html=True)
+        st.markdown(_clean_html(table_html), unsafe_allow_html=True)
 
 
 if __name__ == '__main__':
