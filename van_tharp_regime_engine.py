@@ -522,8 +522,9 @@ def render_van_tharp_cockpit_card(market: str = 'ALL'):
 
 def render_van_tharp_full_page():
     """
-    Renders the complete Van Tharp 6-Market Regime Visualizer on the Market Regime & Health page.
-    Includes the 2D Grid, index positioning, CANSLIM expectancy matrix, and historical trajectory.
+    Renders the dedicated 2D Van Tharp Regime Matrix Visualizer on the Market Breadth page.
+    Excludes the 4-card HUD (which lives on the Home/App page) to eliminate duplicate telemetry.
+    Includes the 2D Radar Matrix and the CANSLIM strategy & expectancy reference table.
     """
     try:
         import streamlit as st
@@ -534,19 +535,6 @@ def render_van_tharp_full_page():
     if not data:
         st.warning("Van Tharp regime data unavailable.")
         return
-
-    # 1. Top Cockpit Card
-    render_van_tharp_cockpit_card(market='ALL')
-
-    # 2. Interactive 2D Van Tharp Grid Visualizer
-    st.markdown("""
-    <div style="margin-top: 24px; margin-bottom: 12px;">
-        <h4 style="color: #f8fafc; margin-bottom: 4px; font-weight: 900; letter-spacing: -0.2px;">🗺️ The 2D Van Tharp Regime Matrix (Trend Direction vs. Volatility)</h4>
-        <div style="color: #94a3b8; font-size: 0.82rem;">
-            Institutional radar mapping where all 4 benchmark indices currently operate within Van Tharp's 6 operational states. Active regimes glow with real-time index beacons; inactive states are dimmed.
-        </div>
-    </div>
-    """, unsafe_allow_html=True)
 
     # Map current indices to their cells with full metrics
     cell_indices = {
@@ -621,7 +609,33 @@ def render_van_tharp_full_page():
         """
 
     grid_html = f"""
-    <div style="background: linear-gradient(135deg, rgba(15, 23, 42, 0.95) 0%, rgba(20, 30, 50, 0.95) 100%); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 12px; padding: 18px; margin-bottom: 24px; box-shadow: 0 14px 32px -6px rgba(0, 0, 0, 0.6);">
+    <div style="background: linear-gradient(135deg, rgba(15, 23, 42, 0.96) 0%, rgba(24, 33, 54, 0.94) 100%); border: 1px solid rgba(255, 255, 255, 0.08); border-left: 5px solid #38bdf8; border-radius: 12px; padding: 20px; margin-bottom: 24px; box-shadow: 0 14px 32px -6px rgba(0, 0, 0, 0.6), 0 0 1px 1px rgba(255, 255, 255, 0.05) inset;">
+        <!-- Header Row -->
+        <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px; margin-bottom: 16px;">
+            <div style="display: flex; align-items: center; gap: 10px;">
+                <span style="font-size: 1.5rem;">🗺️</span>
+                <div>
+                    <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+                        <span style="color: #f8fafc; font-size: 1.05rem; font-weight: 900; letter-spacing: -0.2px;">
+                            The 2D Van Tharp Regime Matrix (Trend Direction vs. Volatility)
+                        </span>
+                        <span style="background: rgba(56, 189, 248, 0.15); color: #38bdf8; border: 1px solid rgba(56, 189, 248, 0.35); padding: 2px 8px; border-radius: 9999px; font-size: 0.62rem; font-weight: 800; text-transform: uppercase; letter-spacing: 0.6px;">
+                            WEEKLY 13W RADAR
+                        </span>
+                    </div>
+                    <div style="font-size: 0.72rem; color: #94a3b8; margin-top: 2px;">
+                        Institutional radar mapping where all 4 benchmark indices currently operate within Van Tharp's 6 operational states. Active regimes glow with real-time index beacons; inactive states are dimmed.
+                    </div>
+                </div>
+            </div>
+            <div style="display: flex; align-items: center; gap: 8px;">
+                <span style="background: rgba(16, 185, 129, 0.12); color: #34d399; border: 1px solid rgba(16, 185, 129, 0.25); padding: 3px 8px; border-radius: 4px; font-size: 0.62rem; font-weight: 700; font-family: 'JetBrains Mono', monospace;">
+                    ⚡ Fast Disk Cache: &lt; 0.01s
+                </span>
+            </div>
+        </div>
+
+        <!-- 3x2 Matrix Grid -->
         <div style="display: grid; grid-template-columns: 130px 1fr 1fr 1fr; gap: 12px; align-items: stretch;">
             <!-- Top Column Headers -->
             <div></div>
