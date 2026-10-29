@@ -473,6 +473,12 @@ def main():
     if macro_res:
         st.markdown("## 🦅 Daily Insights Cockpit")
         
+        try:
+            from van_tharp_regime_engine import render_van_tharp_cockpit_card
+            render_van_tharp_cockpit_card(market='ALL')
+        except Exception as e:
+            print(f"[views/home.py] Van Tharp Cockpit render error: {e}")
+        
         c_col1, c_col2, c_col3 = st.columns(3)
         
         # Panel 1: Macro Health & Exposure Guide

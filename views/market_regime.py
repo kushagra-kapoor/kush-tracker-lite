@@ -168,6 +168,13 @@ def process_macro_data(history_df, universe_df, index_n50, index_n500):
 def main():
     from components import render_header
     render_header("🏛️ Market Regime & Sector RS", "Automated macro intelligence based on William O'Neil & Mark Minervini principles.")
+
+    # 🏛️ VAN THARP 6-MARKET REGIME MATRIX (WEEKLY 13W TELEMETRY)
+    try:
+        from van_tharp_regime_engine import render_van_tharp_full_page
+        render_van_tharp_full_page()
+    except Exception as e:
+        print(f"[views/market_regime.py] Van Tharp render error: {e}")
     
     if st.button("🔄 Refresh Macro Analysis", type="primary"):
         st.session_state['macro_refresh'] = True
