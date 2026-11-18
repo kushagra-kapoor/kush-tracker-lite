@@ -253,6 +253,93 @@ def load_css():
         ::-webkit-scrollbar-thumb { background: #1e293b; border-radius: 3px; }
         ::-webkit-scrollbar-thumb:hover { background: #334155; }
 
+        /* 12. Intraday Monitor & Terminal LED HUD Classes */
+        .intraday-hud-container {
+            background: linear-gradient(145deg, rgba(15, 23, 42, 0.85) 0%, rgba(2, 6, 23, 0.95) 100%);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            border-radius: 14px;
+            padding: 1.25rem 1.5rem;
+            margin-bottom: 1.5rem;
+            box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.05);
+        }
+        .intraday-hud-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+            gap: 1rem;
+            margin-top: 0.75rem;
+        }
+        .intraday-metric-card {
+            background: rgba(15, 23, 42, 0.6);
+            border: 1px solid rgba(255, 255, 255, 0.06);
+            border-radius: 10px;
+            padding: 0.85rem 1rem;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+        }
+        .intraday-metric-label {
+            font-size: 0.75rem;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.8px;
+            color: #94a3b8;
+            margin-bottom: 0.25rem;
+        }
+        .intraday-metric-val {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 1.4rem;
+            font-weight: 800;
+            color: #f8fafc;
+        }
+        .intraday-metric-sub {
+            font-size: 0.75rem;
+            color: #64748b;
+            margin-top: 0.2rem;
+        }
+        .intraday-regime-bar {
+            padding: 0.85rem 1.25rem;
+            border-radius: 10px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            flex-wrap: wrap;
+            gap: 0.75rem;
+            font-weight: 600;
+        }
+        @keyframes led-pulse-green {
+            0% { box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.8), 0 0 4px rgba(16, 185, 129, 0.9); }
+            50% { box-shadow: 0 0 0 7px rgba(16, 185, 129, 0), 0 0 10px rgba(16, 185, 129, 1); }
+            100% { box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.8), 0 0 4px rgba(16, 185, 129, 0.9); }
+        }
+        @keyframes led-pulse-red {
+            0% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.8), 0 0 4px rgba(239, 68, 68, 0.9); }
+            50% { box-shadow: 0 0 0 7px rgba(239, 68, 68, 0), 0 0 10px rgba(239, 68, 68, 1); }
+            100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.8), 0 0 4px rgba(239, 68, 68, 0.9); }
+        }
+        @keyframes led-pulse-amber {
+            0% { box-shadow: 0 0 0 0 rgba(245, 158, 11, 0.8), 0 0 4px rgba(245, 158, 11, 0.9); }
+            50% { box-shadow: 0 0 0 7px rgba(245, 158, 11, 0), 0 0 10px rgba(245, 158, 11, 1); }
+            100% { box-shadow: 0 0 0 0 rgba(245, 158, 11, 0.8), 0 0 4px rgba(245, 158, 11, 0.9); }
+        }
+        @keyframes led-pulse-cyan {
+            0% { box-shadow: 0 0 0 0 rgba(56, 189, 248, 0.8), 0 0 4px rgba(56, 189, 248, 0.9); }
+            50% { box-shadow: 0 0 0 7px rgba(56, 189, 248, 0), 0 0 10px rgba(56, 189, 248, 1); }
+            100% { box-shadow: 0 0 0 0 rgba(56, 189, 248, 0.8), 0 0 4px rgba(56, 189, 248, 0.9); }
+        }
+        @keyframes radar-active-pulse {
+            0%, 100% { box-shadow: 0 0 0 0 rgba(56, 189, 248, 0.4), inset 0 0 12px rgba(56, 189, 248, 0.2); }
+            50% { box-shadow: 0 0 0 5px rgba(56, 189, 248, 0), inset 0 0 18px rgba(56, 189, 248, 0.35); }
+        }
+        .terminal-led { display: inline-block; width: 8px; height: 8px; border-radius: 50%; vertical-align: middle; margin-right: 5px; }
+        .terminal-led-green { background: #10b981; animation: led-pulse-green 1.8s infinite ease-in-out; }
+        .terminal-led-red { background: #ef4444; animation: led-pulse-red 1.8s infinite ease-in-out; }
+        .terminal-led-amber { background: #f59e0b; animation: led-pulse-amber 1.8s infinite ease-in-out; }
+        .terminal-led-cyan { background: #38bdf8; animation: led-pulse-cyan 1.8s infinite ease-in-out; }
+        .term-hover-card { transition: all 0.22s cubic-bezier(0.4, 0, 0.2, 1); position: relative; cursor: help; }
+        .term-hover-card:hover { transform: translateY(-2px); border-color: rgba(56, 189, 248, 0.4) !important; box-shadow: 0 8px 20px -4px rgba(0, 0, 0, 0.7), 0 0 12px rgba(56, 189, 248, 0.12) !important; }
+        .term-hover-card:hover .term-info-icon { color: #38bdf8 !important; transform: scale(1.15); }
+        .term-info-icon { color: #475569; font-size: 0.70rem; margin-left: 4px; transition: all 0.2s ease; vertical-align: middle; }
+
         /* =========================================
            MOBILE RESPONSIVE BREAKPOINTS (max-width: 768px)
            ========================================= */

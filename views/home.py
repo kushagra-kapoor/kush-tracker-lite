@@ -390,8 +390,90 @@ def main():
     
 
 
-    t_col = 'ticker' if 'ticker' in portfolio_df.columns else 'NSE TICKER' if 'NSE TICKER' in portfolio_df.columns else portfolio_df.columns[0]
-    active_portfolio_tickers = set(portfolio_df[t_col].astype(str).str.replace('.NS', '').str.replace('.BO', '').str.strip())
+    if portfolio_df is not None and not portfolio_df.empty and len(portfolio_df.columns) > 0:
+        t_col = 'ticker' if 'ticker' in portfolio_df.columns else 'NSE TICKER' if 'NSE TICKER' in portfolio_df.columns else portfolio_df.columns[0]
+        active_portfolio_tickers = set(portfolio_df[t_col].astype(str).str.replace('.NS', '').str.replace('.BO', '').str.strip())
+    else:
+        active_portfolio_tickers = set()
+
+    # =========================================================================
+    # SECTION 0: INSTITUTIONAL COMMAND DESK (INDIA + US CLUSTER LEADERSHIP)
+    # =========================================================================
+    st.markdown("### 🌐 Institutional Command Desk (Cluster Leadership & Brain Synthesis)")
+    _desk_in, _desk_us = st.tabs(["🇮🇳 India Desk (CNX 500 ^CRSLDX)", "🇺🇸 US Desk (Nasdaq ^IXIC)"])
+
+    def _render_command_desk_tab(is_us_desk: bool) -> None:
+        mkt_key = "US_IXIC" if is_us_desk else "INDIA"
+        fl_mkt = "US" if is_us_desk else "IN"
+        breadth_page = "views/market_breadth_us.py" if is_us_desk else "views/market_breadth.py"
+
+        triage_tickers: list[str] = []
+        if not is_us_desk and active_portfolio_tickers:
+            triage_tickers = sorted(active_portfolio_tickers)
+        else:
+            try:
+                from database import get_focus_list
+                fl_rows = get_focus_list(market=fl_mkt) or []
+                triage_tickers = [str(r["ticker"]).strip() for r in fl_rows if isinstance(r, dict) and r.get("ticker")]
+            except Exception:
+                triage_tickers = []
+
+        try:
+            from leadership_cluster_ui import render_cluster_leadership_board_section
+            render_cluster_leadership_board_section(
+                market=mkt_key,
+                portfolio_tickers=(triage_tickers or None),
+                earnings_cache=(earnings_cache if not is_us_desk else None),
+            )
+        except Exception as _clb_err:
+            st.caption(f"Cluster Leadership Board unavailable ({mkt_key}): {_clb_err}")
+
+        _lnk_c1, _lnk_c2 = st.columns(2)
+        with _lnk_c1:
+            if hasattr(st, "page_link"):
+                st.page_link(
+                    "views/master_rs_screener.py",
+                    label="🏛️ Open Master RS & Structure Screener",
+                    use_container_width=True,
+                )
+        with _lnk_c2:
+            if hasattr(st, "page_link"):
+                st.page_link(
+                    breadth_page,
+                    label=f"📈 Open {'US' if is_us_desk else 'India'} Market Breadth & Stockbee",
+                    use_container_width=True,
+                )
+
+        try:
+            from database import get_brain_synthesis_cache
+            _br = get_brain_synthesis_cache(market=mkt_key)
+        except Exception:
+            _br = None
+
+        if isinstance(_br, dict) and isinstance(_br.get("tide_turn"), dict) and _br["tide_turn"]:
+            _tt = _br["tide_turn"]
+            _reg = _tt.get("stage_badge") or _tt.get("stage_title") or _tt.get("stage_label") or _tt.get("regime_title") or "Active"
+            _exp = str(_tt.get("target_exposure") or "").strip()
+            _exp_str = f" · Posture: **{_exp}**" if _exp else ""
+            _confs = _br.get("confluence") or []
+            _top_tks = [
+                f"`{str(c.get('clean_ticker') or c.get('ticker') or '').strip()}`"
+                for c in _confs[:5]
+                if isinstance(c, dict) and (c.get("clean_ticker") or c.get("ticker"))
+            ]
+            _tk_str = " · Top Confluence: " + ", ".join(_top_tks) if _top_tks else ""
+            _as_dt = str(_br.get("matrix_bar_date") or _br.get("updated_at") or "")[:10]
+            st.info(
+                f"🧠 **Artificial Brain HUD ({mkt_key}):** **{_reg}**{_exp_str}"
+                f"{(' · As of ' + _as_dt) if _as_dt else ''}{_tk_str}"
+            )
+        else:
+            st.caption(f"🧠 Artificial Brain HUD ({mkt_key}): Snapshot pending next nightly sync.")
+
+    with _desk_in:
+        _render_command_desk_tab(is_us_desk=False)
+    with _desk_us:
+        _render_command_desk_tab(is_us_desk=True)
 
 
     # Check for newly reported portfolio earnings (reported within last 7 days)

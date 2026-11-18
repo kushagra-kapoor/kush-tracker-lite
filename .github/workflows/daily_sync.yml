@@ -2,12 +2,13 @@ name: Daily Sync
 
 on:
   schedule:
-    - cron: '0 20 * * *' # 4 AM SGT (UTC+8)
+    - cron: '25 21 * * 1-5' # 21:25 UTC = 5:25 AM SGT Tue-Sat (after US 16:00 close settles year-round)
   workflow_dispatch: # Allows manual trigger from GitHub UI
 
 jobs:
   sync_data:
     runs-on: ubuntu-latest
+    timeout-minutes: 45
     
     steps:
       - name: Checkout repository
@@ -16,7 +17,7 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.10'
+          python-version: '3.11'
           cache: 'pip'
           
       - name: Install dependencies

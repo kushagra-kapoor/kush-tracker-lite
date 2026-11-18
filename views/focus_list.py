@@ -212,6 +212,109 @@ def render_focus_table(market: str):
         else:
             st.info("No changes detected.")
 
+    _fl_tickers = edited_df["Ticker"].astype(str).tolist() if not edited_df.empty else []
+    if _fl_tickers:
+        st.markdown("---")
+        from components import compute_focus_trade_metrics, build_position_sizer_plan, render_position_sizer_strip_html
+        from rs_radar_ui import _load_cached_ticker_series_with_mas, build_canslim_ohlcv_chart
+
+        _sel_fl = st.selectbox(
+            "📌 Trade Execution Chart Desk & Position Sizer:",
+            _fl_tickers,
+            key=f"focus_chart_pick_{market}",
+        )
+        _sel_row = edited_df[edited_df["Ticker"] == _sel_fl].iloc[0]
+        _lp = float(_sel_row["Live Price"] or 0.0)
+        _et = float(_sel_row["Entry Trigger"] or 0.0)
+        _sl = float(_sel_row["Stop Loss"] or 0.0)
+        _tm = compute_focus_trade_metrics(_lp, _et, _sl)
+
+        m_c1, m_c2, m_c3, m_c4 = st.columns(4)
+        m_c1.metric("Live", f"{currency_symbol}{_lp:,.2f}" if _lp > 0 else "N/A")
+        m_c2.metric(
+            "Dist to Pivot",
+            f"{_tm['dist_to_pivot_pct']:+.2f}%" if _tm["dist_to_pivot_pct"] is not None else "Set Entry",
+        )
+        m_c3.metric(
+            "Stop Risk",
+            f"{_tm['risk_pct']:.2f}%" if _tm["risk_pct"] is not None else "Set Stop",
+        )
+        m_c4.metric(
+            "2R / 3R Target",
+            f"{currency_symbol}{_tm['r2_target']:,.1f} / {currency_symbol}{_tm['r3_target']:,.1f}"
+            if _tm["r2_target"] is not None
+            else "—",
+        )
+
+        try:
+            _clean_fl = str(_sel_fl).upper().replace("NSE:", "").replace("BSE:", "").strip()
+            _yf_fl = _clean_fl if (market == "US" or _clean_fl.endswith((".NS", ".BO"))) else f"{_clean_fl}.NS"
+            _univ_fl = "US" if market == "US" else "ALL"
+            _ohlcv_fl = _load_cached_ticker_series_with_mas(_yf_fl, _clean_fl.replace(".NS", "").replace(".BO", ""), _univ_fl)
+
+            _dcr_fl = None
+            if _ohlcv_fl is not None and not _ohlcv_fl.empty and {"High", "Low", "Close"}.issubset(_ohlcv_fl.columns):
+                _last_bar = _ohlcv_fl.iloc[-1]
+                _hi_v = float(_last_bar.get("High") or 0.0)
+                _lo_v = float(_last_bar.get("Low") or 0.0)
+                _cl_v = float(_last_bar.get("Close") or 0.0)
+                if _hi_v > _lo_v:
+                    _dcr_fl = max(0.0, min(100.0, (_cl_v - _lo_v) / (_hi_v - _lo_v) * 100.0))
+
+            _elder_info = {}
+            try:
+                from equity_tracker import get_elder_circuit_breaker
+                _elder_info = get_elder_circuit_breaker() or {}
+            except Exception:
+                _elder_info = {}
+
+            _default_eq = float(_elder_info.get("current_equity") or (1000000.0 if market == "IN" else 50000.0))
+            sz_c1, sz_c2 = st.columns([1.15, 1.35])
+            with sz_c1:
+                _acct_eq = st.number_input(
+                    f"Capital ({currency_symbol})",
+                    min_value=1000.0,
+                    value=_default_eq,
+                    step=25000.0 if market == "IN" else 2500.0,
+                    format="%.0f",
+                    key=f"focus_eq_{market}",
+                )
+            with sz_c2:
+                _risk_pct = st.radio(
+                    "Risk / Trade %",
+                    [0.25, 0.50, 1.00, 1.50],
+                    index=1,
+                    horizontal=True,
+                    key=f"focus_risk_pct_{market}",
+                )
+
+            _sizer_plan = build_position_sizer_plan(
+                _acct_eq,
+                _risk_pct,
+                _et if _et > 0 else None,
+                _sl if _sl > 0 else None,
+                elder_cb=_elder_info,
+            )
+            st.markdown(
+                render_position_sizer_strip_html(_sizer_plan, currency_symbol=currency_symbol, dcr_pct=_dcr_fl),
+                unsafe_allow_html=True,
+            )
+
+            if _ohlcv_fl is not None and len(_ohlcv_fl) >= 15:
+                _fig_fl = build_canslim_ohlcv_chart(
+                    _ohlcv_fl,
+                    ticker=_clean_fl,
+                    entry_trigger=_et if _et > 0 else None,
+                    stop_loss=_sl if _sl > 0 else None,
+                    show_r_zones=True,
+                    height=340,
+                )
+                st.plotly_chart(_fig_fl, use_container_width=True)
+            else:
+                st.info("Price chart data temporarily unavailable for this symbol.")
+        except Exception as _exc_fl:
+            st.caption(f"Chart preview unavailable: {_exc_fl}")
+
 def render_institutional_footprints(market: str):
     db_market = "INDIA" if market == "IN" else "USA"
     shocks = get_active_volume_shocks(db_market)

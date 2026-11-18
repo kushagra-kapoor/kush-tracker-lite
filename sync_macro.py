@@ -5,7 +5,8 @@ import yfinance as yf
 from datetime import datetime
 from database import (
     init_database, save_global_regime, 
-    save_global_etf_momentum, save_global_sovereign_returns
+    save_global_etf_momentum, save_global_sovereign_returns,
+    save_cloud_json_cache
 )
 from market_data import fetch_nifty_total_market_tickers
 from price_history_manager import fetch_incremental_history
@@ -39,6 +40,11 @@ def sync_all_data():
         in_tickers = [t + '.NS' if not t.endswith('.NS') else t for t in in_tickers]
         
     us_tickers = get_tickers_from_file('tickers_us.txt')
+    try:
+        from us_universe_manager import get_sp500_constituents, get_nasdaq100_constituents
+        us_tickers = list(set(us_tickers) | set(get_sp500_constituents() or []) | set(get_nasdaq100_constituents() or []))
+    except Exception as e_us_uni:
+        print(f"US constituent union notice: {e_us_uni}")
     us_etfs = get_tickers_from_file('tickers_us_etf.txt')
     in_etfs = get_tickers_from_file('tickers_etf.txt')
     in_etfs = [t + '.NS' if not t.endswith('.NS') else t for t in in_etfs]
@@ -49,7 +55,7 @@ def sync_all_data():
     print(f"Fetching history for {len(all_tickers)} global assets...")
     def print_prog(msg):
         print(f"  > {msg}")
-    fetch_incremental_history(all_tickers, days=252, progress_callback=print_prog, force_today_refresh=True)
+    fetch_incremental_history(all_tickers, days=252, period="2y", progress_callback=print_prog, force_today_refresh=True)
     
     # 4. Update Engine Tables
     print("Updating Breadth and Liquidity for IN Market...")
@@ -147,7 +153,226 @@ def sync_all_data():
     # 8. Global Sovereign Normalized USD Returns
     print("Calculating Global Sovereign Normalized USD Returns...")
     sync_global_sovereign_returns()
-                
+
+    today_iso = datetime.now().strftime("%Y-%m-%d")
+
+    # 9. Industry Group Matrix v2.0 Cloud Bundles (IN Canonical, IN Thematic, US Canonical)
+    print("Publishing Industry Group Matrix v2.0 bundles to Turso cloud_json_cache...")
+    try:
+        from industry_group_engine import (
+            refresh_industry_group_intelligence_cache,
+            compute_industry_group_matrix_with_niche,
+        )
+        for _u_scope in ("India (NSE/BSE)", "US (S&P 500 / Nasdaq)"):
+            try:
+                refresh_industry_group_intelligence_cache(
+                    universe_scope=_u_scope, force=False, skip_enrichment=True
+                )
+            except Exception as _e_int:
+                print(f"[Cloud Publish] IGM intelligence refresh notice ({_u_scope}): {_e_int}")
+
+        for _tax, _scope, _mkt_tag, _ckey in (
+            ("canonical", "India (NSE/BSE)", "IN", "igm_bundle_in"),
+            ("thematic", "India (NSE/BSE)", "IN", "igm_thematic_in"),
+            ("canonical", "US (S&P 500 / Nasdaq)", "US", "igm_bundle_us"),
+        ):
+            try:
+                df_m, bench_c, df_n = compute_industry_group_matrix_with_niche(
+                    taxonomy=_tax, universe_scope=_scope
+                )
+                if isinstance(df_m, pd.DataFrame) and not df_m.empty:
+                    save_cloud_json_cache(
+                        _ckey,
+                        _mkt_tag,
+                        {"matrix_df": df_m, "benchmark_curve": bench_c, "niche_df": df_n},
+                        as_of_date=today_iso,
+                    )
+                    print(f"  > Published {_ckey} ({len(df_m)} groups)")
+            except Exception as _e_igm:
+                print(f"[Cloud Publish] Failed {_ckey}: {_e_igm}")
+    except Exception as _e_step9:
+        print(f"[Step 9] Industry Group Matrix cloud publish warning: {_e_step9}")
+
+    # 10. Stockbee Monitor + Thrusting Industries + UDVR Maps across IN & US scopes
+    print("Publishing Stockbee Monitor, Thrusting Industries & UDVR maps to Turso...")
+    try:
+        from components import load_stockbee_monitor_df, _stage_matrix_path_for_market
+        from leadership_cluster_engine import compute_stockbee_thrusting_industries, _load_udvr_map_cached
+        from price_history_manager import get_matrix_cache_signature
+
+        for _mkt_c, _scope_arg, _slug in (
+            ("IN", "NTM750", "ntm750"),
+            ("IN", "FULL", "full"),
+            ("US", "SP500", "sp500"),
+            ("US", "Nasdaq 100", "nasdaq_100"),
+            ("US", "BROAD", "broad"),
+        ):
+            try:
+                sb_df = load_stockbee_monitor_df(market=_mkt_c, universe_scope=_scope_arg, lookback_days=40)
+                if isinstance(sb_df, pd.DataFrame) and not sb_df.empty:
+                    sb_dt = str(sb_df.iloc[0].get("Date") or today_iso)[:10]
+                    save_cloud_json_cache(
+                        f"stockbee_monitor_{_mkt_c.lower()}_{_slug}",
+                        _mkt_c,
+                        sb_df,
+                        as_of_date=sb_dt,
+                    )
+                    print(f"  > Published stockbee_monitor_{_mkt_c.lower()}_{_slug} ({len(sb_df)} rows)")
+            except Exception as _e_sbm:
+                print(f"[Cloud Publish] stockbee_monitor_{_mkt_c.lower()}_{_slug} warning: {_e_sbm}")
+
+            try:
+                th_res = compute_stockbee_thrusting_industries(
+                    market=_mkt_c, universe_scope=_scope_arg, mode="5D_AND_TODAY", top_n=200
+                )
+                if isinstance(th_res, dict) and isinstance(th_res.get("all_thrust_df"), pd.DataFrame) and not th_res["all_thrust_df"].empty:
+                    th_dt = str((th_res.get("as_of") or {}).get("prices_date") or today_iso)[:10]
+                    save_cloud_json_cache(
+                        f"stockbee_thrust_{_mkt_c.lower()}_{_slug}",
+                        _mkt_c,
+                        th_res,
+                        as_of_date=th_dt,
+                    )
+                    print(f"  > Published stockbee_thrust_{_mkt_c.lower()}_{_slug} ({len(th_res['all_thrust_df'])} clusters)")
+            except Exception as _e_sbt:
+                print(f"[Cloud Publish] stockbee_thrust_{_mkt_c.lower()}_{_slug} warning: {_e_sbt}")
+
+        for _mkt_u, _scope_u, _ukey in (
+            ("IN", "FULL", "udvr_map_in"),
+            ("US", "BROAD", "udvr_map_us"),
+        ):
+            try:
+                _mp = _stage_matrix_path_for_market(_mkt_u)
+                _msig = get_matrix_cache_signature(_mp) if os.path.exists(_mp) else (0, 0)
+                _umap = _load_udvr_map_cached(_mkt_u, _scope_u, _msig)
+                if isinstance(_umap, dict) and _umap:
+                    save_cloud_json_cache(_ukey, _mkt_u, _umap, as_of_date=today_iso)
+                    print(f"  > Published {_ukey} ({len(_umap)} tickers)")
+            except Exception as _e_udvr:
+                print(f"[Cloud Publish] {_ukey} warning: {_e_udvr}")
+    except Exception as _e_step10:
+        print(f"[Step 10] Stockbee/UDVR cloud publish warning: {_e_step10}")
+
+    # 11. Auxiliary Breadth Bundles (IN & US)
+    print("Publishing Breadth Auxiliary Bundles to Turso...")
+    try:
+        from breadth_engine import (
+            compute_institutional_breadth_alpha_in_core,
+            compute_institutional_breadth_alpha_us_core,
+            compute_sector_breadth_matrix_in,
+            compute_sector_breadth_matrix_us,
+            compute_top_rs_breadth_history,
+            slice_custom_scope_breadth_us_core,
+        )
+        from breakout_cohort_engine import compute_breakout_health_radar
+        from components import load_cached_stage_distribution_summary
+
+        _bench_closes = {}
+        for _idx_sym in ("^CRSLDX", "^NSEI", "^GSPC", "^IXIC"):
+            try:
+                _idx_raw = yf.download(_idx_sym, period="1y", progress=False, auto_adjust=True)
+                if isinstance(_idx_raw, pd.DataFrame) and not _idx_raw.empty and "Close" in _idx_raw.columns:
+                    _cs = _idx_raw["Close"]
+                    if isinstance(_cs, pd.DataFrame):
+                        _cs = _cs.iloc[:, 0]
+                    _cs = _cs.dropna()
+                    if getattr(_cs.index, "tz", None) is not None:
+                        _cs.index = _cs.index.tz_localize(None)
+                    _cs.index = pd.to_datetime(_cs.index).normalize()
+                    _bench_closes[_idx_sym] = _cs
+            except Exception:
+                pass
+
+        try:
+            _alpha_in = (
+                compute_institutional_breadth_alpha_in_core(_bench_closes["^CRSLDX"], _bench_closes["^NSEI"])
+                if ("^CRSLDX" in _bench_closes and "^NSEI" in _bench_closes)
+                else None
+            )
+            _in_aux = {
+                "alpha": _alpha_in,
+                "top_rs_breadth": compute_top_rs_breadth_history(market="IN", lookback_days=300),
+                "sector_breadth": compute_sector_breadth_matrix_in(min_stocks=5),
+                "breakout_cohort": list(compute_breakout_health_radar(scope="IN")),
+                "stage_dist": load_cached_stage_distribution_summary(market="IN"),
+            }
+            save_cloud_json_cache("breadth_aux_bundle_in", "IN", _in_aux, as_of_date=today_iso)
+            print("  > Published breadth_aux_bundle_in")
+        except Exception as _e_bin:
+            print(f"[Cloud Publish] breadth_aux_bundle_in warning: {_e_bin}")
+
+        try:
+            _alpha_us = (
+                compute_institutional_breadth_alpha_us_core(_bench_closes["^GSPC"], _bench_closes["^IXIC"])
+                if ("^GSPC" in _bench_closes and "^IXIC" in _bench_closes)
+                else None
+            )
+            _us_aux = {
+                "alpha": _alpha_us,
+                "top_rs_breadth": compute_top_rs_breadth_history(market="US", lookback_days=300),
+                "sector_breadth": compute_sector_breadth_matrix_us(),
+                "breakout_cohort": list(compute_breakout_health_radar(scope="US")),
+                "stage_dist": load_cached_stage_distribution_summary(market="US"),
+                "us_scopes": {
+                    "sp500": slice_custom_scope_breadth_us_core("S&P 500"),
+                    "ndx100": slice_custom_scope_breadth_us_core("Nasdaq 100"),
+                },
+            }
+            save_cloud_json_cache("breadth_aux_bundle_us", "US", _us_aux, as_of_date=today_iso)
+            print("  > Published breadth_aux_bundle_us")
+        except Exception as _e_bus:
+            print(f"[Cloud Publish] breadth_aux_bundle_us warning: {_e_bus}")
+    except Exception as _e_step11:
+        print(f"[Step 11] Breadth Aux cloud publish warning: {_e_step11}")
+
+    # 12. Master RS Leader Radar Top-300 Snapshots
+    print("Publishing Master RS Leader Radar Top-300 snapshots to Turso...")
+    try:
+        from breadth_engine import compute_leader_21ema_table
+
+        for _lkey, _lmkt, _lscope, _ladtv, _lbench in (
+            ("leader_radar_in_750", "IN", "750", 0.10, None),
+            ("leader_radar_in_all", "IN", "ALL", 0.10, None),
+            ("leader_radar_us_ixic", "US", "ALL", 1.0, "^IXIC"),
+            ("leader_radar_us_gspc", "US", "ALL", 1.0, "^GSPC"),
+        ):
+            try:
+                _ldf = compute_leader_21ema_table(
+                    market=_lmkt,
+                    top_n=300,
+                    universe_scope=_lscope,
+                    min_adtv_cr=_ladtv,
+                    benchmark_symbol=_lbench,
+                )
+                if isinstance(_ldf, pd.DataFrame) and not _ldf.empty:
+                    _ldt = str((_ldf.attrs.get("diagnostics") or {}).get("matrix_last_dt") or today_iso)[:10]
+                    save_cloud_json_cache(_lkey, _lmkt, _ldf, as_of_date=_ldt)
+                    print(f"  > Published {_lkey} ({len(_ldf)} leaders)")
+            except Exception as _e_ldr:
+                print(f"[Cloud Publish] {_lkey} warning: {_e_ldr}")
+    except Exception as _e_step12:
+        print(f"[Step 12] Leader Radar cloud publish warning: {_e_step12}")
+
+    # 13. Dual-Market Persona & Artificial Brain Synthesis (INDIA + US_IXIC)
+    print("Computing Dual-Market Persona & Artificial Brain Synthesis...")
+    try:
+        from market_persona_engine import sync_market_persona_daily
+        from brain_synthesis_engine import run_artificial_brain_synthesis
+
+        for _bmkt in ("INDIA", "US_IXIC"):
+            try:
+                sync_market_persona_daily(market=_bmkt)
+            except Exception as _e_pers:
+                print(f"[Cloud Publish] Persona notice ({_bmkt}): {_e_pers}")
+            try:
+                _bres = run_artificial_brain_synthesis(market=_bmkt, force_recompute=True)
+                _cnt_c = len((_bres or {}).get("confluence") or []) if isinstance(_bres, dict) else 0
+                print(f"  > Published Brain Synthesis ({_bmkt}, {_cnt_c} confluence setups)")
+            except Exception as _e_brn:
+                print(f"[Cloud Publish] Brain Synthesis warning ({_bmkt}): {_e_brn}")
+    except Exception as _e_step13:
+        print(f"[Step 13] Artificial Brain publish warning: {_e_step13}")
+
     print("Global Macro Sync Completed!")
 
 SOVEREIGN_MARKETS = [

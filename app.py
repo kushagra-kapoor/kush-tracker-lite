@@ -169,15 +169,19 @@ pages = {
         st.Page("views/intraday_monitor_us.py", title="Intraday Monitor (US)", icon="🇺🇸")
     ],
     "👑 Institutional Leaders": [
+        st.Page("views/master_rs_screener.py", title="Master RS & Structure Screener", icon="🏛️"),
         st.Page("views/new_highs.py", title="New Highs & Blue Sky", icon="🌟"),
         st.Page("views/beach_ball_accumulation.py", title="Beach Ball & Down-Day Resilience", icon="🏖️"),
         st.Page("views/true_market_leader.py", title="True Market Leaders (India)", icon="👑"),
         st.Page("views/industry_group_matrix.py", title="Industry Group Matrix (197 Themes)", icon="🌊"),
+        st.Page("views/industry_group_matrix_us.py", title="Industry Group Matrix (US)", icon="🇺🇸"),
         st.Page("views/true_market_leader_us.py", title="True Market Leaders (US)", icon="🦅")
     ],
     "🛡️ Market Direction": [
         st.Page("views/global_macro.py", title="Global Macro & ETF Flows", icon="🌍"),
         st.Page("views/market_regime.py", title="Market Regime & Health", icon="🛡️"),
+        st.Page("views/market_breadth.py", title="Market Breadth & Stockbee (India)", icon="📈"),
+        st.Page("views/market_breadth_us.py", title="Market Breadth & Stockbee (US)", icon="🦅"),
         st.Page("views/stage_analysis.py", title="Stage Analysis (India)", icon="🇮🇳"),
         st.Page("views/stage_analysis_us.py", title="Stage Analysis (US)", icon="🇺🇸"),
         st.Page("views/sector_leadership.py", title="Sector Leadership", icon="🔥")

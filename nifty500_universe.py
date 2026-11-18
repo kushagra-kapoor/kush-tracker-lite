@@ -121,7 +121,7 @@ def check_rs_reference_fresh(date: str = None) -> bool:
             WHERE date = ?
         ''', (date,))
         count = cursor.fetchone()[0]
-    except sqlite3.OperationalError:
+    except Exception:
         count = 0
     finally:
         conn.close()
@@ -145,7 +145,7 @@ def get_rs_reference_distribution(date: str = None) -> list:
             ORDER BY rs_raw
         ''', (date,))
         results = [row[0] for row in cursor.fetchall()]
-    except sqlite3.OperationalError:
+    except Exception:
         results = []
     finally:
         conn.close()

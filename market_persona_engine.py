@@ -26,6 +26,74 @@ from database import (
 )
 
 
+def _normalize_persona_market(market: str = 'INDIA') -> str:
+    """Maps market alias into 'INDIA', 'US_IXIC', or 'US' (preserving S&P 500 persona)."""
+    m = str(market or 'INDIA').strip().upper()
+    if m in ('INDIA', 'IN'):
+        return 'INDIA'
+    if m == 'US_IXIC':
+        return 'US_IXIC'
+    return 'US'
+
+
+def _persona_session_date(market: str = 'INDIA') -> str:
+    try:
+        from price_history_manager import get_latest_completed_session_date
+        return get_latest_completed_session_date(market)
+    except Exception:
+        return datetime.now().strftime('%Y-%m-%d')
+
+
+def _filter_active_market_panel(df_panel: pd.DataFrame, is_india: bool) -> pd.DataFrame:
+    """Drops closed-exchange / partial cross-market dates (e.g. 2026-11-08 Sun or 15-stock rows)."""
+    if df_panel is None or df_panel.empty:
+        return df_panel
+    n_cols = df_panel.shape[1]
+    min_req = max(50, int(0.15 * n_cols)) if n_cols >= 150 else 1
+    return df_panel.loc[df_panel.notna().sum(axis=1) >= min_req]
+
+
+def _load_us_persona_industry_map() -> dict:
+    """Loads full 2,532+ US equity industry map without touching India industry_map.json."""
+    ind_map = {}
+    us_intel_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), '.cache', 'industry_group_intelligence_us.json')
+    if os.path.exists(us_intel_path):
+        try:
+            with open(us_intel_path, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+            if isinstance(data, dict):
+                for k, info in data.items():
+                    if isinstance(info, dict):
+                        grp = info.get('group_name') or info.get('industry')
+                        if grp and str(grp) not in ('Unknown', 'Other / ETF', 'General'):
+                            ind_map[str(k).upper()] = str(grp)
+        except Exception:
+            pass
+    try:
+        conn = get_connection()
+        rows = conn.execute(
+            "SELECT yf_ticker, industry FROM security_master WHERE market='US' AND status='ACTIVE' AND industry IS NOT NULL"
+        ).fetchall()
+        conn.close()
+        for t, ind in rows:
+            key = str(t).upper()
+            if key not in ind_map and ind and str(ind) not in ('Unknown', 'None', ''):
+                ind_map[key] = str(ind)
+    except Exception:
+        pass
+    if os.path.exists('data/sp500_gics_map.json'):
+        try:
+            with open('data/sp500_gics_map.json', 'r', encoding='utf-8') as f:
+                sp = json.load(f)
+            for k, v in sp.items():
+                key = str(k).upper()
+                if key not in ind_map and v:
+                    ind_map[key] = str(v)
+        except Exception:
+            pass
+    return ind_map
+
+
 # =============================================================================
 # PILLAR 1: SECTOR LEADERSHIP TENURE / PERSISTENCE INDEX (WEIGHT: 30%)
 # =============================================================================
@@ -37,9 +105,13 @@ def compute_sector_tenure(market: str = 'INDIA', lookback_sessions: int = 40) ->
     Top 5 exactly lookback_sessions ago (~40 trading days / 2 calendar months).
 
     Dual-source architecture:
-      1. Primary: SQLite `sector_leadership_history` table.
-      2. Fallback / US: Point-in-time sector RS calculation from `historical_prices_matrix.pkl`.
+      1. India Primary: SQLite `sector_leadership_history` table (India-only table).
+      2. US & Fallback: Point-in-time sector RS calculation from `historical_prices_matrix.pkl`.
     """
+    mkt_norm = _normalize_persona_market(market)
+    if mkt_norm != 'INDIA':
+        return _compute_sector_tenure_from_matrix(mkt_norm, lookback_sessions)
+
     conn = get_connection()
     c = conn.cursor()
     try:
@@ -134,28 +206,35 @@ def _compute_sector_tenure_from_matrix(market: str = 'INDIA', lookback_sessions:
         df = pd.read_pickle(matrix_path)
         closes = df.xs('Close', level=1, axis=1) if isinstance(df.columns, pd.MultiIndex) else df
         
-        # Load industry mapping
+        # Load industry mapping & isolate active exchange sessions
+        is_india = _normalize_persona_market(market) == 'INDIA'
         industry_map = {}
-        if market.upper() in ['INDIA', 'IN']:
+        if is_india:
             if os.path.exists('industry_map.json'):
                 with open('industry_map.json', 'r', encoding='utf-8') as f:
                     industry_map = json.load(f)
             in_cols = [c for c in closes.columns if str(c).endswith('.NS')]
-            closes = closes[in_cols]
+            closes = _filter_active_market_panel(closes[in_cols], is_india=True)
         else:
-            if os.path.exists('data/sp500_gics_map.json'):
-                with open('data/sp500_gics_map.json', 'r', encoding='utf-8') as f:
-                    industry_map = json.load(f)
-            us_cols = [c for c in closes.columns if not str(c).endswith('.NS') and not str(c).endswith('.BO')]
-            closes = closes[us_cols]
+            industry_map = _load_us_persona_industry_map()
+            us_cols = [c for c in closes.columns if not str(c).endswith('.NS') and not str(c).endswith('.BO') and not str(c).startswith('^')]
+            try:
+                from universe_security_master import load_universe_tickers
+                active_us = set(load_universe_tickers('US', include_etfs=False))
+                filtered_us = [c for c in us_cols if c in active_us]
+                if len(filtered_us) >= 100:
+                    us_cols = filtered_us
+            except Exception:
+                pass
+            closes = _filter_active_market_panel(closes[us_cols], is_india=False)
             
         if len(closes) < lookback_sessions + 65:
             return {'pillar_score': 50.0, 'tenure_pct': 40.0, 'retained_count': 2, 'source': 'insufficient_history'}
             
-        # Calculate RS momentum at T and T-lookback_sessions
+        # Calculate RS momentum at T and T-lookback_sessions (after dropping non-trading cross-market rows)
         # RS = 0.40 * 1M_ret + 0.60 * 3M_ret
-        ret_1m = closes.pct_change(21)
-        ret_3m = closes.pct_change(63)
+        ret_1m = closes.pct_change(21, fill_method=None)
+        ret_3m = closes.pct_change(63, fill_method=None)
         rs_matrix = (ret_1m * 0.40) + (ret_3m * 0.60)
         
         idx_now = len(closes) - 1
@@ -172,7 +251,7 @@ def _compute_sector_tenure_from_matrix(market: str = 'INDIA', lookback_sessions:
             sec_scores = {}
             sec_counts = {}
             for t, val in rs_series.items():
-                clean_t = str(t).replace('.NS', '')
+                clean_t = str(t).replace('.NS', '').upper() if is_india else str(t).upper()
                 ind = industry_map.get(clean_t) or industry_map.get(t)
                 if ind and ind != 'Unknown':
                     sec_scores[ind] = sec_scores.get(ind, 0.0) + val
@@ -245,25 +324,39 @@ def compute_breakout_health(market: str = 'INDIA', lookback_window: int = 20) ->
         lows = df.xs('Low', level=1, axis=1) if isinstance(df.columns, pd.MultiIndex) else df
         volumes = df.xs('Volume', level=1, axis=1) if isinstance(df.columns, pd.MultiIndex) else pd.DataFrame()
         
-        if market.upper() in ['INDIA', 'IN']:
+        is_india = _normalize_persona_market(market) == 'INDIA'
+        if is_india:
             valid_cols = [c for c in closes.columns if str(c).endswith('.NS')]
+            closes_mkt = _filter_active_market_panel(closes[valid_cols], is_india=True)
         else:
-            valid_cols = [c for c in closes.columns if not str(c).endswith('.NS') and not str(c).endswith('.BO')]
-            
-        if not valid_cols or len(closes) < 100:
+            us_cols = [c for c in closes.columns if not str(c).endswith('.NS') and not str(c).endswith('.BO') and not str(c).startswith('^')]
+            try:
+                from universe_security_master import load_universe_tickers
+                active_us = set(load_universe_tickers('US', include_etfs=False))
+                filtered_us = [c for c in us_cols if c in active_us]
+                valid_cols = filtered_us if len(filtered_us) >= 100 else us_cols
+            except Exception:
+                valid_cols = us_cols
+            closes_mkt = _filter_active_market_panel(closes[valid_cols], is_india=False)
+
+        if not valid_cols or len(closes_mkt) < 100:
             return {'pillar_score': 50.0, 'breakout_health_pct': 50.0, 'total_breakouts': 0, 'breakout_list': []}
-            
-        # Select top liquid universe (~600 stocks by dollar volume) for high institutional relevance
-        if not volumes.empty:
-            dv = (closes[valid_cols].iloc[-20:] * volumes[valid_cols].iloc[-20:]).mean()
+
+        highs_mkt = highs[valid_cols].reindex(closes_mkt.index) if isinstance(df.columns, pd.MultiIndex) else closes_mkt
+        lows_mkt = lows[valid_cols].reindex(closes_mkt.index) if isinstance(df.columns, pd.MultiIndex) else closes_mkt
+        vols_mkt = volumes[valid_cols].reindex(closes_mkt.index) if not volumes.empty else pd.DataFrame()
+
+        # Select top liquid universe (~600 stocks by dollar volume) strictly among active equities
+        if not vols_mkt.empty:
+            dv = (closes_mkt.iloc[-20:] * vols_mkt.iloc[-20:]).mean()
             liquid_cols = dv.nlargest(min(600, len(valid_cols))).index
         else:
             liquid_cols = valid_cols[:min(600, len(valid_cols))]
             
-        c_sub = closes[liquid_cols]
-        h_sub = highs[liquid_cols]
-        l_sub = lows[liquid_cols]
-        v_sub = volumes[liquid_cols] if not volumes.empty else pd.DataFrame(index=closes.index, columns=liquid_cols).fillna(1.0)
+        c_sub = closes_mkt[liquid_cols]
+        h_sub = highs_mkt[liquid_cols]
+        l_sub = lows_mkt[liquid_cols]
+        v_sub = vols_mkt[liquid_cols] if not vols_mkt.empty else pd.DataFrame(index=closes_mkt.index, columns=liquid_cols).fillna(1.0)
         
         sma50 = c_sub.rolling(50, min_periods=40).mean()
         sma200 = c_sub.rolling(200, min_periods=80).mean()
@@ -380,11 +473,41 @@ def compute_leader_21ema_adherence(market: str = 'INDIA') -> dict:
     """
     Computes Super-Leader 21-EMA Adherence Rate:
     % of Top 100 RS institutional momentum leaders holding above their 21-day EMA.
-    Uses existing `compute_top_rs_breadth_history` from `breadth_engine.py`.
+    Uses All-US Top 100 (benchmarked to ^IXIC) for US_IXIC, and canonical RS breadth history otherwise.
     """
+    mkt_norm = _normalize_persona_market(market)
+    if mkt_norm == 'US_IXIC':
+        try:
+            from breadth_engine import compute_leader_21ema_table
+            df_l = compute_leader_21ema_table(market='US', top_n=100, universe_scope='ALL', benchmark_symbol='^IXIC')
+            if df_l is not None and not df_l.empty and 'Holding_21EMA_Zone' in df_l.columns:
+                above_21 = float(df_l['Holding_21EMA_Zone'].mean() * 100.0)
+                above_50 = float((df_l['Dist_50SMA'] >= 0.0).mean() * 100.0) if 'Dist_50SMA' in df_l.columns else above_21
+                lead_spread = 0.0
+                try:
+                    conn = get_connection()
+                    row_b = conn.execute(
+                        "SELECT above_50_pct FROM market_breadth_daily WHERE market='US_IXIC' ORDER BY date DESC LIMIT 1"
+                    ).fetchone()
+                    conn.close()
+                    if row_b and row_b[0] is not None:
+                        lead_spread = above_50 - float(row_b[0])
+                except Exception:
+                    pass
+                pillar_score = float(np.clip(above_21, 10.0, 100.0))
+                return {
+                    'pillar_score': round(pillar_score, 1),
+                    'leader_21ema_pct': round(above_21, 1),
+                    'top100_above_21_ema': round(above_21, 1),
+                    'top100_above_50_sma': round(above_50, 1),
+                    'leadership_spread': round(lead_spread, 1)
+                }
+        except Exception as e:
+            print(f"[MarketPersona] US_IXIC leader adherence notice: {e}")
+
     try:
         from breadth_engine import compute_top_rs_breadth_history
-        mkt_code = 'US' if market.upper() in ['US', 'USA'] else 'IN'
+        mkt_code = 'IN' if mkt_norm == 'INDIA' else 'US'
         df_rs = compute_top_rs_breadth_history(market=mkt_code, lookback_days=10)
         
         if df_rs is not None and not df_rs.empty:
@@ -393,10 +516,6 @@ def compute_leader_21ema_adherence(market: str = 'INDIA') -> dict:
             above_50 = float(latest_row.get('top100_above_50_sma', 50.0))
             lead_spread = float(latest_row.get('leadership_spread', 0.0))
             
-            # Leader adherence scoring:
-            # >= 75%: 90 - 100 (Strong secular adherence -> Positional)
-            # 50% - 74%: 60 - 85 (Normal pullback digestion)
-            # < 50%: 20 - 50 (Leaders repeatedly breaking short-term support -> Swing)
             pillar_score = float(np.clip(above_21, 10.0, 100.0))
             
             return {
@@ -424,28 +543,35 @@ def compute_leader_21ema_adherence(market: str = 'INDIA') -> dict:
 
 def compute_mega_cap_spread(market: str = 'INDIA') -> dict:
     """
-    Detects the classic 2021 Mega-Cap Illusion:
-    Compares Benchmark Index (Nifty 50 or S&P 500) distance from its 50 SMA
-    directly against Broad Market Breadth (% of universe > 50 SMA).
-    
-    If the Index is propped up while broad breadth is severely depressed (< 40%),
-    a major divergence penalty is triggered.
+    Detects Mega-Cap Illusion Divergence:
+    Compares Benchmark Index (Nifty 50, S&P 500, or Nasdaq Composite ^IXIC) distance from its 50 SMA
+    against corresponding Broad Market Breadth (% > 50 SMA).
     """
-    index_name = "Nifty 50" if market.upper() in ['INDIA', 'IN'] else "S&P 500"
+    mkt_norm = _normalize_persona_market(market)
+    if mkt_norm == 'INDIA':
+        index_name = "Nifty 50"
+        breadth_key = 'IN'
+    elif mkt_norm == 'US_IXIC':
+        index_name = "Nasdaq Composite (^IXIC)"
+        breadth_key = 'US_IXIC'
+    else:
+        index_name = "S&P 500"
+        breadth_key = 'US'
+
     dist_sma50 = 0.0
     broad_50 = 50.0
     
     # 1. Fetch benchmark telemetry
     try:
-        from macro_regime_engine import fetch_nifty50_telemetry, fetch_sp500_telemetry
-        if market.upper() in ['INDIA', 'IN']:
+        from macro_regime_engine import fetch_nifty50_telemetry, fetch_sp500_telemetry, fetch_nasdaq_telemetry
+        if mkt_norm == 'INDIA':
             tel = fetch_nifty50_telemetry()
-            if tel:
-                dist_sma50 = float(tel.get('dist_sma50', 0.0))
+        elif mkt_norm == 'US_IXIC':
+            tel = fetch_nasdaq_telemetry()
         else:
             tel = fetch_sp500_telemetry()
-            if tel:
-                dist_sma50 = float(tel.get('dist_sma50', 0.0))
+        if tel:
+            dist_sma50 = float(tel.get('dist_sma50', 0.0))
     except Exception as e:
         print(f"[MarketPersona] Error fetching benchmark telemetry: {e}")
         
@@ -453,11 +579,10 @@ def compute_mega_cap_spread(market: str = 'INDIA') -> dict:
     conn = get_connection()
     c = conn.cursor()
     try:
-        mkt_code = 'US' if market.upper() in ['US', 'USA'] else 'IN'
         c.execute('''
             SELECT above_50_pct FROM market_breadth_daily
             WHERE market = ? ORDER BY date DESC LIMIT 1
-        ''', (mkt_code,))
+        ''', (breadth_key,))
         row = c.fetchone()
         if row and row[0] is not None:
             broad_50 = float(row[0])
@@ -510,8 +635,8 @@ def calculate_composite_market_persona(market: str = 'INDIA', force_recompute: b
       - mandate_summary (Actionable playbook guidelines)
       - pillar details & raw audit records for transparent drilldown
     """
-    today_str = datetime.now().strftime('%Y-%m-%d')
-    mkt_key = 'INDIA' if market.upper() in ['INDIA', 'IN'] else 'US'
+    mkt_key = _normalize_persona_market(market)
+    today_str = _persona_session_date(mkt_key)
     
     # Check SQLite cache first if not forced
     if not force_recompute:
@@ -607,6 +732,7 @@ def sync_market_persona_daily(market: str = 'INDIA') -> dict:
     """
     Autonomous daily sync entry point.
     Pre-computes and caches today's market persona in SQLite so app.py renders in < 2ms.
+    Preserves 'INDIA', 'US' (S&P 500), and 'US_IXIC' (Nasdaq Composite) separately.
     """
-    mkt_key = 'INDIA' if market.upper() in ['INDIA', 'IN'] else 'US'
+    mkt_key = _normalize_persona_market(market)
     return calculate_composite_market_persona(market=mkt_key, force_recompute=True)

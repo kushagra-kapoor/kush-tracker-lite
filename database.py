@@ -261,10 +261,16 @@ def init_database():
         )
     ''')
 
-    try:
-        safe_execute(cursor, "ALTER TABLE fundamentals_cache ADD COLUMN market_cap REAL DEFAULT 0.0")
-    except Exception:
-        pass
+    for col_def in [
+        "market_cap REAL DEFAULT 0.0",
+        "eps_growth REAL",
+        "sales_growth REAL",
+        "eps_yoy REAL",
+        "sales_yoy REAL",
+        "trailing_pe REAL DEFAULT 0.0",
+        "forward_pe REAL DEFAULT 0.0",
+    ]:
+        safe_execute(cursor, f"ALTER TABLE fundamentals_cache ADD COLUMN {col_def}")
 
     # Focus List table
     safe_execute(cursor, '''
@@ -323,16 +329,38 @@ def init_database():
         ("declines", "INTEGER"),
         ("ad_line_cumulative", "INTEGER"),
         ("double_52w_count", "INTEGER"),
-        ("quadruple_52w_count", "INTEGER"),
+        ("quadruple_52w_count", "INTEGER DEFAULT 0"),
         ("total_stocks", "INTEGER"),
         ("surge_extreme_5d", "INTEGER"),
-        ("panic_extreme_5d", "INTEGER")
+        ("panic_extreme_5d", "INTEGER"),
+        ("up_volume", "REAL DEFAULT 0"),
+        ("down_volume", "REAL DEFAULT 0"),
+        ("up_down_volume_ratio", "REAL DEFAULT 1.0"),
+        ("cumulative_volume_ad_line", "REAL DEFAULT 0"),
+        ("ad_grade_a_count", "INTEGER DEFAULT 0"),
+        ("ad_grade_b_count", "INTEGER DEFAULT 0"),
+        ("ad_grade_c_count", "INTEGER DEFAULT 0"),
+        ("ad_grade_d_count", "INTEGER DEFAULT 0"),
+        ("ad_grade_e_count", "INTEGER DEFAULT 0"),
+        ("advance_ratio", "REAL DEFAULT 0.5"),
+        ("zbt_10_ema", "REAL DEFAULT 0.5"),
+        ("zbt_signal", "INTEGER DEFAULT 0"),
+        ("zbt_active", "INTEGER DEFAULT 0"),
+        ("is_9_to_1_up_day", "INTEGER DEFAULT 0"),
+        ("double_9_to_1_active", "INTEGER DEFAULT 0"),
     ]
     for col_name, col_type in breadth_cols:
-        try:
-            safe_execute(cursor, f"ALTER TABLE market_breadth_daily ADD COLUMN {col_name} {col_type}")
-        except Exception:
-            pass
+        safe_execute(cursor, f"ALTER TABLE market_breadth_daily ADD COLUMN {col_name} {col_type}")
+
+    safe_execute(cursor, '''
+        CREATE TABLE IF NOT EXISTS cloud_json_cache (
+            cache_key TEXT PRIMARY KEY,
+            market TEXT NOT NULL,
+            as_of_date TEXT,
+            payload_gzip_b64 TEXT NOT NULL,
+            updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+        )
+    ''')
 
     safe_execute(cursor, '''
         CREATE TABLE IF NOT EXISTS corporate_announcements (
@@ -917,7 +945,7 @@ def get_market_regime() -> str:
         row = cursor.fetchone()
         conn.close()
         return row[0] if row else "Neutral/Mixed Environment"
-    except sqlite3.OperationalError:
+    except Exception:
         conn.close()
         return "Neutral/Mixed Environment"
 
@@ -1724,12 +1752,11 @@ def get_latest_global_etf_momentum() -> list:
 
 
 def save_global_sovereign_returns(records: list):
-    import sqlite3
     conn = get_connection()
     cursor = conn.cursor()
     try:
         cursor.execute("ALTER TABLE global_sovereign_returns ADD COLUMN etf_ticker TEXT")
-    except sqlite3.OperationalError:
+    except Exception:
         pass
 
     for r in records:
@@ -2297,4 +2324,257 @@ def get_brain_synthesis_cache(market: str = 'INDIA', required_matrix_bar_date: s
         return None
     finally:
         conn.close()
+
+
+# =============================================================================
+# CLOUD TURSO ADAPTER & GZIP JSON SNAPSHOT CACHE
+# =============================================================================
+
+def read_sql_df(query: str, params: tuple = ()) -> "pd.DataFrame":
+    """Turso-safe DataFrame query returning pd.DataFrame via cursor + _fetch_all_dicts."""
+    import pandas as pd
+    conn = get_connection()
+    cursor = conn.cursor()
+    try:
+        if params:
+            cursor.execute(query, params)
+        else:
+            cursor.execute(query)
+        rows = _fetch_all_dicts(cursor)
+        return pd.DataFrame(rows) if rows else pd.DataFrame()
+    except Exception as e:
+        print(f"[DB Error] read_sql_df: {e}")
+        return pd.DataFrame()
+    finally:
+        conn.close()
+
+
+def get_fundamentals_map_for_engine(market: str = "ALL") -> tuple[dict, str]:
+    """
+    Loads fundamentals_cache safely across dual column variants (eps_growth/eps_yoy,
+    sales_growth/sales_yoy) and returns (funda_map, max_updated_date).
+    """
+    mkt_u = str(market or "ALL").strip().upper()
+    filter_in = mkt_u in ("IN", "INDIA")
+    filter_us = mkt_u.startswith("US")
+
+    conn = get_connection()
+    cursor = conn.cursor()
+    funda_map: dict[str, dict] = {}
+    max_ts = ""
+    try:
+        cursor.execute("SELECT * FROM fundamentals_cache")
+        rows = _fetch_all_dicts(cursor)
+        for r in rows:
+            raw_tk = str(r.get("ticker") or "").strip().upper()
+            if not raw_tk:
+                continue
+            is_in_row = raw_tk.endswith((".NS", ".BO"))
+            if filter_in and not is_in_row:
+                continue
+            if filter_us and is_in_row:
+                continue
+
+            eg_col = r.get("eps_growth")
+            ey_col = r.get("eps_yoy")
+            raw_eps = eg_col if (eg_col is not None and (abs(_safe_float(eg_col)) > 1e-9 or ey_col is None)) else ey_col
+            sg_col = r.get("sales_growth")
+            sy_col = r.get("sales_yoy")
+            raw_sales = sg_col if (sg_col is not None and (abs(_safe_float(sg_col)) > 1e-9 or sy_col is None)) else sy_col
+
+            eps_g = _safe_float(raw_eps)
+            sales_g = _safe_float(raw_sales)
+            roe_v = _safe_float(r.get("roe"))
+            mcap_v = _safe_float(r.get("market_cap"))
+            ind_v = str(r.get("industry") or "").strip()
+            upd_s = str(r.get("updated_at") or "").strip()
+            if upd_s and upd_s > max_ts:
+                max_ts = upd_s
+
+            payload = {
+                "eps_growth": eps_g,
+                "sales_growth": sales_g,
+                "roe": roe_v,
+                "market_cap": mcap_v,
+                "industry": ind_v,
+                "updated_at": upd_s,
+            }
+            has_nonzero = abs(eps_g) > 1e-9 or abs(sales_g) > 1e-9 or abs(roe_v) > 1e-9
+            clean_tk = raw_tk.replace(".NS", "").replace(".BO", "").strip()
+            for key_sym in (raw_tk, clean_tk):
+                if not key_sym:
+                    continue
+                prev = funda_map.get(key_sym)
+                if prev is None:
+                    funda_map[key_sym] = payload
+                elif has_nonzero and not (
+                    abs(prev["eps_growth"]) > 1e-9 or abs(prev["sales_growth"]) > 1e-9 or abs(prev["roe"]) > 1e-9
+                ):
+                    funda_map[key_sym] = payload
+                elif ind_v and not prev.get("industry"):
+                    funda_map[key_sym]["industry"] = ind_v
+                    if mcap_v > 0 and prev.get("market_cap", 0.0) <= 0:
+                        funda_map[key_sym]["market_cap"] = mcap_v
+    except Exception as e:
+        print(f"[DB Error] get_fundamentals_map_for_engine: {e}")
+    finally:
+        conn.close()
+
+    as_of = max_ts[:10] if max_ts and max_ts.lower() not in ("none", "nan") else "N/A"
+    return funda_map, as_of
+
+
+def _encode_cloud_obj(obj):
+    import math
+    from datetime import date, datetime
+    import numpy as np
+    import pandas as pd
+
+    if obj is None:
+        return None
+    if isinstance(obj, pd.DataFrame):
+        records = [_encode_cloud_obj(rec) for rec in obj.to_dict(orient="records")]
+        is_dt = isinstance(obj.index, pd.DatetimeIndex)
+        idx_list = None if isinstance(obj.index, pd.RangeIndex) else [str(x) for x in obj.index]
+        return {
+            "__type__": "DataFrame",
+            "records": records,
+            "columns": [str(c) for c in obj.columns],
+            "index": idx_list,
+            "index_is_dt": is_dt,
+            "attrs": _encode_cloud_obj(dict(obj.attrs or {})),
+        }
+    if isinstance(obj, pd.Series):
+        is_dt = isinstance(obj.index, pd.DatetimeIndex)
+        return {
+            "__type__": "Series",
+            "index": [str(x) for x in obj.index],
+            "index_is_dt": is_dt,
+            "values": [_encode_cloud_obj(v) for v in obj.tolist()],
+            "name": str(obj.name) if obj.name is not None else None,
+        }
+    if isinstance(obj, (np.integer,)):
+        return int(obj)
+    if isinstance(obj, (np.floating, float)):
+        val = float(obj)
+        return None if (math.isnan(val) or math.isinf(val)) else val
+    if isinstance(obj, (np.bool_, bool)):
+        return bool(obj)
+    if isinstance(obj, (pd.Timestamp, datetime, date)):
+        try:
+            if pd.isna(obj):
+                return None
+        except Exception:
+            pass
+        return obj.isoformat()
+    if isinstance(obj, dict):
+        return {str(k): _encode_cloud_obj(v) for k, v in obj.items()}
+    if isinstance(obj, (list, tuple, set)):
+        return [_encode_cloud_obj(v) for v in obj]
+    try:
+        if pd.isna(obj):
+            return None
+    except Exception:
+        pass
+    return obj
+
+
+def _decode_cloud_obj(obj):
+    import pandas as pd
+
+    if isinstance(obj, dict):
+        typ = obj.get("__type__")
+        if typ == "DataFrame":
+            recs = _decode_cloud_obj(obj.get("records") or [])
+            cols = obj.get("columns") or []
+            df = pd.DataFrame(recs) if recs else pd.DataFrame(columns=cols)
+            for c in cols:
+                if c not in df.columns:
+                    df[c] = None
+            if cols and not df.empty:
+                df = df[cols]
+            idx_vals = obj.get("index")
+            if idx_vals is not None and len(idx_vals) == len(df):
+                df.index = pd.to_datetime(idx_vals) if obj.get("index_is_dt") else pd.Index(idx_vals)
+            attrs = _decode_cloud_obj(obj.get("attrs") or {})
+            if isinstance(attrs, dict):
+                df.attrs.update(attrs)
+            return df
+        if typ == "Series":
+            vals = _decode_cloud_obj(obj.get("values") or [])
+            idx_vals = obj.get("index") or []
+            idx = pd.to_datetime(idx_vals) if obj.get("index_is_dt") else pd.Index(idx_vals)
+            return pd.Series(vals, index=idx, name=obj.get("name"))
+        return {k: _decode_cloud_obj(v) for k, v in obj.items()}
+    if isinstance(obj, list):
+        return [_decode_cloud_obj(v) for v in obj]
+    return obj
+
+
+def save_cloud_json_cache(cache_key: str, market: str, obj, as_of_date: str = "") -> bool:
+    """Compress DataFrames/Series/dicts via gzip+base64 and upsert into cloud_json_cache."""
+    import base64
+    import gzip
+    import json
+
+    conn = get_connection()
+    cursor = conn.cursor()
+    try:
+        encoded = _encode_cloud_obj(obj)
+        raw_bytes = json.dumps(encoded, allow_nan=False).encode("utf-8")
+        gz_b64 = base64.b64encode(gzip.compress(raw_bytes, compresslevel=6)).decode("ascii")
+        now_s = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        cursor.execute(
+            """
+            INSERT OR REPLACE INTO cloud_json_cache
+                (cache_key, market, as_of_date, payload_gzip_b64, updated_at)
+            VALUES (?, ?, ?, ?, ?)
+            """,
+            (str(cache_key), str(market), str(as_of_date or ""), gz_b64, now_s),
+        )
+        conn.commit()
+        return True
+    except Exception as e:
+        print(f"[DB Error] save_cloud_json_cache({cache_key}): {e}")
+        return False
+    finally:
+        conn.close()
+
+
+def load_cloud_json_cache(cache_key: str) -> tuple:
+    """Load and decode compressed snapshot from cloud_json_cache -> (obj, as_of_date)."""
+    import base64
+    import gzip
+    import json
+
+    conn = get_connection()
+    cursor = conn.cursor()
+    try:
+        cursor.execute(
+            "SELECT payload_gzip_b64, as_of_date FROM cloud_json_cache WHERE cache_key = ?",
+            (str(cache_key),),
+        )
+        row = _fetch_one_dict(cursor)
+        if not row or not row.get("payload_gzip_b64"):
+            return None, None
+        raw_bytes = gzip.decompress(base64.b64decode(row["payload_gzip_b64"]))
+        decoded = _decode_cloud_obj(json.loads(raw_bytes.decode("utf-8")))
+        return decoded, row.get("as_of_date")
+    except Exception as e:
+        print(f"[DB Error] load_cloud_json_cache({cache_key}): {e}")
+        return None, None
+    finally:
+        conn.close()
+
+
+try:
+    import streamlit as _st
+
+    @_st.cache_data(ttl=900, show_spinner=False)
+    def load_cloud_json_cache_cached(cache_key: str):
+        return load_cloud_json_cache(cache_key)
+except Exception:
+    def load_cloud_json_cache_cached(cache_key: str):
+        return load_cloud_json_cache(cache_key)
+
 
